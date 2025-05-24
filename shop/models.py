@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.db import models
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -54,14 +55,18 @@ class Cart(models.Model):
 
     def get_subtotal(self):
         subtotal = 0
+        PresentationModel = apps.get_model('events', 'Presentation')
+        SoloCompetitionModel = apps.get_model('events', 'SoloCompetition')
+        CompetitionTeamModel = apps.get_model('events', 'CompetitionTeam')
+
         for item in self.items.all():
             price = 0
             content_object = item.content_object
             if content_object:
                 if hasattr(content_object, 'is_paid') and not content_object.is_paid: price = 0
-                elif isinstance(content_object, models.get_model('events', 'Presentation')) and content_object.price is not None: price = content_object.price
-                elif isinstance(content_object, models.get_model('events', 'SoloCompetition')) and content_object.price_per_participant is not None: price = content_object.price_per_participant
-                elif isinstance(content_object, models.get_model('events', 'CompetitionTeam')):
+                elif isinstance(content_object, PresentationModel) and content_object.price is not None: price = content_object.price
+                elif isinstance(content_object, SoloCompetitionModel) and content_object.price_per_participant is not None: price = content_object.price_per_participant
+                elif isinstance(content_object, CompetitionTeamModel):
                     parent_comp = content_object.group_competition
                     if parent_comp.is_paid and parent_comp.price_per_group is not None: price = parent_comp.price_per_group
                     else: price = 0
