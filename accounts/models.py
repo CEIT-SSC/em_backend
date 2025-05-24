@@ -3,6 +3,14 @@ from django.db import models
 from django.utils import timezone
 
 
+from django.core.exceptions import ValidationError
+
+def validate_image_size(image):
+    max_size_mb = 2
+    if image.size > max_size_mb * 1024 * 1024:
+        raise ValidationError(f"Image size should not exceed {max_size_mb}MB.")
+
+
 class CustomUserManager(BaseUserManager):
     def _create_user_and_cart(self, email, phone_number, password, **extra_fields):
         if not email:
@@ -68,7 +76,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     date_joined = models.DateTimeField(default=timezone.now, verbose_name="Date Joined")
 
     profile_picture = models.ImageField(upload_to='profile_pics/%Y/%m/', blank=True, null=True,
-                                        verbose_name="Profile Picture")
+                                        verbose_name="Profile Picture", validators=[validate_image_size])
     email_verification_code = models.CharField(max_length=6, blank=True, null=True,
                                                verbose_name="Email Verification Code")
     email_verification_code_expires_at = models.DateTimeField(blank=True, null=True,
