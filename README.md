@@ -21,8 +21,8 @@ This Django application serves as the backend API for the AmirKabir University S
     * Discount code application.
     * Order creation and management.
 * **Payment Integration (Zarinpal):**
-    * Handles payment requests by preparing data and redirecting to Zarinpal. [cite: 2, 3, 8, 13]
-    * Processes callback from Zarinpal to verify transaction status. [cite: 14, 17, 19, 20, 26]
+    * Handles payment requests by preparing data and redirecting to Zarinpal.
+    * Processes callback from Zarinpal to verify transaction status. 
     * Manages `payment_status` for enrollments and team registrations.
 * **Free Item Handling:** Allows direct enrollment/registration for free presentations and competitions, bypassing the cart and setting `payment_status` to "not_applicable".
 * **User-Specific Features:** Endpoints for "Upcoming Activities" and order history.
@@ -31,8 +31,7 @@ This Django application serves as the backend API for the AmirKabir University S
 **3. Technology Stack**
 
 * **Framework:** Django, Django REST Framework
-* **Database:** PostgreSQL (recommended)
+* **Database:** PostgreSQL
 * **Authentication:** JWT (e.g., `djangorestframework-simplejwt`)
 * **Payment Gateway:** Zarinpal
-* **Asynchronous Tasks:** Celery (recommended for email sending and post-payment processing)
 * **Image Handling:** Pillow (for `ImageField`s)
