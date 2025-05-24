@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*env/
+venv/
+env/
+ENV/
+.env
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+.installed.cfg
+*.manifest
+*.spec
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/ # Typically, you don't version control collected static files
+*.mo # Compiled translation files
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+.DS_Store # macOS specific, but often included in general gitignores
+
+# Coverage reports
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Build artifacts
+dist/
+build/
+*.tar.gz
+*.zip
+
+# IPython Notebook
+.ipynb_checkpoints
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Temporary files
+*.tmp
+*~
+*.swp
