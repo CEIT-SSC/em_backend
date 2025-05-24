@@ -64,7 +64,6 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
 
 
 class TeamMembershipUserDetailSerializer(serializers.ModelSerializer):
-    # Simplified user details for team listings
     class Meta:
         model = CustomUser
         fields = ['id', 'email', 'first_name', 'last_name']
@@ -80,15 +79,10 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
         model = TeamMembership
         fields = ['id', 'user_id', 'user_details', 'team', 'government_id_picture', 'joined_at']
         read_only_fields = ['joined_at']
-        # 'team' is often set by parent serializer context or view logic
 
     def validate(self, attrs):
         team = attrs.get('team') or (self.instance and self.instance.team)
         if team and team.needs_admin_approval() and not attrs.get('government_id_picture'):
-            # This validation might be better placed in a higher-level serializer
-            # if government_id_picture is submitted as part of a larger team creation payload.
-            # For now, if 'government_id_picture' is part of this serializer's direct input:
-            # raise serializers.ValidationError({"government_id_picture": "Government ID picture is required for this competition."})
             pass  # Let view handle this based on overall submission context
         return attrs
 
@@ -104,12 +98,11 @@ class CompetitionTeamSerializer(serializers.ModelSerializer):
             'id', 'name', 'leader', 'leader_details', 'group_competition', 'group_competition_title',
             'status', 'is_approved_by_admin', 'admin_remarks',
             'memberships', 'created_at', 
-            # 'member_emails_snapshot' is an internal field, not usually exposed directly unless needed for specific client logic
         ]
         read_only_fields = [
             'leader', 'leader_details', 'group_competition_title',
             'is_approved_by_admin', 'admin_remarks', 'memberships',
-            'created_at', 'status'  # Status is usually managed by backend logic/actions
+            'created_at', 'status'
         ]
 
 
@@ -121,7 +114,7 @@ class StandardCompetitionTeamCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CompetitionTeam
-        fields = ['name', 'member_emails']  # group_competition and leader will be set in the view
+        fields = ['name', 'member_emails']
 
 
 class VerifiedCompetitionTeamSubmitMemberDetailSerializer(serializers.Serializer):
