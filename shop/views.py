@@ -325,7 +325,7 @@ class OrderPaymentInitiateView(views.APIView):
 
 
 @extend_schema(tags=['Shop - Orders & Payment'])
-class ZarinpalPaymentCallbackView(views.APIView):
+class PaymentCallbackView(views.APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(summary="Handles Zarinpal callback after payment attempt",

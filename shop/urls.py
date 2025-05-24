@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     CartView, AddToCartView, RemoveCartItemView, ApplyDiscountView, RemoveDiscountView,
-    OrderCheckoutView, OrderPaymentInitiateView, ZarinpalPaymentCallbackView,
+    OrderCheckoutView, OrderPaymentInitiateView, PaymentCallbackView,
     OrderHistoryViewSet
 )
 
@@ -21,7 +21,7 @@ urlpatterns = [
     path('orders/checkout/', OrderCheckoutView.as_view(), name='order-checkout'),
     path('orders/<int:order_pk>/initiate-payment/', OrderPaymentInitiateView.as_view(), name='order-initiate-payment'),
 
-    path('payment/callback/', ZarinpalPaymentCallbackView.as_view(), name='payment_callback'),
+    path('payment/callback/', PaymentCallbackView.as_view(), name='payment_callback'),
 
     path('', include(router.urls)),  # For OrderHistoryViewSet
 ]
