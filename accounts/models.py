@@ -4,34 +4,51 @@ from django.utils import timezone
 
 
 class CustomUserManager(BaseUserManager):
-    def _create_user_and_cart(self, email, password, **extra_fields):
+    def _create_user_and_cart(self, email, phone_number, password, **extra_fields):
         if not email:
             raise ValueError('The Email field must be set')
+        if not phone_number:  # Added check for phone_number
+            raise ValueError('The Phone Number field must be set')
+
         email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+        user = self.model(email=email, phone_number=phone_number, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
 
-        from shop.models import Cart  # Local import
+        from shop.models import Cart
         Cart.objects.create(user=user)
         return user
 
-    def create_user(self, email, password=None, **extra_fields):
-        extra_fields.setdefault('is_staff', False)
-        extra_fields.setdefault('is_superuser', False)
-        return self._create_user_and_cart(email, password, **extra_fields)
+    def create_user(self, email, phone_number, password=None, first_name=None, last_name=None, **other_extra_fields):
+        actual_extra_fields = other_extra_fields.copy()
+        if first_name is not None:
+            actual_extra_fields['first_name'] = first_name
+        if last_name is not None:
+            actual_extra_fields['last_name'] = last_name
 
-    def create_superuser(self, email, password=None, **extra_fields):
-        extra_fields.setdefault('is_staff', True)
-        extra_fields.setdefault('is_superuser', True)
-        extra_fields.setdefault('is_active', True)
+        actual_extra_fields.setdefault('is_staff', False)
+        actual_extra_fields.setdefault('is_superuser', False)
 
-        if extra_fields.get('is_staff') is not True:
+        return self._create_user_and_cart(email, phone_number, password, **actual_extra_fields)
+
+    def create_superuser(self, email, phone_number, password=None, first_name=None, last_name=None,
+                         **other_extra_fields):
+        actual_extra_fields = other_extra_fields.copy()
+        if first_name is not None:
+            actual_extra_fields['first_name'] = first_name
+        if last_name is not None:
+            actual_extra_fields['last_name'] = last_name
+
+        actual_extra_fields.setdefault('is_staff', True)
+        actual_extra_fields.setdefault('is_superuser', True)
+        actual_extra_fields.setdefault('is_active', True)  # Superusers should be active by default
+
+        if actual_extra_fields.get('is_staff') is not True:
             raise ValueError('Superuser must have is_staff=True.')
-        if extra_fields.get('is_superuser') is not True:
+        if actual_extra_fields.get('is_superuser') is not True:
             raise ValueError('Superuser must have is_superuser=True.')
 
-        return self._create_user_and_cart(email, password, **extra_fields)
+        return self._create_user_and_cart(email, phone_number, password, **actual_extra_fields)
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
@@ -44,11 +61,12 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField(max_length=150, blank=True, verbose_name="First Name")
     last_name = models.CharField(max_length=150, blank=True, verbose_name="Last Name")
 
+    phone_number = models.CharField(max_length=20, blank=False, null=False, verbose_name="Phone Number")
+
     is_staff = models.BooleanField(default=False, verbose_name="Staff Status")
-    is_active = models.BooleanField(default=False, verbose_name="Active Status")  # Activate after email verification
+    is_active = models.BooleanField(default=False, verbose_name="Active Status")
     date_joined = models.DateTimeField(default=timezone.now, verbose_name="Date Joined")
 
-    phone_number = models.CharField(max_length=20, blank=True, null=True, verbose_name="Phone Number")
     profile_picture = models.ImageField(upload_to='profile_pics/%Y/%m/', blank=True, null=True,
                                         verbose_name="Profile Picture")
     email_verification_code = models.CharField(max_length=6, blank=True, null=True,
@@ -59,7 +77,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = []
+    REQUIRED_FIELDS = ['phone_number']
 
     def __str__(self):
         return self.email

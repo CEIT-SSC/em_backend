@@ -41,6 +41,15 @@ CSRF_TRUSTED_ORIGINS = ['https://localhost', 'https://127.0.0.1']
 CORS_ORIGIN_ALLOW_ALL = True
 USE_X_FORWARDED_HOST = True
 
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'example@example.com')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', 'pass')
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
 SMS_KEY = os.getenv("SMS_KEY", default="key")
 SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
