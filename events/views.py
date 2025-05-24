@@ -1,7 +1,6 @@
-from django.shortcuts import get_object_or_404
 from django.db import transaction, models
 from django.apps import apps
-from rest_framework import viewsets, status, generics
+from rest_framework import viewsets, status, generics, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -16,7 +15,7 @@ from .models import (
 from .serializers import (
     EventListSerializer, EventDetailSerializer, PresentationSerializer,
     SoloCompetitionSerializer, GroupCompetitionSerializer,
-    CompetitionTeamSerializer, StandardCompetitionTeamCreateSerializer, VerifiedCompetitionTeamSubmitSerializer,
+    CompetitionTeamSerializer, CompetitionTeamSubmitSerializer,
     PresentationEnrollmentSerializer, SoloCompetitionRegistrationSerializer
 )
 from django.contrib.auth import get_user_model
@@ -50,7 +49,6 @@ def _add_item_to_user_cart(user, item_instance, item_type_str):
 class EventViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Event.objects.filter(is_active=True).prefetch_related(
         models.Prefetch('presentations', queryset=Presentation.objects.filter(event__is_active=True)),
-        # Ensure presentations are also for active events
         models.Prefetch('solocompetition_set',
                         queryset=SoloCompetition.objects.filter(is_active=True, event__is_active=True)),
         models.Prefetch('groupcompetition_set',
@@ -105,7 +103,7 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
             )
             serializer = PresentationEnrollmentSerializer(enrollment)
             return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-        else:
+        else:  # Paid presentation
             success, message = _add_item_to_user_cart(user, presentation, 'presentation')
             if success:
                 return Response({"message": message}, status=status.HTTP_200_OK)
@@ -157,7 +155,7 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
             )
             serializer = SoloCompetitionRegistrationSerializer(registration)
             return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-        else:
+        else:  # Paid solo competition
             success, message = _add_item_to_user_cart(user, competition, 'solocompetition')
             if success:
                 return Response({"message": message}, status=status.HTTP_200_OK)
@@ -175,7 +173,7 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
     @extend_schema(
         summary="Register/Submit a team for a group competition",
         description="Handles free/zero-price, paid (adds to cart), and verifiable (submits for approval) team registrations.",
-        request=StandardCompetitionTeamCreateSerializer, # Or VerifiedCompetitionTeamSubmitSerializer
+        request=CompetitionTeamSubmitSerializer,
         responses={
             201: CompetitionTeamSerializer,
             200: CompetitionTeamSerializer,
@@ -185,36 +183,10 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='register-team')
     def register_team(self, request, pk=None):
         group_competition = self.get_object()
-        user = request.user
+        user = request.user  # Team Leader
 
-        if TeamMembership.objects.filter(user=user, team__group_competition=group_competition,
-                                         team__status=CompetitionTeam.STATUS_ACTIVE).exists():
-            return Response({"error": "You are already a member of an active team in this competition."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        is_effectively_free = not group_competition.is_paid or (
-                    group_competition.price_per_group is not None and group_competition.price_per_group <= 0)
-
-        if group_competition.requires_admin_approval:
-            submit_serializer = VerifiedCompetitionTeamSubmitSerializer(data=request.data)
-            if not submit_serializer.is_valid():
-                return Response(submit_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-            team_name = submit_serializer.validated_data['team_name']
-            member_details_list = submit_serializer.validated_data['member_details']
-
-            num_total_members = len(member_details_list) + 1  # +1 for leader
-            if not (group_competition.min_group_size <= num_total_members <= group_competition.max_group_size):
-                return Response({
-                                    "error": f"Team size must be {group_competition.min_group_size}-{group_competition.max_group_size} members including leader."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-            all_proposed_emails = [user.email] + [md['email'] for md in member_details_list]
-            if len(all_proposed_emails) != len(set(all_proposed_emails)):  # Check for duplicate emails in submission
-                return Response({"error": "Duplicate emails provided for team members."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-            existing_memberships = TeamMembership.objects.filter(
+        if TeamMembership.objects.filter(
+                user=user,
                 team__group_competition=group_competition,
                 team__status__in=[
                     CompetitionTeam.STATUS_ACTIVE,
@@ -222,101 +194,93 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
                     CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
                     CompetitionTeam.STATUS_IN_CART,
                     CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION
-                ],
-                user__email__in=all_proposed_emails
-            )
-            if existing_memberships.exists():
-                return Response({
-                                    "error": "One or more proposed members are already in another team or pending registration for this competition."},
-                                status=status.HTTP_400_BAD_REQUEST)
+                ]
+        ).exists():
+            return Response(
+                {"error": "You are already involved with a team (or have a submission pending) for this competition."},
+                status=status.HTTP_400_BAD_REQUEST)
 
-            try:
-                with transaction.atomic():
-                    team = CompetitionTeam.objects.create(
-                        name=team_name, leader=user, group_competition=group_competition,
-                        status=CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
-                        is_approved_by_admin=False
+        serializer = CompetitionTeamSubmitSerializer(data=request.data, context={'request': request,
+                                                                                 'group_competition': group_competition})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        team_name = serializer.validated_data['team_name']
+        validated_member_users_data = serializer.validated_data['validated_member_users']
+
+        all_involved_user_ids = [user.id] + [m_data['user_instance'].id for m_data in validated_member_users_data]
+
+        conflicting_memberships = TeamMembership.objects.filter(
+            team__group_competition=group_competition,
+            user_id__in=all_involved_user_ids,
+            team__status__in=[
+                CompetitionTeam.STATUS_ACTIVE,
+                CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
+                CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
+                CompetitionTeam.STATUS_IN_CART,
+                CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION
+            ]
+        ).values_list('user__email', flat=True)
+
+        if conflicting_memberships:
+            return Response({
+                                "error": f"One or more proposed members ({', '.join(conflicting_memberships)}) are already in another team or have a pending submission for this competition."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        is_effectively_free = not group_competition.is_paid or (
+                    group_competition.price_per_group is not None and group_competition.price_per_group <= 0)
+
+        try:
+            with transaction.atomic():
+                team_status = ""
+                if group_competition.requires_admin_approval:
+                    team_status = CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION
+                elif is_effectively_free:
+                    team_status = CompetitionTeam.STATUS_ACTIVE
+                else:
+                    team_status = CompetitionTeam.STATUS_IN_CART
+
+                team = CompetitionTeam.objects.create(
+                    name=team_name,
+                    leader=user,
+                    group_competition=group_competition,
+                    status=team_status,  # Set initial status
+                    is_approved_by_admin=(not group_competition.requires_admin_approval)
+                )
+
+                TeamMembership.objects.create(user=user, team=team)
+                for member_data in validated_member_users_data:
+                    TeamMembership.objects.create(
+                        user=member_data['user_instance'],
+                        team=team,
+                        government_id_picture=member_data.get('government_id_picture')
                     )
-                    TeamMembership.objects.create(user=user, team=team)  # Leader
-                    for member_data in member_details_list:
-                        member_user = get_object_or_404(CustomUser, email=member_data['email'])
-                        TeamMembership.objects.create(
-                            user=member_user, team=team,
-                            government_id_picture=member_data.get('government_id_picture')
-                        )
+
+                if group_competition.requires_admin_approval:
                     team_serializer = CompetitionTeamSerializer(team)
                     return Response(
                         {"message": "Team submitted for admin approval.", "team_details": team_serializer.data},
                         status=status.HTTP_201_CREATED)
-            except CustomUser.DoesNotExist:
-                return Response({"error": "One or more specified member emails do not correspond to registered users."},
-                                status=status.HTTP_400_BAD_REQUEST)
-            except Exception as e:
-                return Response({"error": f"An unexpected error occurred: {str(e)}"},
-                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        else:
-            create_serializer = StandardCompetitionTeamCreateSerializer(data=request.data)
-            if not create_serializer.is_valid():
-                return Response(create_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-            team_name = create_serializer.validated_data['name']
-            member_emails = create_serializer.validated_data.get('member_emails', [])
-
-            num_total_members = len(member_emails) + 1
-            if not (group_competition.min_group_size <= num_total_members <= group_competition.max_group_size):
-                return Response({
-                                    "error": f"Team size must be {group_competition.min_group_size}-{group_competition.max_group_size} members including leader."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-            all_proposed_emails = [user.email] + member_emails
-            if len(all_proposed_emails) != len(set(all_proposed_emails)):
-                return Response({"error": "Duplicate emails provided for team members."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-            existing_memberships = TeamMembership.objects.filter(
-                team__group_competition=group_competition,
-                team__status__in=[
-                    CompetitionTeam.STATUS_ACTIVE,
-                    CompetitionTeam.STATUS_IN_CART,
-                    CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION
-                ],
-                user__email__in=all_proposed_emails
-            )
-            if existing_memberships.exists():
-                return Response({
-                                    "error": "One or more proposed members are already in another team or pending registration for this competition."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-            if is_effectively_free:
-                with transaction.atomic():
-                    team = CompetitionTeam.objects.create(
-                        name=team_name, leader=user, group_competition=group_competition,
-                        status=CompetitionTeam.STATUS_ACTIVE, is_approved_by_admin=True  # Auto-approved
-                    )
-                    TeamMembership.objects.create(user=user, team=team)
-                    for email in member_emails:
-                        member_user = get_object_or_404(CustomUser, email=email)
-                        TeamMembership.objects.create(user=member_user, team=team)
+                if is_effectively_free:
                     team_serializer = CompetitionTeamSerializer(team)
                     return Response({"message": "Team successfully registered (free/zero-price).",
                                      "team_details": team_serializer.data}, status=status.HTTP_201_CREATED)
-            else:
-                team = CompetitionTeam.objects.create(
-                    name=team_name, leader=user, group_competition=group_competition,
-                    status=CompetitionTeam.STATUS_IN_CART,
-                    is_approved_by_admin=True,
-                    member_emails_snapshot=member_emails
-                )
-                success, message = _add_item_to_user_cart(user, team, 'competitionteam')
-                if success:
-                    team.refresh_from_db()
-                    team_serializer = CompetitionTeamSerializer(team)
-                    return Response({"message": message, "team_details": team_serializer.data},
-                                    status=status.HTTP_200_OK)
-                else:
-                    team.delete()
-                    return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+                else:  # Paid, non-verified
+                    success, message = _add_item_to_user_cart(user, team, 'competitionteam')
+                    if success:
+                        team.refresh_from_db()  # Ensure status is IN_CART
+                        team_serializer = CompetitionTeamSerializer(team)
+                        return Response({"message": message, "team_details": team_serializer.data},
+                                        status=status.HTTP_200_OK)
+                    else:
+                        raise  # Re-raise to rollback transaction if add to cart fails unexpectedly
+
+        except serializers.ValidationError as e:
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": f"An unexpected error occurred during team registration: {str(e)}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(tags=['User - My Activities & Teams'])
@@ -346,7 +310,6 @@ class MyTeamsViewSet(viewsets.ReadOnlyModelViewSet):
         if team.leader != user:
             return Response({"error": "You are not the leader of this team."}, status=status.HTTP_403_FORBIDDEN)
 
-        # Check if the competition this team belongs to is actually paid
         is_team_competition_paid = team.group_competition.is_paid and \
                                    (
                                                team.group_competition.price_per_group is not None and team.group_competition.price_per_group > 0)
@@ -354,13 +317,13 @@ class MyTeamsViewSet(viewsets.ReadOnlyModelViewSet):
         if not (team.group_competition.requires_admin_approval and
                 team.is_approved_by_admin and
                 is_team_competition_paid and
-                team.status == CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT):
+                team.status == CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT):  # Correct status to check
             return Response({"error": "This team is not eligible to be added to cart for payment at this time."},
                             status=status.HTTP_400_BAD_REQUEST)
 
         success, message = _add_item_to_user_cart(user, team, 'competitionteam')
         if success:
-            team.refresh_from_db()  # Ensure status is updated
+            team.refresh_from_db()
             return Response({"message": message, "team_id": team.id, "new_team_status": team.get_status_display()},
                             status=status.HTTP_200_OK)
         else:

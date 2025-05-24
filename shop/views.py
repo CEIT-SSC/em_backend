@@ -189,7 +189,7 @@ class OrderCheckoutView(views.APIView):
                 elif isinstance(content_object, SoloCompetition):
                     registration, _ = SoloCompetitionRegistration.objects.update_or_create(
                         user=order.user, solo_competition=content_object,
-                        defaults={'status': SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
+                        defaults={'status': PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
                                   'order_item': order_item}
                     )
                 elif isinstance(content_object, CompetitionTeam):
