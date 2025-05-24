@@ -23,6 +23,7 @@ db.sqlite3-journal
 media/
 staticfiles/ # Typically, you don't version control collected static files
 *.mo # Compiled translation files
+/media
 
 # PyCharm
 .idea/
