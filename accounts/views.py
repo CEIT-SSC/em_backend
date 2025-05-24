@@ -96,13 +96,6 @@ class UserRegistrationView(generics.CreateAPIView):
             headers = self.get_success_headers(serializer.data)
             return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
 
-
-# --- Other views remain the same as in the previous Canvas `django_accounts_views_final` ---
-# For brevity, I'm only showing the modified UserRegistrationView.
-# The rest of the views (EmailVerificationView, ResendVerificationEmailView, UserProfileView,
-# ChangePasswordView, SimpleForgotPasswordView, TokenObtainPairView, TokenRefreshView, TokenVerifyView)
-# would be the same as in the previous version of this file.
-
 @extend_schema(
     summary="Verify user email",
     description="Activates a user account using the verification code sent to their email.",
