@@ -202,7 +202,7 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
     @extend_schema(summary="List all content submissions for a group competition",
                    responses={200: TeamContentSerializer(many=True)})
-    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated], url_path='list-content')
+    @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='list-content')
     def list_content_submissions(self, request, pk=None):
         group_competition = self.get_object()
         if not group_competition.allow_content_submission:
@@ -232,7 +232,8 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
         ).distinct().select_related('group_competition', 'leader').prefetch_related('memberships__user',
                                                                                     'content_submission__images',
                                                                                     'content_submission__likes',
-                                                                                    'content_submission__comments').order_by('-created_at')
+                                                                                    'content_submission__comments').order_by(
+            '-created_at')
 
     @extend_schema(summary="Add an admin-approved paid team to cart", request=None,
                    responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT})
@@ -291,7 +292,7 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
         try:
             content_instance = TeamContent.objects.get(team=team)
             serializer = TeamContentSerializer(content_instance, data=request.data, partial=(request.method == 'PATCH'),
-                                               context={'request': request})  # Allow partial for PATCH
+                                               context={'request': request})
         except TeamContent.DoesNotExist:
             if request.method == 'PUT':
                 return Response({"error": "Content not found for update. Use POST to create."},
@@ -299,12 +300,12 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
             serializer = TeamContentSerializer(data=request.data, context={'request': request})
 
         if serializer.is_valid():
-            if not serializer.instance:
+            if not getattr(serializer, 'instance', None):
                 serializer.save(team=team)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
             else:
                 serializer.save()
-            return Response(serializer.data,
-                            status=status.HTTP_200_OK if serializer.instance and request.method != 'POST' else status.HTTP_201_CREATED)
+                return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -338,7 +339,7 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny]
 
     def get_serializer_context(self):
-        return {'request': self.request}
+        return {'request': self.request, 'view': self}
 
     @extend_schema(
         summary="Like or Unlike a Team Content Submission",
@@ -351,6 +352,7 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
     def toggle_like(self, request, pk=None):
         content = self.get_object()
         user = request.user
+
         like, created = ContentLike.objects.get_or_create(user=user, team_content=content)
         if not created:
             like.delete()
@@ -364,8 +366,7 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='comments')
     def list_comments(self, request, pk=None):
         content = self.get_object()
-        comments = content.comments.select_related('user__profile_picture').order_by(
-            'created_at')
+        comments = content.comments.select_related('user').order_by('created_at')
         serializer = ContentCommentSerializer(comments, many=True, context={'request': request})
         return Response(serializer.data)
 
@@ -379,8 +380,9 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
         content = self.get_object()
         user = request.user
         text = request.data.get('text')
-        if not text:
-            return Response({"text": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+        if not text or not str(text).strip():
+            return Response({"text": ["This field may not be blank."]}, status=status.HTTP_400_BAD_REQUEST)
+
         comment = ContentComment.objects.create(user=user, team_content=content, text=text)
         serializer = ContentCommentSerializer(comment, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -398,7 +400,10 @@ class ContentCommentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, v
     @extend_schema(summary="Update user's own comment",
                    request=inline_serializer(name="CommentUpdateSerializer", fields={"text": serializers.CharField()}))
     def partial_update(self, request, *args, **kwargs):
-        if 'text' not in request.data or len(request.data) > 1:
+        text = request.data.get('text')
+        if 'text' not in request.data or not str(text).strip():
+            return Response({"text": ["This field may not be blank."]}, status=status.HTTP_400_BAD_REQUEST)
+        if len(request.data) > 1:
             return Response({"error": "Only the 'text' field can be updated."}, status=status.HTTP_400_BAD_REQUEST)
         return super().partial_update(request, *args, **kwargs)
 
