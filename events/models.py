@@ -1,7 +1,6 @@
 from django.db import models
 from django.conf import settings
 
-
 class Presenter(models.Model):
     name = models.CharField(max_length=255, verbose_name="Full Name")
     email = models.EmailField(blank=True, null=True, verbose_name="Public Contact Email")
@@ -95,6 +94,7 @@ class GroupCompetition(BaseCompetition):
     max_teams = models.PositiveIntegerField(blank=True, null=True, verbose_name="Max Teams")
     requires_admin_approval = models.BooleanField(default=False, verbose_name="Requires Admin Approval for Teams?")
     member_verification_instructions = models.TextField(blank=True, null=True, verbose_name="Member Verification Instructions")
+    allow_content_submission = models.BooleanField(default=False, verbose_name="Allow Teams to Submit Content?")
 
     class Meta:
         verbose_name = "Group Competition"
@@ -124,7 +124,7 @@ class CompetitionTeam(models.Model):
     name = models.CharField(max_length=255, verbose_name="Team Name")
     leader = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="led_teams", verbose_name="Team Leader")
     group_competition = models.ForeignKey(GroupCompetition, on_delete=models.CASCADE, related_name="teams", verbose_name="Parent Group Competition")
-    status = models.CharField(max_length=40, choices=TEAM_STATUS_CHOICES, default=STATUS_PENDING_ADMIN_VERIFICATION, verbose_name="Team Status")
+    status = models.CharField(max_length=40, choices=TEAM_STATUS_CHOICES, default=STATUS_IN_CART, verbose_name="Team Status")
     is_approved_by_admin = models.BooleanField(default=False, verbose_name="Has Admin Approved?")
     admin_remarks = models.TextField(blank=True, null=True, verbose_name="Admin Remarks")
     member_emails_snapshot = models.JSONField(blank=True, null=True, verbose_name="Member Emails Snapshot")
@@ -157,12 +157,70 @@ class TeamMembership(models.Model):
         unique_together = ('user', 'team')
         ordering = ['team', 'user__email']
 
+class TeamContent(models.Model):
+    team = models.OneToOneField(CompetitionTeam, on_delete=models.CASCADE, related_name="content_submission", verbose_name="Team")
+    description = models.TextField(verbose_name="Content Description")
+    file_link = models.URLField(max_length=500, blank=True, null=True, verbose_name="Link to External File/Repository")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Content for Team: {self.team.name} in {self.team.group_competition.title}"
+
+    class Meta:
+        verbose_name = "Team Content Submission"
+        verbose_name_plural = "Team Content Submissions"
+        ordering = ['-created_at']
+
+def team_content_image_path(instance, filename):
+    return f'team_content_images/{instance.team_content.team.id}/{filename}'
+
+class ContentImage(models.Model):
+    team_content = models.ForeignKey(TeamContent, on_delete=models.CASCADE, related_name="images", verbose_name="Team Content")
+    image = models.ImageField(upload_to=team_content_image_path, verbose_name="Image")
+    caption = models.CharField(max_length=255, blank=True, null=True, verbose_name="Caption")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Image for {self.team_content.team.name}'s content (ID: {self.id})"
+
+    class Meta:
+        verbose_name = "Content Image"
+        verbose_name_plural = "Content Images"
+        ordering = ['uploaded_at']
+
+class ContentLike(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="content_likes", verbose_name="User")
+    team_content = models.ForeignKey(TeamContent, on_delete=models.CASCADE, related_name="likes", verbose_name="Liked Content")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} likes content by {self.team_content.team.name}"
+
+    class Meta:
+        verbose_name = "Content Like"
+        verbose_name_plural = "Content Likes"
+        unique_together = ('user', 'team_content')
+        ordering = ['-created_at']
+
+class ContentComment(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="content_comments", verbose_name="User")
+    team_content = models.ForeignKey(TeamContent, on_delete=models.CASCADE, related_name="comments", verbose_name="Commented Content")
+    text = models.TextField(verbose_name="Comment Text")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Comment by {self.user.email} on content by {self.team_content.team.name} (ID: {self.id})"
+
+    class Meta:
+        verbose_name = "Content Comment"
+        verbose_name_plural = "Content Comments"
+        ordering = ['created_at']
+
 class PresentationEnrollment(models.Model):
     STATUS_PENDING_PAYMENT = "pending_payment"
     STATUS_COMPLETED_OR_FREE = "completed_or_free"
     STATUS_PAYMENT_FAILED = "payment_failed"
     STATUS_CANCELLED = "cancelled"
-
     ENROLLMENT_STATUS_CHOICES = [
         (STATUS_PENDING_PAYMENT, "Pending Payment"),
         (STATUS_COMPLETED_OR_FREE, "Completed/Free"),

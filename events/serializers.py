@@ -3,16 +3,18 @@ from django.contrib.auth import get_user_model
 from .models import (
     Presenter, Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
+    TeamContent, ContentImage, ContentLike, ContentComment,  # New models
     PresentationEnrollment, SoloCompetitionRegistration
 )
 
 CustomUser = get_user_model()
 
+
 class PresenterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Presenter
-        fields = ['id', 'name', 'email', 'bio', 'presenter_picture', 'created_at']
-        read_only_fields = ['created_at']
+        fields = ['id', 'name', 'email', 'bio', 'presenter_picture', 'created_at', ]
+        read_only_fields = ['created_at',]
 
 
 class PresentationSerializer(serializers.ModelSerializer):
@@ -29,9 +31,9 @@ class PresentationSerializer(serializers.ModelSerializer):
             'presenters_details', 'presenter_ids',
             'type', 'is_online', 'location', 'online_link',
             'start_time', 'end_time', 'is_paid', 'price', 'capacity',
-            'created_at'
+            'created_at', 
         ]
-        read_only_fields = ['event_title', 'created_at']
+        read_only_fields = ['event_title', 'created_at', ]
 
 
 class SoloCompetitionSerializer(serializers.ModelSerializer):
@@ -42,9 +44,9 @@ class SoloCompetitionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'event', 'event_title', 'title', 'description', 'start_datetime', 'end_datetime',
             'rules', 'is_paid', 'price_per_participant', 'prize_details', 'is_active',
-            'max_participants', 'created_at'
+            'max_participants', 'created_at', 
         ]
-        read_only_fields = ['event_title', 'created_at']
+        read_only_fields = ['event_title', 'created_at', ]
 
 
 class GroupCompetitionSerializer(serializers.ModelSerializer):
@@ -57,15 +59,16 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
             'rules', 'is_paid', 'price_per_group', 'prize_details', 'is_active',
             'min_group_size', 'max_group_size', 'max_teams',
             'requires_admin_approval', 'member_verification_instructions',
-            'created_at'
+            'allow_content_submission',  # New field
+            'created_at', 
         ]
-        read_only_fields = ['event_title', 'created_at']
+        read_only_fields = ['event_title', 'created_at', ]
 
 
 class TeamMembershipUserDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ['id', 'email', 'first_name', 'last_name']
+        fields = ['id', 'email', 'first_name', 'last_name', 'profile_picture']
 
 
 class TeamMembershipSerializer(serializers.ModelSerializer):
@@ -77,24 +80,87 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
         read_only_fields = ['joined_at']
 
 
-class CompetitionTeamSerializer(serializers.ModelSerializer):  # For Read operations
+class ContentImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContentImage
+        fields = ['id', 'image', 'caption', 'uploaded_at']
+        read_only_fields = ['id', 'uploaded_at']
+
+
+class TeamContentSerializer(serializers.ModelSerializer):
+    images = ContentImageSerializer(many=True, read_only=True)
+    uploaded_images = serializers.ListField(
+        child=serializers.ImageField(max_length=1000000, allow_empty_file=False, use_url=False),
+        write_only=True, required=False
+    )
+    team_name = serializers.CharField(source='team.name', read_only=True)
+    likes_count = serializers.SerializerMethodField()
+    comments_count = serializers.SerializerMethodField()
+    is_liked_by_requester = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TeamContent
+        fields = [
+            'id', 'team', 'team_name', 'description', 'file_link', 'images', 'uploaded_images',
+            'likes_count', 'comments_count', 'is_liked_by_requester',
+            'created_at', 
+        ]
+        read_only_fields = ['team', 'team_name', 'created_at', 'likes_count', 'comments_count',
+                            'is_liked_by_requester']
+
+    def get_likes_count(self, obj):
+        return obj.likes.count()
+
+    def get_comments_count(self, obj):
+        return obj.comments.count()
+
+    def get_is_liked_by_requester(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return ContentLike.objects.filter(team_content=obj, user=request.user).exists()
+        return False
+
+    def create(self, validated_data):
+        uploaded_images_data = validated_data.pop('uploaded_images', [])
+        team_content = TeamContent.objects.create(**validated_data)
+        for image_data in uploaded_images_data:
+            ContentImage.objects.create(team_content=team_content, image=image_data)
+        return team_content
+
+    def update(self, instance, validated_data):
+        uploaded_images_data = validated_data.pop('uploaded_images', None)  # Use None as default for optional update
+
+        instance.description = validated_data.get('description', instance.description)
+        instance.file_link = validated_data.get('file_link', instance.file_link)
+        instance.save()
+
+        if uploaded_images_data is not None:
+            instance.images.all().delete()
+            for image_data in uploaded_images_data:
+                ContentImage.objects.create(team_content=instance, image=image_data)
+        return instance
+
+
+class CompetitionTeamDetailSerializer(serializers.ModelSerializer):
     leader_details = TeamMembershipUserDetailSerializer(source='leader', read_only=True)
     group_competition_title = serializers.CharField(source='group_competition.title', read_only=True)
     memberships = TeamMembershipSerializer(many=True, read_only=True)
+    content_submission = TeamContentSerializer(read_only=True, required=False)
 
     class Meta:
         model = CompetitionTeam
         fields = [
             'id', 'name', 'leader_details', 'group_competition_title',
             'status', 'is_approved_by_admin', 'admin_remarks',
-            'memberships', 'created_at'
+            'memberships', 'content_submission',  # Added content_submission
+            'created_at', 
         ]
         read_only_fields = fields
 
 
 class MemberDetailSubmitSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    government_id_picture = serializers.ImageField(required=False, allow_empty_file=True, allow_null=True)
+    government_id_picture = serializers.ImageField(required=False, allow_null=True, allow_empty_file=True)
 
 
 class CompetitionTeamSubmitSerializer(serializers.Serializer):
@@ -106,51 +172,92 @@ class CompetitionTeamSubmitSerializer(serializers.Serializer):
         member_details_list = attrs.get('member_details')
 
         group_competition = self.context.get('group_competition')
-        if not group_competition:
-            raise serializers.ValidationError("Group competition context is required.")
-
-        leader_user = self.context.get('request').user  # Leader is the one submitting
+        request = self.context.get('request')
+        if not group_competition or not request:
+            raise serializers.ValidationError("Context missing (group_competition or request).")
+        leader_user = request.user
 
         if CompetitionTeam.objects.filter(group_competition=group_competition, name__iexact=team_name).exists():
             raise serializers.ValidationError(
-                {"team_name": f"A team with the name '{team_name}' already exists for this competition."})
+                {"team_name": f"A team with this name already exists for this competition."})
 
-        num_total_members = len(member_details_list) + 1  # +1 for the leader
+        num_total_members = len(member_details_list) + 1
         if not (group_competition.min_group_size <= num_total_members <= group_competition.max_group_size):
             raise serializers.ValidationError(
                 {
-                    "member_details": f"Team size (including leader) must be between {group_competition.min_group_size} and {group_competition.max_group_size}. Submitted: {num_total_members}"}
+                    "member_details": f"Team size (leader + members) must be between {group_competition.min_group_size} and {group_competition.max_group_size}. Submitted: {num_total_members}"}
             )
 
-        all_proposed_emails_for_check = [leader_user.email]
-        validated_member_users = []
+        all_proposed_emails_for_check = [leader_user.email.lower()]
+        validated_member_users_data = []
 
         for index, member_data in enumerate(member_details_list):
-            email = member_data.get('email')
+            email = member_data.get('email', '').lower()
             gov_id_pic = member_data.get('government_id_picture')
 
-            if group_competition.requires_admin_approval:
-                if not gov_id_pic:
-                    raise serializers.ValidationError({
-                                                          f"member_details.[{index}].government_id_picture": "Government ID picture is required for this competition."})
+            if not email:
+                raise serializers.ValidationError(
+                    {f"member_details.[{index}].email": "Email is required for all members."})
+
+            if group_competition.requires_admin_approval and not gov_id_pic:
+                raise serializers.ValidationError({
+                                                      f"member_details.[{index}].government_id_picture": "Government ID picture is required for this competition."})
 
             try:
-                user = CustomUser.objects.get(email__iexact=email)
-                if user == leader_user:
+                user_instance = CustomUser.objects.get(email__iexact=email)
+                if user_instance == leader_user:
                     raise serializers.ValidationError(
                         {f"member_details.[{index}].email": "Leader cannot be listed as an additional member."})
-                validated_member_users.append({'user_instance': user, 'government_id_picture': gov_id_pic})
-                all_proposed_emails_for_check.append(user.email)
+
+                if TeamMembership.objects.filter(
+                        user=user_instance, team__group_competition=group_competition,
+                        team__status__in=[CompetitionTeam.STATUS_ACTIVE,
+                                          CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
+                                          CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
+                                          CompetitionTeam.STATUS_IN_CART,
+                                          CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION]
+                ).exists():
+                    raise serializers.ValidationError({
+                                                          f"member_details.[{index}].email": f"User '{email}' is already in another team for this competition."})
+                validated_member_users_data.append(
+                    {'user_instance': user_instance, 'government_id_picture': gov_id_pic})
+                all_proposed_emails_for_check.append(email)
             except CustomUser.DoesNotExist:
                 raise serializers.ValidationError(
                     {f"member_details.[{index}].email": f"User with email '{email}' not found."})
 
-        if len(all_proposed_emails_for_check) != len(set(map(lambda x: x.lower(), all_proposed_emails_for_check))):
+        if len(all_proposed_emails_for_check) != len(set(all_proposed_emails_for_check)):
             raise serializers.ValidationError(
                 {"member_details": "Duplicate emails provided for team members or leader."})
 
-        attrs['validated_member_users'] = validated_member_users  # Pass resolved user objects to the view
+        if TeamMembership.objects.filter(
+                user=leader_user, team__group_competition=group_competition,
+                team__status__in=[CompetitionTeam.STATUS_ACTIVE, CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
+                                  CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT, CompetitionTeam.STATUS_IN_CART,
+                                  CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION]
+        ).exists():
+            raise serializers.ValidationError(
+                {"leader": "You (leader) are already in another team for this competition."})
+
+        attrs['validated_member_users_data'] = validated_member_users_data
         return attrs
+
+
+class ContentLikeSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = ContentLike
+        fields = ['id', 'user', 'user_email', 'team_content', 'created_at']
+        read_only_fields = ['user', 'user_email', 'team_content', 'created_at']
+
+class ContentCommentSerializer(serializers.ModelSerializer):
+    user_details = TeamMembershipUserDetailSerializer(source='user', read_only=True)
+
+    class Meta:
+        model = ContentComment
+        fields = ['id', 'user', 'user_details', 'team_content', 'text', 'created_at', ]
+        read_only_fields = ['user', 'user_details', 'team_content', 'created_at', ]
 
 
 class EventDetailSerializer(serializers.ModelSerializer):
@@ -163,9 +270,9 @@ class EventDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'start_date', 'end_date', 'is_active',
             'presentations', 'solo_competitions', 'group_competitions',
-            'created_at'
+            'created_at', 
         ]
-        read_only_fields = ['created_at']
+        read_only_fields = ['created_at', ]
 
 
 class EventListSerializer(serializers.ModelSerializer):

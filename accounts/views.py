@@ -43,7 +43,6 @@ class UserRegistrationView(generics.CreateAPIView):
     permission_classes = [AllowAny]
 
     def perform_create(self, serializer):
-        # This method is called when a new user is actually being created
         user = serializer.save()
         code = generate_numeric_code(length=6)
         user.email_verification_code = code
@@ -81,10 +80,9 @@ class UserRegistrationView(generics.CreateAPIView):
                 return Response(
                     {
                         "message": "An account with this email already exists but is not verified. A new verification code has been sent."},
-                    status=status.HTTP_200_OK  # OK status as we took an action
+                    status=status.HTTP_200_OK
                 )
         except CustomUser.DoesNotExist:
-            # Email does not exist, proceed with new user registration
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
