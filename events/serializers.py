@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from .models import (
     Presenter, Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
-    TeamContent, ContentImage, ContentLike, ContentComment,  # New models
+    TeamContent, ContentImage, ContentLike, ContentComment,
     PresentationEnrollment, SoloCompetitionRegistration
 )
 
@@ -13,7 +13,7 @@ CustomUser = get_user_model()
 class PresenterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Presenter
-        fields = ['id', 'name', 'email', 'bio', 'presenter_picture', 'created_at', ]
+        fields = ['id', 'name', 'email', 'bio', 'presenter_picture', 'created_at',   ]
         read_only_fields = ['created_at',]
 
 
@@ -31,9 +31,9 @@ class PresentationSerializer(serializers.ModelSerializer):
             'presenters_details', 'presenter_ids',
             'type', 'is_online', 'location', 'online_link',
             'start_time', 'end_time', 'is_paid', 'price', 'capacity',
-            'created_at', 
+            'created_at',   
         ]
-        read_only_fields = ['event_title', 'created_at', ]
+        read_only_fields = ['event_title', 'created_at',   ]
 
 
 class SoloCompetitionSerializer(serializers.ModelSerializer):
@@ -44,9 +44,9 @@ class SoloCompetitionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'event', 'event_title', 'title', 'description', 'start_datetime', 'end_datetime',
             'rules', 'is_paid', 'price_per_participant', 'prize_details', 'is_active',
-            'max_participants', 'created_at', 
+            'max_participants', 'created_at',   
         ]
-        read_only_fields = ['event_title', 'created_at', ]
+        read_only_fields = ['event_title', 'created_at',   ]
 
 
 class GroupCompetitionSerializer(serializers.ModelSerializer):
@@ -59,10 +59,10 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
             'rules', 'is_paid', 'price_per_group', 'prize_details', 'is_active',
             'min_group_size', 'max_group_size', 'max_teams',
             'requires_admin_approval', 'member_verification_instructions',
-            'allow_content_submission',  # New field
-            'created_at', 
+            'allow_content_submission',
+            'created_at',   
         ]
-        read_only_fields = ['event_title', 'created_at', ]
+        read_only_fields = ['event_title', 'created_at',   ]
 
 
 class TeamMembershipUserDetailSerializer(serializers.ModelSerializer):
@@ -103,7 +103,7 @@ class TeamContentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'team', 'team_name', 'description', 'file_link', 'images', 'uploaded_images',
             'likes_count', 'comments_count', 'is_liked_by_requester',
-            'created_at', 
+            'created_at',   
         ]
         read_only_fields = ['team', 'team_name', 'created_at', 'likes_count', 'comments_count',
                             'is_liked_by_requester']
@@ -128,7 +128,7 @@ class TeamContentSerializer(serializers.ModelSerializer):
         return team_content
 
     def update(self, instance, validated_data):
-        uploaded_images_data = validated_data.pop('uploaded_images', None)  # Use None as default for optional update
+        uploaded_images_data = validated_data.pop('uploaded_images', None)
 
         instance.description = validated_data.get('description', instance.description)
         instance.file_link = validated_data.get('file_link', instance.file_link)
@@ -152,8 +152,8 @@ class CompetitionTeamDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'leader_details', 'group_competition_title',
             'status', 'is_approved_by_admin', 'admin_remarks',
-            'memberships', 'content_submission',  # Added content_submission
-            'created_at', 
+            'memberships', 'content_submission',
+            'created_at',   
         ]
         read_only_fields = fields
 
@@ -251,13 +251,14 @@ class ContentLikeSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'user_email', 'team_content', 'created_at']
         read_only_fields = ['user', 'user_email', 'team_content', 'created_at']
 
+
 class ContentCommentSerializer(serializers.ModelSerializer):
     user_details = TeamMembershipUserDetailSerializer(source='user', read_only=True)
 
     class Meta:
         model = ContentComment
-        fields = ['id', 'user', 'user_details', 'team_content', 'text', 'created_at', ]
-        read_only_fields = ['user', 'user_details', 'team_content', 'created_at', ]
+        fields = ['id', 'user', 'user_details', 'team_content', 'text', 'created_at',   ]
+        read_only_fields = ['user', 'user_details', 'team_content', 'created_at',   ]
 
 
 class EventDetailSerializer(serializers.ModelSerializer):
@@ -270,9 +271,9 @@ class EventDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'start_date', 'end_date', 'is_active',
             'presentations', 'solo_competitions', 'group_competitions',
-            'created_at', 
+            'created_at',   
         ]
-        read_only_fields = ['created_at', ]
+        read_only_fields = ['created_at',   ]
 
 
 class EventListSerializer(serializers.ModelSerializer):

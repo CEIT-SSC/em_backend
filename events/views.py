@@ -1,11 +1,12 @@
 from django.db import transaction, models
 from django.apps import apps
-from rest_framework import viewsets, status, generics, mixins, serializers
+from rest_framework import viewsets, status, generics, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from drf_spectacular.utils import extend_schema, inline_serializer
 from drf_spectacular.types import OpenApiTypes
+from rest_framework import serializers
 
 from .models import (
     Event, Presentation,
@@ -361,14 +362,31 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
             liked = True
         return Response({"liked": liked, "likes_count": content.likes.count()}, status=status.HTTP_200_OK)
 
-    @extend_schema(summary="List comments for a Team Content Submission",
-                   responses={200: ContentCommentSerializer(many=True)})
+    @extend_schema(
+        summary="List comments for a Team Content Submission",
+        responses={
+            200: inline_serializer(
+                name="CommentListWithParentLikesResponse",
+                fields={
+                    "parent_content_id": serializers.IntegerField(),
+                    "parent_content_likes_count": serializers.IntegerField(),
+                    "comments": ContentCommentSerializer(many=True)
+                }
+            )
+        }
+    )
     @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='comments')
     def list_comments(self, request, pk=None):
         content = self.get_object()
         comments = content.comments.select_related('user').order_by('created_at')
-        serializer = ContentCommentSerializer(comments, many=True, context={'request': request})
-        return Response(serializer.data)
+        comment_serializer = ContentCommentSerializer(comments, many=True, context={'request': request})
+
+        response_data = {
+            "parent_content_id": content.id,
+            "parent_content_likes_count": content.likes.count(),
+            "comments": comment_serializer.data
+        }
+        return Response(response_data)
 
     @extend_schema(
         summary="Post a comment on a Team Content Submission",
