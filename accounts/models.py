@@ -15,7 +15,7 @@ class CustomUserManager(BaseUserManager):
     def _create_user_and_cart(self, email, phone_number, password, **extra_fields):
         if not email:
             raise ValueError('The Email field must be set')
-        if not phone_number:  # Added check for phone_number
+        if not phone_number:
             raise ValueError('The Phone Number field must be set')
 
         email = self.normalize_email(email)

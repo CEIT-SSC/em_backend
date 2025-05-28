@@ -32,8 +32,8 @@ CustomUser = get_user_model()
     responses={
         201: inline_serializer(name='UserRegistrationSuccess',
                                fields={'email': serializers.EmailField(), 'message': serializers.CharField()}),
-        200: SimpleMessageResponse,  # For existing inactive user, verification resent
-        400: OpenApiTypes.OBJECT,  # For validation errors or existing active user
+        200: SimpleMessageResponse,
+        400: OpenApiTypes.OBJECT,
     },
     tags=['Authentication']
 )
@@ -67,7 +67,6 @@ class UserRegistrationView(generics.CreateAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             else:
-                # User exists but is inactive, resend verification email
                 code = generate_numeric_code(length=6)
                 user.email_verification_code = code
                 user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)

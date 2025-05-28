@@ -106,17 +106,17 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
         competition = self.get_object()
         user = request.user
         if SoloCompetitionRegistration.objects.filter(user=user, solo_competition=competition,
-                                                      status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).exists():
+                                                      status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).exists():
             return Response({"message": "Already actively registered."}, status=status.HTTP_200_OK)
         if competition.max_participants is not None and competition.registrations.filter(
-                status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).count() >= competition.max_participants:
+                status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).count() >= competition.max_participants:
             return Response({"error": "Max participant limit reached."}, status=status.HTTP_400_BAD_REQUEST)
         is_effectively_free = not competition.is_paid or (
                     competition.price_per_participant is not None and competition.price_per_participant <= 0)
         if is_effectively_free:
             registration, created = SoloCompetitionRegistration.objects.update_or_create(
                 user=user, solo_competition=competition,
-                defaults={'status': PresentationEnrollment.STATUS_COMPLETED_OR_FREE, 'order_item': None}
+                defaults={'status': SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE, 'order_item': None}
             )
             return Response(SoloCompetitionRegistrationSerializer(registration).data,
                             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)

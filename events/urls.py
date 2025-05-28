@@ -20,6 +20,7 @@ app_name = 'events'
 
 urlpatterns = [
     path('', include(router.urls)),
+
     path('my-enrollments/presentations/', MyPresentationEnrollmentsView.as_view(), name='my-presentation-enrollments'),
     path('my-registrations/solo-competitions/', MySoloCompetitionRegistrationsView.as_view(),
          name='my-solo-registrations'),

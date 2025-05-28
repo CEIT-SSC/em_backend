@@ -7,7 +7,7 @@ class GenericRelatedField(serializers.RelatedField):
     def to_representation(self, value):
         if hasattr(value, 'title'):
             return f"{value.__class__.__name__}: {value.title}"
-        if hasattr(value, 'name'): # For CompetitionTeam
+        if hasattr(value, 'name'):
             return f"{value.__class__.__name__}: {value.name}"
         return str(value)
 

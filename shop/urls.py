@@ -23,5 +23,5 @@ urlpatterns = [
 
     path('payment/callback/', PaymentCallbackView.as_view(), name='payment_callback'),
 
-    path('', include(router.urls)),  # For OrderHistoryViewSet
+    path('', include(router.urls)),
 ]
