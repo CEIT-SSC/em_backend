@@ -75,6 +75,15 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
             'profile_picture': {'required': False, 'allow_null': True},
         }
 
+    def validate_phone_number(self, value):
+        normalized_phone = validate_phone_number(value)
+
+        user = self.context['request'].user
+        if CustomUser.objects.exclude(pk=user.pk).filter(phone_number=normalized_phone).exists():
+            raise serializers.ValidationError("A user with this phone number already exists.")
+
+        return normalized_phone
+
     def update(self, instance, validated_data):
         profile_picture = validated_data.get('profile_picture', Ellipsis)
         if profile_picture is None:

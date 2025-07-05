@@ -213,6 +213,15 @@ class ChangePasswordView(generics.UpdateAPIView):
         self.object = self.get_object()
         serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
+        
+        old_password = serializer.validated_data.get('old_password')
+        new_password = serializer.validated_data.get('new_password')
+        if old_password == new_password:
+            return Response(
+                {"error": "New password cannot be the same as the old password."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         serializer.save()
         return Response({"message": "Password updated successfully"}, status=status.HTTP_200_OK)
 
