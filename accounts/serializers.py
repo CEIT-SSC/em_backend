@@ -2,6 +2,8 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 
+from accounts.models import validate_phone_number
+
 CustomUser = get_user_model()
 
 
@@ -21,6 +23,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({"password_confirm": "Password fields didn't match."})
+
+        try:
+            normalized_phone = validate_phone_number(attrs['phone_number'])
+            if CustomUser.objects.filter(phone_number=normalized_phone).exists():
+                raise serializers.ValidationError("A user with this phone number already exists.")
+
+            attrs['phone_number'] = normalized_phone
+        except serializers.ValidationError as e:
+            raise serializers.ValidationError({"phone_number": str(e)})
+
         return attrs
 
     def create(self, validated_data):

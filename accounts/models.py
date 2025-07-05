@@ -1,14 +1,32 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
-
-
+import re
 from django.core.exceptions import ValidationError
+
 
 def validate_image_size(image):
     max_size_mb = 2
     if image.size > max_size_mb * 1024 * 1024:
         raise ValidationError(f"Image size should not exceed {max_size_mb}MB.")
+
+
+def validate_phone_number(value):
+    cleaned = re.sub(r'[^\d]', '', value)
+    if not re.match(r'^(0|98)?9\d{9}$', cleaned):
+        raise ValidationError("Enter a valid Iranian phone number.")
+
+    if cleaned.startswith('98'):
+        normalized = cleaned[2:]
+    elif cleaned.startswith('0'):
+        normalized = cleaned[1:]
+    else:
+        normalized = cleaned
+
+    if len(normalized) != 10 or not normalized.startswith('9'):
+        raise ValidationError("Invalid phone number format after normalization.")
+
+    return normalized
 
 
 class CustomUserManager(BaseUserManager):
@@ -66,10 +84,18 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         error_messages={'unique': "A user with that email already exists."},
         verbose_name="Email Address"
     )
+    phone_number = models.CharField(
+        max_length=20,
+        blank=False,
+        null=False,
+        unique=True,
+        verbose_name="Phone Number",
+        validators=[validate_phone_number,],
+        error_messages={'unique': "A user with this phone number already exists.",},
+    )
+
     first_name = models.CharField(max_length=150, blank=True, verbose_name="First Name")
     last_name = models.CharField(max_length=150, blank=True, verbose_name="Last Name")
-
-    phone_number = models.CharField(max_length=20, blank=False, null=False, verbose_name="Phone Number")
 
     is_staff = models.BooleanField(default=False, verbose_name="Staff Status")
     is_active = models.BooleanField(default=False, verbose_name="Active Status")
