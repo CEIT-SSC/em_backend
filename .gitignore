@@ -24,6 +24,7 @@ media/
 staticfiles/ # Typically, you don't version control collected static files
 *.mo # Compiled translation files
 /media
+static/
 
 # PyCharm
 .idea/
@@ -54,3 +55,5 @@ celerybeat.pid
 *.tmp
 *~
 *.swp
+events/migrations/0002_groupcompetition_allow_content_submission_and_more.py
+accounts/migrations/0002_alter_customuser_profile_picture.py
