@@ -367,7 +367,7 @@ class PaymentCallbackView(views.APIView):
                 amount=order.total_amount
             )
 
-            if verification_result.get('status') == 'success' or True:
+            if verification_result.get('status') == 'success':
                 with transaction.atomic():
                     order.status = Order.STATUS_PROCESSING_ENROLLMENT
                     order.payment_gateway_txn_id = verification_result.get('ref_id')
