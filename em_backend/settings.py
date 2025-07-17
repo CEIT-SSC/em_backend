@@ -25,8 +25,6 @@ SECRET_KEY = os.getenv("SECRET_KEY", default="key34572dfg57ll90xdvs234ghh$")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", default="False") == "True"
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
-
 # Custom
 AUTH_USER_MODEL = 'accounts.CustomUser'
 LOGIN_URL = 'accounts:token'
@@ -37,9 +35,13 @@ STATIC_URL = '/static/'
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = 'media/'
 
-CSRF_TRUSTED_ORIGINS = ['https://localhost', 'https://127.0.0.1']
-CORS_ORIGIN_ALLOW_ALL = True
+FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
+DOMAIN = os.getenv("DOMAIN", default="domain.ir")
+
+CORS_ORIGIN_ALLOW_ALL = False
 USE_X_FORWARDED_HOST = True
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', DOMAIN]
+CSRF_TRUSTED_ORIGINS = ['https://localhost', 'https://127.0.0.1', "https://" + DOMAIN]
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
@@ -55,9 +57,6 @@ SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
 PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", default="auth")
 PAYMENT_CALLBACK_URL = os.getenv("PAYMENT_CALLBACK_URL", default="callback")
-
-FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
-DOMAIN = os.getenv("DOMAIN", default="domain.ir")
 
 # allauth
 SITE_ID = 1
