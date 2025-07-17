@@ -1,4 +1,4 @@
-from django.urls import path, include
+from django.urls import path
 from .views import (
     UserRegistrationView,
     EmailVerificationView,
@@ -24,7 +24,5 @@ urlpatterns = [
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('forgot-password/', SimpleForgotPasswordView.as_view(), name='forgot_password_simple'),
 
-    path('api/auth/', include('dj_rest_auth.urls')),
-    path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
-    path('api/auth/google/', GoogleLogin.as_view(), name='google_login'),
+    path('auth/google/', GoogleLogin.as_view(), name='google_login'),
 ]
