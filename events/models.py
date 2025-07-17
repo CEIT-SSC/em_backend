@@ -23,6 +23,7 @@ class Event(models.Model):
     end_date = models.DateTimeField(verbose_name="End Date & Time")
     is_active = models.BooleanField(default=False, verbose_name="Is Event Active?")
     created_at = models.DateTimeField(auto_now_add=True)
+    poster = models.ImageField(upload_to='event_posters/%Y/%m/', blank=True, null=True, verbose_name="Event Poster")
 
     def __str__(self):
         return self.title
@@ -71,6 +72,7 @@ class BaseCompetition(models.Model):
     prize_details = models.TextField(blank=True, null=True, verbose_name="Prize Details")
     is_active = models.BooleanField(default=True, verbose_name="Is Active for Registration?")
     created_at = models.DateTimeField(auto_now_add=True)
+    poster = models.ImageField(upload_to='competition_posters/%Y/%m/', blank=True, null=True, verbose_name="Competition Poster")
 
     class Meta:
         abstract = True

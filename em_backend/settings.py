@@ -25,8 +25,6 @@ SECRET_KEY = os.getenv("SECRET_KEY", default="key34572dfg57ll90xdvs234ghh$")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", default="False") == "True"
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
-
 # Custom
 AUTH_USER_MODEL = 'accounts.CustomUser'
 LOGIN_URL = 'accounts:token'
@@ -37,9 +35,15 @@ STATIC_URL = '/static/'
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = 'media/'
 
-CSRF_TRUSTED_ORIGINS = ['https://localhost', 'https://127.0.0.1']
-CORS_ORIGIN_ALLOW_ALL = True
+FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
+DOMAIN = os.getenv("DOMAIN", default="domain.ir")
+
+CORS_ORIGIN_ALLOW_ALL = False
 USE_X_FORWARDED_HOST = True
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', DOMAIN]
+CSRF_TRUSTED_ORIGINS = ['https://localhost', 'https://127.0.0.1', "https://" + DOMAIN]
+CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "https://" + DOMAIN]
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
@@ -55,6 +59,36 @@ SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
 PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", default="auth")
 PAYMENT_CALLBACK_URL = os.getenv("PAYMENT_CALLBACK_URL", default="callback")
+
+# allauth
+SITE_ID = 1
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_USERNAME_REQUIRED = False
+SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomAdapter'
+
+REST_AUTH = {
+    'USE_JWT': True,
+    'JWT_AUTH_HTTPONLY': False,
+}
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            'client_id': os.getenv('GOOGLE_CLIENT_ID', 'id'),
+            'secret': os.getenv('GOOGLE_SECRET', 'key'),
+            'key': ''
+        },
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        }
+    }
+}
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Event Manager',
@@ -88,6 +122,10 @@ SIMPLE_JWT = {
     'UPDATE_LAST_LOGIN': True,
 }
 
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -97,9 +135,17 @@ INSTALLED_APPS = [
     'events',
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
+    'rest_framework.authtoken',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'dj_rest_auth',
+    'dj_rest_auth.registration',
+    'allauth.socialaccount.providers.google',
     'drf_spectacular',
     'drf_spectacular_sidecar',
     'corsheaders',
+    'django.contrib.sites',
 
     # Default
     'django.contrib.admin',
@@ -111,15 +157,15 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
-
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
 ]
 
 ROOT_URLCONF = 'em_backend.urls'

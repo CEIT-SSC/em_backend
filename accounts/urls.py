@@ -5,7 +5,7 @@ from .views import (
     ResendVerificationEmailView,
     UserProfileView,
     ChangePasswordView,
-    SimpleForgotPasswordView
+    SimpleForgotPasswordView, GoogleLogin
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, token_blacklist
 
@@ -23,4 +23,6 @@ urlpatterns = [
     path('profile/', UserProfileView.as_view(), name='user_profile'),
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('forgot-password/', SimpleForgotPasswordView.as_view(), name='forgot_password_simple'),
+
+    path('auth/google/', GoogleLogin.as_view(), name='google_login'),
 ]

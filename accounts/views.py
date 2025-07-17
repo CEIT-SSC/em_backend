@@ -7,9 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, inline_serializer
 from drf_spectacular.types import OpenApiTypes
 
-SimpleMessageResponse = inline_serializer(name='SimpleMessageResponse', fields={'message': serializers.CharField()})
-SimpleErrorResponse = inline_serializer(name='SimpleErrorResponse', fields={'error': serializers.CharField()})
-
+from em_backend import settings
 from .serializers import (
     UserRegistrationSerializer,
     EmailVerificationSerializer,
@@ -21,9 +19,19 @@ from .serializers import (
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+from dj_rest_auth.registration.views import SocialLoginView
 
 CustomUser = get_user_model()
+SimpleMessageResponse = inline_serializer(name='SimpleMessageResponse', fields={'message': serializers.CharField()})
+SimpleErrorResponse = inline_serializer(name='SimpleErrorResponse', fields={'error': serializers.CharField()})
 
+
+class GoogleLogin(SocialLoginView):
+    adapter_class = GoogleOAuth2Adapter
+    callback_url = settings.FRONTEND_URL
+    client_class = OAuth2Client
 
 @extend_schema(
     summary="Register a new user",
