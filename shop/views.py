@@ -305,7 +305,7 @@ class OrderPaymentInitiateView(views.APIView):
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         payment_result = zarrinpal_client.create_payment(
-            amount=order.total_amount,  # ZarrinPal class expects amount in Toman
+            amount=float(order.total_amount),  # ZarrinPal class expects amount in Toman
             mobile=order.user.phone_number or "",
             email=order.user.email or ""
         )
