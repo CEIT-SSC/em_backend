@@ -42,7 +42,7 @@ class SoloCompetitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = SoloCompetition
         fields = [
-            'id', 'event', 'event_title', 'title', 'description', 'start_datetime', 'end_datetime',
+            'id', 'event', 'event_title', 'title', 'description', 'start_datetime', 'end_datetime', 'poster',
             'rules', 'is_paid', 'price_per_participant', 'prize_details', 'is_active',
             'max_participants', 'created_at', 
         ]
@@ -56,7 +56,7 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
         model = GroupCompetition
         fields = [
             'id', 'event', 'event_title', 'title', 'description', 'start_datetime', 'end_datetime',
-            'rules', 'is_paid', 'price_per_group', 'prize_details', 'is_active',
+            'rules', 'is_paid', 'price_per_group', 'prize_details', 'is_active', 'poster',
             'min_group_size', 'max_group_size', 'max_teams',
             'requires_admin_approval', 'member_verification_instructions',
             'allow_content_submission',
@@ -269,7 +269,7 @@ class EventDetailSerializer(serializers.ModelSerializer):
         model = Event
         fields = [
             'id', 'title', 'description', 'start_date', 'end_date', 'is_active',
-            'presentations', 'solo_competitions', 'group_competitions',
+            'presentations', 'solo_competitions', 'group_competitions', 'poster',
             'created_at', 
         ]
         read_only_fields = ['created_at', ]
@@ -278,7 +278,7 @@ class EventDetailSerializer(serializers.ModelSerializer):
 class EventListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
-        fields = ['id', 'title', 'start_date', 'end_date', 'is_active']
+        fields = ['id', 'title', 'start_date', 'end_date', 'poster', 'is_active']
 
 
 class PresentationEnrollmentSerializer(serializers.ModelSerializer):
