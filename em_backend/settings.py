@@ -56,6 +56,34 @@ SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", default="auth")
 PAYMENT_CALLBACK_URL = os.getenv("PAYMENT_CALLBACK_URL", default="callback")
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
+DOMAIN = os.getenv("DOMAIN", default="domain.ir")
+
+# allauth
+SITE_ID = 1
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomAdapter'
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APP': {
+            'client_id': os.getenv('GOOGLE_CLIENT_ID', 'id'),
+            'secret': os.getenv('GOOGLE_SECRET', 'key'),
+            'key': ''
+        },
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        }
+    }
+}
+
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Event Manager',
     'DESCRIPTION': 'Event Manager backend - restful api',
@@ -88,6 +116,10 @@ SIMPLE_JWT = {
     'UPDATE_LAST_LOGIN': True,
 }
 
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -97,9 +129,17 @@ INSTALLED_APPS = [
     'events',
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
+    'rest_framework.authtoken',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'dj_rest_auth',
+    'dj_rest_auth.registration',
+    'allauth.socialaccount.providers.google',
     'drf_spectacular',
     'drf_spectacular_sidecar',
     'corsheaders',
+    'django.contrib.sites',
 
     # Default
     'django.contrib.admin',

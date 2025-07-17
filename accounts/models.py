@@ -12,6 +12,8 @@ def validate_image_size(image):
 
 
 def validate_phone_number(value):
+    if value is None or len(value) == 0: return None
+
     cleaned = re.sub(r'[^\d]', '', value)
     if not re.match(r'^(0|98)?9\d{9}$', cleaned):
         raise ValidationError("Enter a valid Iranian phone number.")
@@ -86,8 +88,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     )
     phone_number = models.CharField(
         max_length=20,
-        blank=False,
-        null=False,
+        blank=True,
+        null=True,
         unique=True,
         verbose_name="Phone Number",
         validators=[validate_phone_number,],
