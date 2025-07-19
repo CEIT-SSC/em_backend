@@ -1,12 +1,13 @@
+from dj_rest_auth.registration.serializers import SocialLoginSerializer
+from dj_rest_auth.serializers import JWTSerializer
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import timedelta
-from rest_framework import generics, status, views, serializers
+from rest_framework import generics, status, views
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
-
 from em_backend import settings
 from .serializers import (
     UserRegistrationSerializer,
@@ -15,7 +16,8 @@ from .serializers import (
     UserProfileSerializer,
     UserProfileUpdateSerializer,
     ChangePasswordSerializer,
-    SimpleForgotPasswordSerializer,
+    SimpleForgotPasswordSerializer, MessageResponseSerializer, ErrorResponseSerializer,
+    UserRegistrationSuccessSerializer,
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
@@ -24,10 +26,17 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 
 CustomUser = get_user_model()
-SimpleMessageResponse = inline_serializer(name='SimpleMessageResponse', fields={'message': serializers.CharField()})
-SimpleErrorResponse = inline_serializer(name='SimpleErrorResponse', fields={'error': serializers.CharField()})
 
-
+@extend_schema(
+    summary="Register or Login with Google",
+    description="Handles user registration and login via a Google access token. If the user's email exists, they are logged in. If not, a new user is created.",
+    request=SocialLoginSerializer,
+    responses={
+        200: OpenApiResponse(response=JWTSerializer, description="Successfully authenticated"),
+        400: OpenApiResponse(description="Bad Request"),
+    },
+    tags=['Authentication']
+)
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
     callback_url = settings.FRONTEND_URL
@@ -38,12 +47,11 @@ class GoogleLogin(SocialLoginView):
     description="Creates a new user account if email doesn't exist. If email exists and is inactive, resends verification. If active, prompts to login.",
     request=UserRegistrationSerializer,
     responses={
-        201: inline_serializer(name='UserRegistrationSuccess',
-                               fields={'email': serializers.EmailField(), 'message': serializers.CharField()}),
-        200: SimpleMessageResponse,
-        400: OpenApiTypes.OBJECT,
+        201: UserRegistrationSuccessSerializer,
+        200: MessageResponseSerializer,
+        400: ErrorResponseSerializer,
     },
-    tags=['Authentication']
+tags=['Authentication']
 )
 class UserRegistrationView(generics.CreateAPIView):
     queryset = CustomUser.objects.all()
@@ -106,9 +114,9 @@ class UserRegistrationView(generics.CreateAPIView):
     description="Activates a user account using the verification code sent to their email.",
     request=EmailVerificationSerializer,
     responses={
-        200: SimpleMessageResponse,
-        400: SimpleErrorResponse,
-        404: SimpleErrorResponse,
+        200: MessageResponseSerializer,
+        400: ErrorResponseSerializer,
+        404: ErrorResponseSerializer,
     },
     tags=['Authentication']
 )
@@ -149,8 +157,8 @@ class EmailVerificationView(views.APIView):
     description="Resends the email verification code if the user's account is not yet active.",
     request=ResendVerificationEmailSerializer,
     responses={
-        200: SimpleMessageResponse,
-        400: SimpleMessageResponse,
+        200: MessageResponseSerializer,
+        400: ErrorResponseSerializer,
     },
     tags=['Authentication']
 )
@@ -165,7 +173,7 @@ class ResendVerificationEmailView(views.APIView):
             try:
                 user = CustomUser.objects.get(email=email)
                 if user.is_active:
-                    return Response({"message": "This account is already active."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"error": "This account is already active."}, status=status.HTTP_400_BAD_REQUEST)
 
                 code = generate_numeric_code(length=6)
                 user.email_verification_code = code
@@ -207,7 +215,10 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     summary="Change user password",
     description="Allows authenticated users to change their current password.",
     request=ChangePasswordSerializer,
-    responses={200: SimpleMessageResponse},
+    responses={
+        200: MessageResponseSerializer,
+        400: ErrorResponseSerializer,
+    },
     tags=['User Profile']
 )
 class ChangePasswordView(generics.UpdateAPIView):
@@ -238,7 +249,10 @@ class ChangePasswordView(generics.UpdateAPIView):
     summary="Simple forgot password",
     description="Resets user password to a new 8-digit code and emails it. User should change this temporary password upon login.",
     request=SimpleForgotPasswordSerializer,
-    responses={200: SimpleMessageResponse},
+    responses={
+        200: MessageResponseSerializer,
+        400: OpenApiTypes.OBJECT,
+    },
     tags=['Authentication']
 )
 class SimpleForgotPasswordView(views.APIView):

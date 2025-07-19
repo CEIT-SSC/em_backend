@@ -57,3 +57,9 @@ celerybeat.pid
 *.swp
 events/migrations/0002_groupcompetition_allow_content_submission_and_more.py
 accounts/migrations/0002_alter_customuser_profile_picture.py
+
+# Other files
+node_modules/
+node_modules
+package.json
+package-lock.json
