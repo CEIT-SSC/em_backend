@@ -146,6 +146,7 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'django.contrib.sites',
+    "django_typomatic",
 
     # Default
     'django.contrib.admin',

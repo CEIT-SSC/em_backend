@@ -5,7 +5,7 @@ from .models import (
     Presenter, Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
     TeamContent, ContentImage, ContentLike, ContentComment,
-    PresentationEnrollment, SoloCompetitionRegistration
+    PresentationEnrollment, SoloCompetitionRegistration, Post
 )
 
 CustomUser = get_user_model()
@@ -326,4 +326,18 @@ class SoloCompetitionRegistrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SoloCompetitionRegistration
         fields = ['id', 'user_email', 'solo_competition_title', 'status', 'registered_at', 'order_item']
+        read_only_fields = fields
+
+@ts_interface()
+class PostListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Post
+        fields = ["id", "title", "excerpt", "published_at",]
+        read_only_fields = fields
+
+@ts_interface()
+class PostDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Post
+        fields = ["id", "title", "excerpt", "body_markdown", "published_at",]
         read_only_fields = fields

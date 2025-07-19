@@ -10,7 +10,7 @@ from .models import (
     Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
     TeamContent, ContentLike, ContentComment,
-    PresentationEnrollment, SoloCompetitionRegistration
+    PresentationEnrollment, SoloCompetitionRegistration, Post
 )
 from .serializers import (
     EventListSerializer, EventDetailSerializer, PresentationSerializer,
@@ -19,7 +19,7 @@ from .serializers import (
     TeamContentSerializer, ContentCommentSerializer,
     PresentationEnrollmentSerializer, SoloCompetitionRegistrationSerializer, LikeStatusSerializer,
     CommentListSerializer, CommentCreateSerializer, CommentUpdateSerializer, MessageResponseSerializer,
-    ErrorResponseSerializer
+    ErrorResponseSerializer, PostListSerializer, PostDetailSerializer
 )
 from django.contrib.auth import get_user_model
 
@@ -480,3 +480,14 @@ class ContentCommentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, v
     )
     def destroy(self, request, *args, **kwargs):
         return super().destroy(request, *args, **kwargs)
+
+
+@extend_schema(tags=["Public - News"])
+class PostViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Post.objects.filter(is_active=True)
+    permission_classes = [AllowAny]
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return PostListSerializer
+        return PostDetailSerializer

@@ -269,3 +269,20 @@ class SoloCompetitionRegistration(models.Model):
 
     def __str__(self):
         return f"{self.user.email} registered for {self.solo_competition.title} ({self.get_status_display()})"
+
+class Post(models.Model):
+    title = models.CharField(max_length=255)
+    excerpt = models.TextField(
+        help_text="Short plain‐text summary shown in the feed"
+    )
+    body_markdown = models.TextField(
+        help_text="Full post content in Markdown"
+    )
+    published_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-published_at"]
+
+    def __str__(self):
+        return self.title

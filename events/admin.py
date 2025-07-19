@@ -2,8 +2,8 @@ from django.contrib import admin
 from .models import (
     Presenter, Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
-    TeamContent, ContentImage, ContentLike, ContentComment, # New models
-    PresentationEnrollment, SoloCompetitionRegistration
+    TeamContent, ContentImage, ContentLike, ContentComment,  # New models
+    PresentationEnrollment, SoloCompetitionRegistration, Post
 )
 
 @admin.register(Presenter)
@@ -193,3 +193,10 @@ class ContentCommentAdmin(admin.ModelAdmin):
     def text_snippet(self, obj):
         return obj.text[:50] + "..." if len(obj.text) > 50 else obj.text
     text_snippet.short_description = "Comment"
+
+@admin.register(Post)
+class PostAdmin(admin.ModelAdmin):
+    list_display = ("title", "is_active", "published_at")
+    list_filter = ("is_active", "published_at")
+    search_fields = ("title", "body_markdown")
+    ordering = ("-published_at",)
