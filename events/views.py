@@ -223,7 +223,6 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
             200: TeamContentSerializer(many=True),
             400: ErrorResponseSerializer,
         },
-        tags=['Public - Events & Activities']
     )
     @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='list-content')
     def list_content_submissions(self, request, pk=None):
@@ -266,7 +265,6 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
             200: MessageResponseSerializer,
             400: ErrorResponseSerializer,
         },
-        tags=['User - My Activities & Teams']
     )
     @action(detail=True, methods=['post'], url_path='add-to-cart')
     def add_approved_team_to_cart(self, request, pk=None):
@@ -294,7 +292,6 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
             403: ErrorResponseSerializer,
             404: ErrorResponseSerializer,
         },
-        tags=['User - My Activities & Teams']
     )
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -319,7 +316,6 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
             400: ErrorResponseSerializer,
             403: ErrorResponseSerializer,
         },
-        tags=['User - My Activities & Teams']
     )
     @action(detail=True, methods=['post', 'put'], url_path='submit-content', permission_classes=[IsAuthenticated])
     def submit_update_content(self, request, pk=None):
@@ -361,7 +357,6 @@ class MyPresentationEnrollmentsView(generics.ListAPIView):
 
     @extend_schema(
         responses={200: PresentationEnrollmentSerializer},
-        tags=['User - My Activities & Teams']
     )
     def get_queryset(self):
         return PresentationEnrollment.objects.filter(user=self.request.user).select_related('presentation__event',
@@ -376,7 +371,6 @@ class MySoloCompetitionRegistrationsView(generics.ListAPIView):
 
     @extend_schema(
         responses={200: SoloCompetitionRegistrationSerializer},
-        tags=['User - My Activities & Teams']
     )
     def get_queryset(self):
         return SoloCompetitionRegistration.objects.filter(user=self.request.user).select_related(
@@ -402,7 +396,6 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
             403: ErrorResponseSerializer,
             404: ErrorResponseSerializer,
         },
-        tags=['Events - Content Interactions']
     )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='toggle-like')
     def toggle_like(self, request, pk=None):
@@ -423,7 +416,6 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
             200: CommentListSerializer,
             400: ErrorResponseSerializer,
         },
-        tags=['Events - Content Interactions']
     )
     @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='comments')
     def list_comments(self, request, pk=None):
@@ -446,7 +438,6 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
             400: ErrorResponseSerializer,
             403: ErrorResponseSerializer,
         },
-        tags=['Events - Content Interactions']
     )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='add-comment')
     def add_comment(self, request, pk=None):
@@ -474,7 +465,6 @@ class ContentCommentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, v
         summary="Update user's own comment",
         request=CommentUpdateSerializer,
         responses={200: ContentCommentSerializer, 400: ErrorResponseSerializer},
-        tags=['Events - Content Interactions']
     )
     def partial_update(self, request, *args, **kwargs):
         text = request.data.get('text')
@@ -487,7 +477,6 @@ class ContentCommentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, v
     @extend_schema(
         summary="Delete user's own comment",
         responses={204: OpenApiTypes.NONE},
-        tags=['Events - Content Interactions']
     )
     def destroy(self, request, *args, **kwargs):
         return super().destroy(request, *args, **kwargs)
