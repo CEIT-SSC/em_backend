@@ -69,7 +69,7 @@ class UserRegistrationView(generics.CreateAPIView):
 
         ctx = {
             'code': code,
-            'expiration': expiry.strftime('%Y/%m/%d ساعت %H:%M'),
+            'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
         }
         html_content = render_to_string('verification.html', ctx)
         text_content = f'کد تأیید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
@@ -104,7 +104,7 @@ class UserRegistrationView(generics.CreateAPIView):
                 expiry = user.email_verification_code_expires_at
                 ctx = {
                     'code': code,
-                    'expiration': expiry.strftime('%Y/%m/%d ساعت %H:%M'),
+                    'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
                 }
                 html_content = render_to_string('verification.html', ctx)
                 text_content = f'کد تأیید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
@@ -208,7 +208,7 @@ class ResendVerificationEmailView(views.APIView):
                 expiry = user.email_verification_code_expires_at
                 ctx = {
                     'code': code,
-                    'expiration': expiry.strftime('%Y/%m/%d ساعت %H:%M'),
+                    'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
                 }
                 html_content = render_to_string('verification.html', ctx)
                 text_content = f'کد تأیید جدید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
