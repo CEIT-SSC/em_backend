@@ -1,3 +1,4 @@
+from django_typomatic import ts_interface
 from rest_framework import serializers
 from django.apps import apps
 from .models import Cart, CartItem, Order, OrderItem
@@ -11,6 +12,15 @@ class GenericRelatedField(serializers.RelatedField):
             return f"{value.__class__.__name__}: {value.name}"
         return str(value)
 
+@ts_interface()
+class MessageResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+@ts_interface()
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField()
+
+@ts_interface()
 class CartItemSerializer(serializers.ModelSerializer):
     item_details = GenericRelatedField(source='content_object', read_only=True)
     price = serializers.SerializerMethodField()
@@ -35,6 +45,7 @@ class CartItemSerializer(serializers.ModelSerializer):
                 if parent_comp.is_paid and parent_comp.price_per_group is not None: return parent_comp.price_per_group
         return 0
 
+@ts_interface()
 class CartSerializer(serializers.ModelSerializer):
     items = CartItemSerializer(many=True, read_only=True)
     applied_discount_code_details = serializers.StringRelatedField(source='applied_discount_code', read_only=True)
@@ -48,13 +59,16 @@ class CartSerializer(serializers.ModelSerializer):
                   'subtotal', 'discount_applied', 'total', 'created_at',]
         read_only_fields = ['user', 'created_at',]
 
+@ts_interface()
 class AddToCartSerializer(serializers.Serializer):
     item_type = serializers.ChoiceField(choices=['presentation', 'solocompetition', 'competitionteam'])
     item_id = serializers.IntegerField() # PK of the Presentation, SoloCompetition, or CompetitionTeam
 
+@ts_interface()
 class ApplyDiscountSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=50)
 
+@ts_interface()
 class OrderItemSerializer(serializers.ModelSerializer):
     item_details = GenericRelatedField(source='content_object', read_only=True)
 
@@ -62,6 +76,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
         model = OrderItem
         fields = ['id', 'item_details', 'description', 'price'] # content_object details via item_details
 
+@ts_interface()
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     user_email = serializers.EmailField(source='user.email', read_only=True, allow_null=True)
@@ -84,7 +99,13 @@ class OrderSerializer(serializers.ModelSerializer):
         ]
 
 
+@ts_interface()
 class OrderListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ['order_id', 'total_amount', 'status', 'created_at', 'paid_at']
+
+@ts_interface()
+class PaymentInitiateResponseSerializer(serializers.Serializer):
+    payment_url = serializers.URLField()
+    authority = serializers.CharField()

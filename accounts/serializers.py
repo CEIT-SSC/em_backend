@@ -1,12 +1,25 @@
+from django_typomatic import ts_interface
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
-
 from accounts.models import validate_phone_number
 
 CustomUser = get_user_model()
 
+@ts_interface()
+class MessageResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
 
+@ts_interface()
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField()
+
+@ts_interface()
+class UserRegistrationSuccessSerializer(serializers.Serializer):
+    email   = serializers.EmailField()
+    message = serializers.CharField()
+
+@ts_interface()
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
     password_confirm = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
@@ -27,7 +40,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         try:
             normalized_phone = validate_phone_number(attrs['phone_number'])
             if CustomUser.objects.filter(phone_number=normalized_phone).exists():
-                raise serializers.ValidationError("A user with this phone number already exists.")
+                raise serializers.ValidationError({"phone_number": "A user with this phone number already exists."})
 
             attrs['phone_number'] = normalized_phone
         except serializers.ValidationError as e:
@@ -46,23 +59,23 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
         return user
 
-
+@ts_interface()
 class EmailVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
     code = serializers.CharField(required=True, max_length=6, min_length=6)
 
-
+@ts_interface()
 class ResendVerificationEmailSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
 
-
+@ts_interface()
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = ('email', 'first_name', 'last_name', 'phone_number', 'profile_picture', 'date_joined')
         read_only_fields = ('email', 'date_joined')
 
-
+@ts_interface()
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(required=False, max_length=20, allow_blank=False)
 
@@ -98,7 +111,7 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
 
         return super().update(instance, validated_data)
 
-
+@ts_interface()
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
     new_password = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
@@ -122,6 +135,6 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.save()
         return user
 
-
+@ts_interface()
 class SimpleForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)

@@ -129,7 +129,6 @@ class CompetitionTeam(models.Model):
     status = models.CharField(max_length=40, choices=TEAM_STATUS_CHOICES, default=STATUS_IN_CART, verbose_name="Team Status")
     is_approved_by_admin = models.BooleanField(default=False, verbose_name="Has Admin Approved?")
     admin_remarks = models.TextField(blank=True, null=True, verbose_name="Admin Remarks")
-    member_emails_snapshot = models.JSONField(blank=True, null=True, verbose_name="Member Emails Snapshot")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -269,3 +268,20 @@ class SoloCompetitionRegistration(models.Model):
 
     def __str__(self):
         return f"{self.user.email} registered for {self.solo_competition.title} ({self.get_status_display()})"
+
+class Post(models.Model):
+    title = models.CharField(max_length=255)
+    excerpt = models.TextField(
+        help_text="Short plain‐text summary shown in the feed"
+    )
+    body_markdown = models.TextField(
+        help_text="Full post content in Markdown"
+    )
+    published_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-published_at"]
+
+    def __str__(self):
+        return self.title
