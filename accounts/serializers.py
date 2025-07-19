@@ -40,7 +40,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         try:
             normalized_phone = validate_phone_number(attrs['phone_number'])
             if CustomUser.objects.filter(phone_number=normalized_phone).exists():
-                raise serializers.ValidationError("A user with this phone number already exists.")
+                raise serializers.ValidationError({"phone_number": "A user with this phone number already exists."})
 
             attrs['phone_number'] = normalized_phone
         except serializers.ValidationError as e:
