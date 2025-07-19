@@ -24,6 +24,7 @@ from .utils import generate_numeric_code
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
+from django.template.loader import render_to_string
 
 CustomUser = get_user_model()
 
@@ -61,13 +62,25 @@ class UserRegistrationView(generics.CreateAPIView):
     def perform_create(self, serializer):
         user = serializer.save()
         code = generate_numeric_code(length=6)
+        expiry = timezone.now() + timedelta(minutes=10)
         user.email_verification_code = code
-        user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)
+        user.email_verification_code_expires_at = expiry
         user.save()
 
-        subject = 'Verify your email address for Event Manager'
-        message = f'Hi {user.first_name or user.email},\n\nYour email verification code is: {code}\n\nThis code will expire in 10 minutes.\n\nThanks!'
-        send_email_async_task(subject, message, [user.email])
+        ctx = {
+            'code': code,
+            'expiration': expiry.strftime('%Y/%m/%d ساعت %H:%M'),
+        }
+        html_content = render_to_string('verification.html', ctx)
+        text_content = f'کد تأیید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
+
+        subject = 'تأیید ایمیل'
+        send_email_async_task(
+            subject=subject,
+            recipient_list=[user.email],
+            text_content=text_content,
+            html_content=html_content
+        )
 
     def create(self, request, *args, **kwargs):
         email = request.data.get('email')
@@ -88,15 +101,27 @@ class UserRegistrationView(generics.CreateAPIView):
                 user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)
                 user.save()
 
-                subject = 'Verify your email address for Event Manager (Account Exists)'
-                message = f'Hi {user.first_name or user.email},\n\nAn attempt was made to register with your email. Your account is not yet active.\nYour new email verification code is: {code}\n\nThis code will expire in 10 minutes.\n\nThanks!'
-                send_email_async_task(subject, message, [user.email])
+                expiry = user.email_verification_code_expires_at
+                ctx = {
+                    'code': code,
+                    'expiration': expiry.strftime('%Y/%m/%d ساعت %H:%M'),
+                }
+                html_content = render_to_string('verification.html', ctx)
+                text_content = f'کد تأیید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
 
+                subject = 'تأیید ایمیل'
+                send_email_async_task(
+                    subject=subject,
+                    recipient_list=[user.email],
+                    text_content=text_content,
+                    html_content=html_content
+                )
                 return Response(
                     {
                         "message": "An account with this email already exists but is not verified. A new verification code has been sent."},
                     status=status.HTTP_200_OK
                 )
+
         except CustomUser.DoesNotExist:
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
@@ -180,11 +205,23 @@ class ResendVerificationEmailView(views.APIView):
                 user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)
                 user.save()
 
-                subject = 'Resent: Verify your email address for Event Manager'
-                message = f'Hi {user.first_name or user.email},\n\nYour new email verification code is: {code}\n\nThis code will expire in 10 minutes.\n\nThanks!'
-                send_email_async_task(subject, message, [user.email])
+                expiry = user.email_verification_code_expires_at
+                ctx = {
+                    'code': code,
+                    'expiration': expiry.strftime('%Y/%m/%d ساعت %H:%M'),
+                }
+                html_content = render_to_string('verification.html', ctx)
+                text_content = f'کد تأیید جدید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
 
+                subject = 'تأیید ایمیل'
+                send_email_async_task(
+                    subject=subject,
+                    recipient_list=[user.email],
+                    text_content=text_content,
+                    html_content=html_content
+                )
                 return Response({"message": "A new verification email has been sent."}, status=status.HTTP_200_OK)
+
             except CustomUser.DoesNotExist:
                 return Response({
                                     "message": "If an account with this email exists and is not active, a new verification email has been sent."},
@@ -269,9 +306,19 @@ class SimpleForgotPasswordView(views.APIView):
                 user.set_password(new_password)
                 user.save()
 
-                subject = 'Your Event Manager Password Has Been Reset'
-                message = f'Hi {user.first_name or user.email},\n\nYour password has been reset. Your new temporary password is: {new_password}\n\nPlease log in using this password and change it immediately to something secure.\n\nThanks!'
-                send_email_async_task(subject, message, [user.email])
+                ctx = {
+                    'password': new_password,
+                }
+                html_content = render_to_string('reset_password.html', ctx)
+                text_content = f'رمز عبور موقت شما: {new_password}\nلطفاً پس از ورود آن را تغییر دهید.'
+
+                subject = 'رمز عبور جدید'
+                send_email_async_task(
+                    subject=subject,
+                    recipient_list=[user.email],
+                    text_content=text_content,
+                    html_content=html_content
+                )
 
                 return Response({
                                     "message": "If an account with this email exists, a new temporary password has been sent to your email address. Please change it after logging in."},
