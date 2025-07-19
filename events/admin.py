@@ -62,11 +62,14 @@ def send_group_competition_reminder(modeladmin, request, queryset):
     for comp in queryset:
         teams = comp.teams.filter(status=CompetitionTeam.STATUS_ACTIVE)
         emails_set = set()
+
         for team in teams:
-            if team.member_emails_snapshot:
-                emails_set.update(team.member_emails_snapshot)
-            else:
-                emails_set.update(team.memberships.values_list('user__email', flat=True))
+            if team.leader and team.leader.email:
+                emails_set.add(team.leader.email)
+
+            member_emails = team.memberships.values_list('user__email', flat=True)
+            emails_set.update(member_emails)
+
         if not emails_set:
             continue
 

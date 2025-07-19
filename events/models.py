@@ -129,7 +129,6 @@ class CompetitionTeam(models.Model):
     status = models.CharField(max_length=40, choices=TEAM_STATUS_CHOICES, default=STATUS_IN_CART, verbose_name="Team Status")
     is_approved_by_admin = models.BooleanField(default=False, verbose_name="Has Admin Approved?")
     admin_remarks = models.TextField(blank=True, null=True, verbose_name="Admin Remarks")
-    member_emails_snapshot = models.JSONField(blank=True, null=True, verbose_name="Member Emails Snapshot")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

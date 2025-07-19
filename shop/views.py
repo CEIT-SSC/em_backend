@@ -223,15 +223,6 @@ class OrderCheckoutView(views.APIView):
                     team = content_object
                     team.status = CompetitionTeam.STATUS_ACTIVE
                     team.save()
-                    if not team.group_competition.requires_admin_approval and team.member_emails_snapshot:
-                        TeamMembership.objects.get_or_create(user=team.leader, team=team)
-                        for email in team.member_emails_snapshot:
-                            try:
-                                member_user = CustomUser.objects.get(email=email)
-                                TeamMembership.objects.get_or_create(user=member_user, team=team)
-                            except CustomUser.DoesNotExist:
-                                logger.error(
-                                    f"User with email {email} not found for team {team.name} in order {order.order_id}")
 
             order.status = Order.STATUS_COMPLETED
             if order.discount_code_applied:
