@@ -29,8 +29,12 @@ from django.template.loader import render_to_string
 CustomUser = get_user_model()
 
 @extend_schema(
-    summary="Register or Login with Google",
-    description="Handles user registration and login via a Google access token. If the user's email exists, they are logged in. If not, a new user is created.",
+    summary="Register or Login with Google (PKCE or Implicit Flow)",
+    description="""
+        Handles user authentication via Google. This endpoint is flexible and accepts either:
+            1.  Authorization Code Flow (PKCE): `code`
+            2.  Implicit Flow: `access_token`
+    """,
     request=SocialLoginSerializer,
     responses={
         200: OpenApiResponse(response=JWTSerializer, description="Successfully authenticated"),
