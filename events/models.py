@@ -24,6 +24,7 @@ class Event(models.Model):
     is_active = models.BooleanField(default=False, verbose_name="Is Event Active?")
     created_at = models.DateTimeField(auto_now_add=True)
     poster = models.ImageField(upload_to='event_posters/%Y/%m/', blank=True, null=True, verbose_name="Event Poster")
+    landing_url = models.URLField(max_length=500, blank=True, null=True, verbose_name="Page URL")
 
     def __str__(self):
         return self.title
