@@ -1,57 +1,72 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth.forms import UserCreationForm, UserChangeForm
+from django import forms
+from django.utils.translation import gettext_lazy as _
+from django.contrib.auth.forms import ReadOnlyPasswordHashField
 from .models import CustomUser
 
 
-class CustomUserCreationForm(UserCreationForm):
+class CustomUserCreationForm(forms.ModelForm):
+    password1 = forms.CharField(label="Password", widget=forms.PasswordInput)
+    password2 = forms.CharField(label="Password confirmation", widget=forms.PasswordInput)
+
     class Meta:
         model = CustomUser
-        fields = ('email', 'phone_number', 'first_name', 'last_name')
+        fields = ('email', 'phone_number', 'first_name', 'last_name', 'is_active', 'is_staff')
+
+    def clean_password2(self):
+        pw1 = self.cleaned_data.get('password1')
+        pw2 = self.cleaned_data.get('password2')
+        if pw1 and pw2 and pw1 != pw2:
+            raise forms.ValidationError("Passwords don't match")
+        return pw2
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.set_password(self.cleaned_data['password1'])
+        if commit:
+            user.save()
+        return user
 
 
-class CustomUserChangeForm(UserChangeForm):
+class CustomUserChangeForm(forms.ModelForm):
+    password = ReadOnlyPasswordHashField(label=_("Password"),
+        help_text=_(
+            "Raw passwords are not stored, so there is no way to see this user’s password."
+        ))
+
     class Meta:
         model = CustomUser
-        fields = (
-            'email', 'phone_number', 'first_name', 'last_name',
-            'is_active', 'is_staff', 'is_superuser',
-            'groups', 'user_permissions',
-            'email_verification_code', 'email_verification_code_expires_at',
-            'last_login', 'date_joined'
-        )
+        fields = ('email', 'password', 'phone_number', 'first_name', 'last_name',
+                  'is_active', 'is_staff', 'is_superuser')
+
+    def clean_password(self):
+        return self.initial.get('password')
 
 
+@admin.register(CustomUser)
 class CustomUserAdmin(BaseUserAdmin):
     form = CustomUserChangeForm
     add_form = CustomUserCreationForm
 
-    model = CustomUser
-    list_display = ('email', 'phone_number', 'first_name', 'last_name', 'is_staff', 'is_active', 'date_joined')
-    list_filter = ('is_staff', 'is_superuser', 'is_active', 'groups')
-    search_fields = ('email', 'phone_number', 'first_name', 'last_name')
+    list_display = ('email', 'phone_number', 'first_name', 'last_name', 'is_staff', 'is_active')
+    list_filter = ('is_staff', 'is_superuser', 'is_active')
     ordering = ('email',)
-
+    search_fields = ('email', 'phone_number', 'first_name', 'last_name')
 
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
-        ('Personal info', {'fields': ('first_name', 'last_name', 'phone_number', 'profile_picture')}),
-        ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser',
-                                    'groups', 'user_permissions')}),
-        ('Important dates', {'fields': ('last_login', 'date_joined')}),
-        ('Email Verification', {'fields': ('email_verification_code', 'email_verification_code_expires_at')}),
+        (_('Personal info'), {'fields': ('first_name', 'last_name', 'phone_number', 'profile_picture')}),
+        (_('Permissions'), {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
+        (_('Important dates'), {'fields': ('last_login', 'date_joined')}),
+        (_('Email verification'), {'fields': ('email_verification_code', 'email_verification_code_expires_at')}),
     )
 
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('email', 'phone_number', 'password', 'password2',
-                       'first_name', 'last_name', 'profile_picture',
-                       'is_staff', 'is_superuser',
-                       'groups', 'user_permissions'),
+            'fields': ('email', 'phone_number', 'first_name', 'last_name', 'password1', 'password2', 'is_active', 'is_staff')
         }),
     )
-    readonly_fields = ('last_login', 'date_joined')
 
-
-admin.site.register(CustomUser, CustomUserAdmin)
+    filter_horizontal = ('groups', 'user_permissions',)
