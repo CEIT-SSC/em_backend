@@ -131,6 +131,7 @@ AUTHENTICATION_BACKENDS = [
 # Application definition
 INSTALLED_APPS = [
     # Custom
+    'certificate',
     'accounts',
     'shop',
     'events',
