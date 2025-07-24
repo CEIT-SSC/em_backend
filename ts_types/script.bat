@@ -15,4 +15,14 @@ python manage.py generate_ts ^
     -a -ec -t -c -ev^
     -o "ts_types/types"
 
+python manage.py generate_ts ^
+    --app_name certificate ^
+    -a -ec -t -c -ev^
+    -o "ts_types/types"
+
+python manage.py generate_ts ^
+    --app_name jobs ^
+    -a -ec -t -c -ev^
+    -o "ts_types/types"
+
 pause

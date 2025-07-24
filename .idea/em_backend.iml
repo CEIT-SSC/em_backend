@@ -15,6 +15,7 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/ts_types" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 virtualenv at E:\Projects\em_backend\.venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

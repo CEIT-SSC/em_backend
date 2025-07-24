@@ -1,13 +1,15 @@
+import type { ItemDetail, CompetitionTeamDetail, SoloCompetition, Presentation } from '../default';
+
 export enum ItemTypeChoiceEnum {
     PRESENTATION = 'presentation',
-    SOLOCOMPETITION = 'solocompetition',
-    COMPETITIONTEAM = 'competitionteam',
+    SOLO_COMPETITION = 'solo_competition',
+    COMPETITION_TEAM = 'competition_team',
 }
 
 export enum ItemTypeChoiceEnumValues {
     presentation = 'presentation',
-    solocompetition = 'solocompetition',
-    competitionteam = 'competitionteam',
+    solo_competition = 'solo_competition',
+    competition_team = 'competition_team',
 }
 
 export enum StatusChoiceEnum {
@@ -59,7 +61,7 @@ export interface CartItem {
     * @maximum 9223372036854775807
     */
     objectId: number;
-    itemDetails?: any;
+    itemDetails?: ItemDetail;
     price?: null;
     /**
     * @format date-time
@@ -92,6 +94,13 @@ export interface ErrorResponse {
     error: string;
 }
 
+export interface ItemDetail {
+    presentation?: Presentation;
+    soloCompetition?: SoloCompetition;
+    competitionTeam?: CompetitionTeamDetail;
+    itemType: ItemTypeChoiceEnum;
+}
+
 export interface MessageResponse {
     message: string;
 }
@@ -101,7 +110,7 @@ export interface OrderItem {
     * @label ID
     */
     id?: number;
-    itemDetails?: any;
+    itemDetails?: ItemDetail;
     /**
     * @label Item Description (at time of order)
     * @maxLength 255
