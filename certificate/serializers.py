@@ -29,15 +29,23 @@ class CertificateSerializer(serializers.ModelSerializer):
 
 @ts_interface()
 class CompletedEnrollmentSerializer(serializers.ModelSerializer):
-    certificate = CertificateSerializer(read_only=True)
     presentation_title = serializers.CharField(source='presentation.title', read_only=True)
-    can_request_certificate = serializers.BooleanField()
+    has_certificate = serializers.SerializerMethodField()
+    is_certificate_verified = serializers.SerializerMethodField()
 
     class Meta:
         model = PresentationEnrollment
         fields = [
             'id',
             'presentation_title',
-            'can_request_certificate',
-            'certificate',
+            'has_certificate',
+            'is_certificate_verified',
         ]
+
+    def get_has_certificate(self, obj: PresentationEnrollment) -> bool:
+        return hasattr(obj, 'certificate')
+
+    def get_is_certificate_verified(self, obj: PresentationEnrollment) -> bool:
+        if hasattr(obj, 'certificate'):
+            return obj.certificate.is_verified
+        return False

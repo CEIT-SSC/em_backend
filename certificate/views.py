@@ -4,7 +4,7 @@ from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework.exceptions import NotFound
 from events.models import PresentationEnrollment
 from .models import Certificate
@@ -117,7 +117,7 @@ class CertificateDetailView(generics.RetrieveAPIView):
 @extend_schema_view(
     get=extend_schema(
         summary="List completed enrollments for certificates",
-        description="List your completed & past enrollments with their certificate status.",
+        description="Lists your completed & past enrollments with their certificate status, indicating if a certificate exists and if it's verified.",
         responses=CompletedEnrollmentSerializer(many=True)
     )
 )
