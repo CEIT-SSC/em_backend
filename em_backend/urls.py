@@ -25,10 +25,11 @@ urlpatterns = [
     path('api/', include('accounts.urls')),
     path('api/', include('events.urls')),
     path('api/', include('shop.urls')),
+    path('api/certificates/', include('certificate.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/swagger/', SpectacularSwaggerView.as_view(), name='schema-swagger-ui'),
 ]
 
 if settings.DEBUG:
     urlpatterns += (static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT) +
-                    static(settings.STATIC_URL, document_root=settings.STATIC_ROOT))
+                    static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT))
