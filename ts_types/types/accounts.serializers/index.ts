@@ -20,6 +20,19 @@ export interface ErrorResponse {
     error: string;
 }
 
+export interface JSTokenBlacklist {
+    refresh: string;
+}
+
+export interface JSTokenObtainPair {
+
+}
+
+export interface JSTokenRefresh {
+    refresh: string;
+    access?: string;
+}
+
 export interface MessageResponse {
     message: string;
 }

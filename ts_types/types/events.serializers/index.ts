@@ -1,4 +1,4 @@
-import type { ContentComment, GroupCompetition, TeamMembership, SoloCompetition, TeamMembershipUserDetail, Presenter, Presentation, TeamContent, MemberDetailSubmit } from '../default';
+import type { ContentComment, TeamMembershipUserDetail, MemberDetailSubmit, Presenter, TeamMembership, SoloCompetition, TeamContent, Presentation, GroupCompetition } from '../default';
 
 export enum StatusChoiceEnum {
     PENDING_ADMIN_VERIFICATION = 'pending_admin_verification',
@@ -200,6 +200,12 @@ export interface EventDetail {
     * @format date-time
     */
     createdAt?: string;
+    /**
+    * @label Page URL
+    * @maxLength 500
+    * @format url
+    */
+    landingUrl?: string | null;
 }
 
 export interface EventList {
@@ -230,6 +236,12 @@ export interface EventList {
     * @label Is Event Active?
     */
     isActive?: boolean;
+    /**
+    * @label Page URL
+    * @maxLength 500
+    * @format url
+    */
+    landingUrl?: string | null;
 }
 
 export interface GroupCompetition {
