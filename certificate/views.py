@@ -1,53 +1,116 @@
-from rest_framework import generics, permissions, status
+from django.template.loader import render_to_string
+from django.core.files.base import ContentFile
+from django.utils import timezone
+from rest_framework import generics, status
 from rest_framework.response import Response
-from .models import CertificateRequest
-from .serializers import CertificateRequestSerializer
+from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
+
 from events.models import PresentationEnrollment
-from .utils import generate_certificate_image
-from django.http import FileResponse
-from io import BytesIO
-from django.contrib.staticfiles import finders
-import os
-from em_backend import settings
+from .models import Certificate
+from .serializers import (
+    CertificateRequestSerializer,
+    CertificateSerializer,
+    ErrorResponseSerializer, CompletedEnrollmentSerializer,
+)
 
-# Create certificate request
-class CertificateRequestCreateView(generics.CreateAPIView):
+@extend_schema_view(
+    post=extend_schema(
+        summary="Request a certificate",
+        description="Request and generate a certificate after event has passed",
+        request=CertificateRequestSerializer,
+        responses={
+            201: CertificateSerializer,
+            400: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+        }
+    )
+)
+class CertificateRequestView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
     serializer_class = CertificateRequestSerializer
-    permission_classes = [permissions.IsAuthenticated]
 
-    def perform_create(self, serializer):
-        enrollment_id = self.request.data.get('enrollment')
-        enrollment = PresentationEnrollment.objects.get(id=enrollment_id, user=self.request.user)
-        serializer.save(enrollment=enrollment)
+    def post(self, request, enrollment_pk):
+        try:
+            enrollment = PresentationEnrollment.objects.get(
+                pk=enrollment_pk,
+                user=request.user,
+                status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE
+            )
+        except PresentationEnrollment.DoesNotExist:
+            return Response({'error': 'Completed enrollment not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if enrollment.presentation.event.end_date > timezone.now():
+            return Response({'error': 'Event has not ended yet.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if hasattr(enrollment, 'certificate'):
+            return Response({'error': 'Certificate already requested.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        name = serializer.validated_data['name']
+
+        ctx = {
+            'name': name,
+            'presentation_title': enrollment.presentation.title,
+            'event_title': enrollment.presentation.event.title,
+            'event_end_date': enrollment.presentation.event.end_date.strftime('%B %d, %Y'),
+        }
+        svg_content = render_to_string('certificate.svg', ctx)
+
+        cert = Certificate.objects.create(
+            enrollment=enrollment,
+            name_on_certificate=name,
+        )
+        filename = f"certificate_{enrollment.pk}_{timezone.now().strftime('%Y%m%d%H%M%S')}.svg"
+        cert.file.save(filename, ContentFile(svg_content.encode('utf-8')))
+        cert.save()
+
+        return Response(CertificateSerializer(cert).data, status=status.HTTP_201_CREATED)
 
 
-# List all requests for admin
-class CertificateRequestListView(generics.ListAPIView):
-    queryset = CertificateRequest.objects.all()
-    serializer_class = CertificateRequestSerializer
-    permission_classes = [permissions.IsAdminUser]
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get your verified certificate",
+        description="Retrieve the certificate if it has been verified by admin",
+        responses={
+            200: CertificateSerializer,
+            404: ErrorResponseSerializer,
+        }
+    )
+)
+class CertificateDetailView(generics.RetrieveAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CertificateSerializer
+    lookup_url_kwarg = 'enrollment_pk'
+
+    def get_object(self):
+        enrollment = PresentationEnrollment.objects.get(
+            pk=self.kwargs['enrollment_pk'],
+            user=self.request.user
+        )
+        cert = getattr(enrollment, 'certificate', None)
+        if not cert or not cert.is_verified:
+            from rest_framework.exceptions import NotFound
+            raise NotFound('Certificate not available or not verified.')
+        return cert
 
 
-# Approve or reject
-class CertificateRequestApproveView(generics.UpdateAPIView):
-    serializer_class = CertificateRequestSerializer
-    permission_classes = [permissions.IsAdminUser]
-    queryset = CertificateRequest.objects.all()
+@extend_schema_view(
+    get=extend_schema(
+        summary="List completed enrollments",
+        description="List your completed & past enrollments with certificate status",
+        responses=CompletedEnrollmentSerializer(many=True)
+    )
+)
+class CompletedEnrollmentsView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CompletedEnrollmentSerializer
 
-    def patch(self, request, *args, **kwargs):
-        obj = self.get_object()
-        obj.is_approved = request.data.get('is_approved')
-        obj.save()
-        return Response({'status': 'updated'})
-
-
-# Download certificate image (if approved)
-class CertificateDownloadView(generics.GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request, pk):
-        cert_request = CertificateRequest.objects.get(id=pk, enrollment__user=request.user)
-        if cert_request.is_approved:
-            image_bytes = generate_certificate_image(cert_request)
-            return FileResponse(image_bytes, content_type='image/png', filename='certificate.png')
-        return Response({'detail': 'Not approved yet'}, status=status.HTTP_403_FORBIDDEN)
+    def get_queryset(self):
+        now = timezone.now()
+        return PresentationEnrollment.objects.filter(
+            user=self.request.user,
+            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
+            presentation__end_date__lt=now
+        ).select_related('presentation', 'certificate')

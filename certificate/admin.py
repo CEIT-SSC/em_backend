@@ -1,11 +1,30 @@
 from django.contrib import admin
-from .models import CertificateRequest
+from .models import Certificate
 
-@admin.register(CertificateRequest)
-class CertificateRequestAdmin(admin.ModelAdmin):
-    list_display = ('id', 'enrollment', 'is_approved', 'requested_at')
-    list_filter = ('is_approved',)
-    search_fields = ('enrollment__user__username', 'enrollment__presentation__title')
-    ordering = ('-requested_at',)
-    list_editable = ('is_approved',)
-    list_per_page = 20
+
+@admin.register(Certificate)
+class CertificateAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'enrollment',
+        'name_on_certificate',
+        'is_verified',
+        'requested_at',
+    )
+    list_filter = ('is_verified', 'requested_at')
+    search_fields = (
+        'name_on_certificate',
+        'enrollment__user__email',
+        'enrollment__presentation__title',
+    )
+    actions = ['verify_certificates', 'unverify_certificates']
+
+    @admin.action(description='Mark as verified')
+    def verify_certificates(self, request, queryset):
+        updated = queryset.update(is_verified=True)
+        self.message_user(request, f"{updated} certificate(s) marked as verified.")
+
+    @admin.action(description='Mark as not verified')
+    def unverify_certificates(self, request, queryset):
+        updated = queryset.update(is_verified=False)
+        self.message_user(request, f"{updated} certificate(s) marked as not verified.")
