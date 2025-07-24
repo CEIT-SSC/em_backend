@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 load_dotenv(BASE_DIR / ".env")
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -29,7 +30,7 @@ DEBUG = os.getenv("DEBUG", default="False") == "True"
 AUTH_USER_MODEL = 'accounts.CustomUser'
 LOGIN_URL = 'accounts:token'
 
-STATIC_ROOT = BASE_DIR / 'static'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATIC_URL = '/static/'
 
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -42,7 +43,7 @@ CORS_ORIGIN_ALLOW_ALL = False
 USE_X_FORWARDED_HOST = True
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost', DOMAIN]
 CSRF_TRUSTED_ORIGINS = ['https://localhost', 'https://127.0.0.1', "https://" + DOMAIN]
-CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "https://" + DOMAIN]
+CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "https://" + DOMAIN, "http://127.0.0.1:8000"]
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -135,6 +136,7 @@ AUTHENTICATION_BACKENDS = [
 INSTALLED_APPS = [
     # Custom
     'jobs',
+    'certificate',
     'accounts',
     'shop',
     'events',
@@ -240,3 +242,9 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, "static"),
+]
+
+DEBUG = True
