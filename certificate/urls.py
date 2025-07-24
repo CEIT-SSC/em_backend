@@ -1,14 +1,13 @@
 from django.urls import path
 from .views import (
-    CertificateRequestCreateView,
-    CertificateRequestListView,
-    CertificateRequestApproveView,
-    CertificateDownloadView,
+    CertificateRequestView,
+    CertificateDetailView,
+    CompletedEnrollmentsView,
 )
 
+
 urlpatterns = [
-    path('request/', CertificateRequestCreateView.as_view(), name='certificate-request'),
-    path('requests/', CertificateRequestListView.as_view(), name='certificate-list'),
-    path('requests/<int:pk>/approve/', CertificateRequestApproveView.as_view(), name='certificate-approve'),
-    path('requests/<int:pk>/download/', CertificateDownloadView.as_view(), name='certificate-download'),
+    path('enrollments/<int:enrollment_pk>/certificate/request/', CertificateRequestView.as_view(), name='cert-request'),
+    path('enrollments/<int:enrollment_pk>/certificate/',         CertificateDetailView.as_view(), name='cert-detail'),
+    path('enrollments/completed/',                             CompletedEnrollmentsView.as_view(), name='completed-enrollments'),
 ]
