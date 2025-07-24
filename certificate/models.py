@@ -11,4 +11,4 @@ class CertificateRequest(models.Model):
         unique_together = ('enrollment',)
 
     def __str__(self):
-        return f"Certificate for {self.enrollment.user.username} - {self.enrollment.presentation.title}"
+        return f"Certificate for {self.enrollment.user.first_name} - {self.enrollment.user.last_name} - {self.enrollment.presentation.title}"

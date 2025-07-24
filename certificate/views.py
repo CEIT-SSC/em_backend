@@ -6,6 +6,9 @@ from events.models import PresentationEnrollment
 from .utils import generate_certificate_image
 from django.http import FileResponse
 from io import BytesIO
+from django.contrib.staticfiles import finders
+import os
+from em_backend import settings
 
 # Create certificate request
 class CertificateRequestCreateView(generics.CreateAPIView):
