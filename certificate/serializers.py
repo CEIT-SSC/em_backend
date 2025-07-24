@@ -10,6 +10,11 @@ class ErrorResponseSerializer(serializers.Serializer):
 
 
 @ts_interface()
+class MessageResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+
+@ts_interface()
 class CertificateRequestSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
 
