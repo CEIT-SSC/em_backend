@@ -40,21 +40,17 @@ class UserRegistrationSuccessSerializer(serializers.Serializer):
 @ts_interface()
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
-    password_confirm = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
     phone_number = serializers.CharField(required=True, max_length=20)
 
     class Meta:
         model = CustomUser
-        fields = ('email', 'password', 'password_confirm', 'first_name', 'last_name', 'phone_number')
+        fields = ('email', 'password', 'first_name', 'last_name', 'phone_number')
         extra_kwargs = {
             'first_name': {'required': False, 'allow_blank': True, 'default': ''},
             'last_name': {'required': False, 'allow_blank': True, 'default': ''},
         }
 
     def validate(self, attrs):
-        if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError({"password_confirm": "Password fields didn't match."})
-
         try:
             normalized_phone = validate_phone_number(attrs['phone_number'])
             if CustomUser.objects.filter(phone_number=normalized_phone).exists():
@@ -67,7 +63,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        validated_data.pop('password_confirm')
         user = CustomUser.objects.create_user(
             email=validated_data['email'],
             phone_number=validated_data['phone_number'],
@@ -133,18 +128,12 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
     new_password = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
-    new_password_confirm = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
 
     def validate_old_password(self, value):
         user = self.context['request'].user
         if not user.check_password(value):
             raise serializers.ValidationError(_("Your old password was entered incorrectly. Please enter it again."))
         return value
-
-    def validate(self, attrs):
-        if attrs['new_password'] != attrs['new_password_confirm']:
-            raise serializers.ValidationError({"new_password_confirm": "New password fields didn't match."})
-        return attrs
 
     def save(self, **kwargs):
         password = self.validated_data['new_password']
