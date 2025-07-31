@@ -129,3 +129,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         verbose_name = "User"
         verbose_name_plural = "Users"
         ordering = ['email']
+
+
+class Staff(models.Model):
+    name = models.CharField(max_length=200)
+    role = models.CharField(max_length=100)
+    description = models.TextField()
+    picture = models.ImageField(upload_to='staff_pictures/')
+    social_account_link = models.URLField(max_length=300, blank=True, null=True)
+
+    def __str__(self):
+        return self.name

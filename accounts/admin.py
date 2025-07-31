@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django import forms
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.forms import ReadOnlyPasswordHashField
-from .models import CustomUser
+from .models import CustomUser, Staff
 
 
 class CustomUserCreationForm(forms.ModelForm):
@@ -70,3 +70,10 @@ class CustomUserAdmin(BaseUserAdmin):
     )
 
     filter_horizontal = ('groups', 'user_permissions',)
+
+
+@admin.register(Staff)
+class StaffAdmin(admin.ModelAdmin):
+    list_display = ('name', 'role', 'social_account_link')
+    search_fields = ('name', 'role')
+    list_filter = ('role',)

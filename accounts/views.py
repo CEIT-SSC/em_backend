@@ -1,6 +1,5 @@
 from dj_rest_auth.registration.serializers import SocialLoginSerializer
 from dj_rest_auth.serializers import JWTSerializer
-from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework import generics, status, views
@@ -8,7 +7,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
+from rest_framework.viewsets import ReadOnlyModelViewSet
 from em_backend import settings
+from .models import Staff, CustomUser
 from .serializers import (
     UserRegistrationSerializer,
     EmailVerificationSerializer,
@@ -17,7 +18,7 @@ from .serializers import (
     UserProfileUpdateSerializer,
     ChangePasswordSerializer,
     SimpleForgotPasswordSerializer, MessageResponseSerializer, ErrorResponseSerializer,
-    UserRegistrationSuccessSerializer,
+    UserRegistrationSuccessSerializer, StaffSerializer,
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
@@ -26,7 +27,6 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 from django.template.loader import render_to_string
 
-CustomUser = get_user_model()
 
 @extend_schema(
     summary="Register or Login with Google (PKCE or Implicit Flow)",
@@ -332,3 +332,17 @@ class SimpleForgotPasswordView(views.APIView):
                                     "message": "If an account with this email exists, a new temporary password has been sent to your email address. Please change it after logging in."},
                                 status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    summary="List or Retrieve Staff",
+    request=None,
+    responses={
+        200: StaffSerializer,
+        404: "Not Found"
+    },
+    tags=["Staff"]
+)
+class StaffViewSet(ReadOnlyModelViewSet):
+    queryset = Staff.objects.all()
+    serializer_class = StaffSerializer

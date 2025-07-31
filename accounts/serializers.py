@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
-from accounts.models import validate_phone_number
+from accounts.models import validate_phone_number, Staff
 from django_typomatic import ts_interface
 from rest_framework_simplejwt.serializers import (
     TokenObtainPairSerializer,
@@ -145,3 +145,9 @@ class ChangePasswordSerializer(serializers.Serializer):
 @ts_interface()
 class SimpleForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
+
+@ts_interface()
+class StaffSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Staff
+        fields = '__all__'
