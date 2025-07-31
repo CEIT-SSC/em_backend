@@ -6,7 +6,7 @@ from drf_spectacular.utils import (
     OpenApiParameter, OpenApiTypes,
 )
 from django.db.models import Q
-from .models import Job, Tag
+from .models import Job
 from .serializers import JobListSerializer, JobDetailSerializer
 from .pagination import JobPagination
 

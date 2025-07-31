@@ -19,4 +19,8 @@
   <text x="400" y="430" text-anchor="middle" font-size="16" font-family="Arial">
     at {{ event_title }} on {{ event_end_date }}
   </text>
+
+  <text x="400" y="500" text-anchor="middle" font-size="14" font-family="Arial">
+    Verification Link: {{ verification_link: }}
+  </text>
 </svg>
