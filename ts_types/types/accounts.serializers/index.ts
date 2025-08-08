@@ -1,7 +1,6 @@
 export interface ChangePassword {
     oldPassword: string;
     newPassword: string;
-    newPasswordConfirm: string;
 }
 
 export interface EmailVerification {
@@ -49,6 +48,28 @@ export interface SimpleForgotPassword {
     * @format email
     */
     email: string;
+}
+
+export interface Staff {
+    /**
+    * @label ID
+    */
+    id?: number;
+    /**
+    * @maxLength 200
+    */
+    name: string;
+    /**
+    * @maxLength 100
+    */
+    role: string;
+    description: string;
+    picture: File;
+    /**
+    * @maxLength 300
+    * @format url
+    */
+    socialAccountLink?: string | null;
 }
 
 export interface UserProfile {
@@ -112,7 +133,6 @@ export interface UserRegistration {
     */
     email: string;
     password: string;
-    passwordConfirm: string;
     /**
     * @label First Name
     * @maxLength 150

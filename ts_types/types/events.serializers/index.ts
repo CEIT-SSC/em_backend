@@ -1,4 +1,4 @@
-import type { ContentComment, TeamMembershipUserDetail, MemberDetailSubmit, Presenter, TeamMembership, SoloCompetition, TeamContent, Presentation, GroupCompetition } from '../default';
+import type { SoloCompetition, TeamContent, MemberDetailSubmit, Presenter, TeamMembershipUserDetail, GroupCompetition, Presentation, TeamMembership, ContentComment } from '../default';
 
 export enum StatusChoiceEnum {
     PENDING_ADMIN_VERIFICATION = 'pending_admin_verification',
