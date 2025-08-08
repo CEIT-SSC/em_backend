@@ -1,4 +1,4 @@
-import type { ItemDetail, CompetitionTeamDetail, SoloCompetition, Presentation } from '../default';
+import type { CompetitionTeamDetail, ItemDetail, Presentation, SoloCompetition } from '../default';
 
 export enum ItemTypeChoiceEnum {
     PRESENTATION = 'presentation',
