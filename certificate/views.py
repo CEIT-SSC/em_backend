@@ -53,20 +53,22 @@ class CertificateRequestView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         name = serializer.validated_data['name']
 
+        cert = Certificate.objects.create(
+            enrollment=enrollment,
+            name_on_certificate=name,
+        )
+
         ctx = {
             'name': name,
             'presentation_title': enrollment.presentation.title,
             'event_title': enrollment.presentation.event.title,
             'event_end_date': enrollment.presentation.event.end_date.strftime('%B %d, %Y'),
+            'verification_link': f"https://127.0.0.1:8000/certificates/enrollments/{cert.enrollment.id}/certificate",
         }
-        svg_template = render_to_string('certificate.svg')
+        svg_template = render_to_string('certificate.svg', ctx)
         for key, value in ctx.items():
             svg_template = svg_template.replace(f'{{{key}}}', str(value))
 
-        cert = Certificate.objects.create(
-            enrollment=enrollment,
-            name_on_certificate=name,
-        )
         filename = f"certificate_{enrollment.pk}_{timezone.now().strftime('%Y%m%d%H%M%S')}.svg"
         cert.file.save(filename, ContentFile(svg_template.encode('utf-8')))
         cert.save()
