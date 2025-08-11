@@ -35,9 +35,10 @@ class Event(models.Model):
         ordering = ['-start_date', 'title']
 
 class Presentation(models.Model):
+    COURSE = "course"
     TALK = "talk"
     WORKSHOP = "workshop"
-    PRESENTATION_TYPE_CHOICES = [(TALK, "Talk"), (WORKSHOP, "Workshop")]
+    PRESENTATION_TYPE_CHOICES = [(COURSE, "course"), (TALK, "Talk"), (WORKSHOP, "Workshop")]
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="presentations", verbose_name="Parent Event")
     title = models.CharField(max_length=255, verbose_name="Presentation Title")
