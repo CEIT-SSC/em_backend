@@ -298,7 +298,7 @@ class EventDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'start_date', 'end_date', 'is_active',
             'presentations', 'solo_competitions', 'group_competitions', 'poster',
-            'created_at', 'landing_url',
+            'created_at', 'landing_url', 'manager'
         ]
         read_only_fields = ['created_at', ]
 
@@ -306,7 +306,8 @@ class EventDetailSerializer(serializers.ModelSerializer):
 class EventListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
-        fields = ['id', 'title', 'start_date', 'end_date', 'poster', 'is_active', 'landing_url',]
+        fields = ['id', 'title', 'start_date', 'end_date', 'poster',
+                  'is_active', 'landing_url', 'description', 'manager']
 
 @ts_interface()
 class PresentationEnrollmentSerializer(serializers.ModelSerializer):

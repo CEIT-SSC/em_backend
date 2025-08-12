@@ -25,6 +25,7 @@ class Event(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     poster = models.ImageField(upload_to='event_posters/%Y/%m/', blank=True, null=True, verbose_name="Event Poster")
     landing_url = models.URLField(max_length=500, blank=True, null=True, verbose_name="Page URL")
+    manager = models.CharField(max_length=255, verbose_name="Manager Name")
 
     def __str__(self):
         return self.title
@@ -40,7 +41,7 @@ class Presentation(models.Model):
     WORKSHOP = "workshop"
     PRESENTATION_TYPE_CHOICES = [(COURSE, "course"), (TALK, "Talk"), (WORKSHOP, "Workshop")]
 
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="presentations", verbose_name="Parent Event")
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="presentations", verbose_name="Parent Event", blank=True, null=True)
     title = models.CharField(max_length=255, verbose_name="Presentation Title")
     description = models.TextField(verbose_name="Presentation Description")
     presenters = models.ManyToManyField(Presenter, blank=True, related_name="presentations", verbose_name="Presenters")
@@ -64,7 +65,7 @@ class Presentation(models.Model):
         ordering = ['event', 'start_time', 'title']
 
 class BaseCompetition(models.Model):
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, verbose_name="Parent Event")
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, verbose_name="Parent Event", blank=True, null=True)
     title = models.CharField(max_length=255, verbose_name="Competition Title")
     description = models.TextField(verbose_name="Description")
     start_datetime = models.DateTimeField(verbose_name="Start Date & Time")
