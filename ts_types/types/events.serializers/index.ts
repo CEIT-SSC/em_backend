@@ -1,4 +1,4 @@
-import type { SoloCompetition, TeamContent, MemberDetailSubmit, Presenter, TeamMembershipUserDetail, GroupCompetition, Presentation, TeamMembership, ContentComment } from '../default';
+import type { Presenter, ContentComment, Presentation, MemberDetailSubmit, TeamContent, GroupCompetition, SoloCompetition, TeamMembershipUserDetail, TeamMembership } from '../default';
 
 export enum StatusChoiceEnum {
     PENDING_ADMIN_VERIFICATION = 'pending_admin_verification',
@@ -37,11 +37,13 @@ export enum StatusChoiceEnumValues {
 }
 
 export enum TypeChoiceEnum {
+    COURSE = 'course',
     TALK = 'talk',
     WORKSHOP = 'workshop',
 }
 
 export enum TypeChoiceEnumValues {
+    course = 'course',
     talk = 'Talk',
     workshop = 'Workshop',
 }
@@ -206,6 +208,11 @@ export interface EventDetail {
     * @format url
     */
     landingUrl?: string | null;
+    /**
+    * @label Manager Name
+    * @maxLength 255
+    */
+    manager: string;
 }
 
 export interface EventList {
@@ -242,6 +249,15 @@ export interface EventList {
     * @format url
     */
     landingUrl?: string | null;
+    /**
+    * @label Event Description
+    */
+    description: string;
+    /**
+    * @label Manager Name
+    * @maxLength 255
+    */
+    manager: string;
 }
 
 export interface GroupCompetition {
@@ -252,7 +268,7 @@ export interface GroupCompetition {
     /**
     * @label Parent Event
     */
-    event: number;
+    event?: number | null;
     eventTitle?: string;
     /**
     * @label Competition Title
@@ -397,7 +413,7 @@ export interface Presentation {
     /**
     * @label Parent Event
     */
-    event: number;
+    event?: number | null;
     eventTitle?: string;
     /**
     * @label Presentation Title
@@ -513,7 +529,7 @@ export interface SoloCompetition {
     /**
     * @label Parent Event
     */
-    event: number;
+    event?: number | null;
     eventTitle?: string;
     /**
     * @label Competition Title
