@@ -7,14 +7,15 @@ export interface CertificateRequest {
 
 export interface Certificate {
     /**
-    * @label ID
+    * @format uuid
     */
-    id?: number;
+    id?: string;
     /**
     * @maxLength 255
     */
     nameOnCertificate: string;
-    file?: File | null;
+    fileEn?: File | null;
+    fileFa?: File | null;
     isVerified?: boolean;
     /**
     * @format date-time
