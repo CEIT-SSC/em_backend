@@ -31,7 +31,7 @@ class PresentationSerializer(serializers.ModelSerializer):
     presenter_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Presenter.objects.all(), source='presenters', write_only=True, required=False
     )
-    event_title = serializers.CharField(source='event.title', read_only=True)
+    event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
 
     class Meta:
         model = Presentation
@@ -40,13 +40,13 @@ class PresentationSerializer(serializers.ModelSerializer):
             'presenters_details', 'presenter_ids',
             'type', 'is_online', 'location', 'online_link',
             'start_time', 'end_time', 'is_paid', 'price', 'capacity',
-            'created_at',
+            'created_at', 'is_active'
         ]
         read_only_fields = ['event_title', 'created_at', ]
 
 @ts_interface()
 class SoloCompetitionSerializer(serializers.ModelSerializer):
-    event_title = serializers.CharField(source='event.title', read_only=True)
+    event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
 
     class Meta:
         model = SoloCompetition
@@ -59,7 +59,7 @@ class SoloCompetitionSerializer(serializers.ModelSerializer):
 
 @ts_interface()
 class GroupCompetitionSerializer(serializers.ModelSerializer):
-    event_title = serializers.CharField(source='event.title', read_only=True)
+    event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
 
     class Meta:
         model = GroupCompetition
