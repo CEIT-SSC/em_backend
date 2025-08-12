@@ -7,7 +7,7 @@ from .views import (
 
 
 urlpatterns = [
-    path('enrollments/<int:enrollment_pk>/certificate/request/', CertificateRequestView.as_view(), name='cert-request'),
-    path('enrollments/<int:enrollment_pk>/certificate/',         CertificateDetailView.as_view(), name='cert-detail'),
+    path('<int:enrollment_pk>/request/', CertificateRequestView.as_view(), name='cert-request'),
+    path('<int:enrollment_pk>/verify/',         CertificateDetailView.as_view(), name='cert-detail'),
     path('enrollments/completed/',                             CompletedEnrollmentsView.as_view(), name='completed-enrollments'),
 ]

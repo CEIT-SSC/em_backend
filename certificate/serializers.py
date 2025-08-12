@@ -23,7 +23,7 @@ class CertificateRequestSerializer(serializers.Serializer):
 class CertificateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Certificate
-        fields = ['id', 'name_on_certificate', 'file', 'is_verified', 'requested_at']
+        fields = ['id', 'name_on_certificate', 'file_en', 'file_fa', 'is_verified', 'requested_at']
         read_only_fields = ['id', 'file', 'requested_at']
 
 

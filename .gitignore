@@ -25,6 +25,7 @@ staticfiles/ # Typically, you don't version control collected static files
 *.mo # Compiled translation files
 /media
 static/
+!static/certificates/
 
 # PyCharm
 .idea/
