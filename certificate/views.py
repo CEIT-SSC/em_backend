@@ -1,6 +1,7 @@
 from django.template.loader import render_to_string
 from django.core.files.base import ContentFile
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -16,6 +17,17 @@ from .serializers import (
 )
 
 
+@extend_schema(
+    tags=['User - Certificates'],
+    summary="Request a Certificate",
+    description="Allows an authenticated user to request a certificate for a completed and finished presentation enrollment.",
+    request=CertificateRequestSerializer,
+    responses={
+        201: MessageResponseSerializer,
+        400: ErrorResponseSerializer,
+        404: ErrorResponseSerializer,
+    }
+)
 class CertificateRequestView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CertificateRequestSerializer
@@ -37,11 +49,9 @@ class CertificateRequestView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         name = serializer.validated_data['name']
 
-        # If certificate already exists, error out
         if hasattr(enrollment, 'certificate'):
             return Response({'error': 'Certificate already requested.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create certificate immediately, files will be null initially
         Certificate.objects.create(
             enrollment=enrollment,
             name_on_certificate=name,
@@ -54,6 +64,16 @@ class CertificateRequestView(generics.GenericAPIView):
         )
 
 
+@extend_schema(
+    tags=['User - Certificates'],
+    summary="Retrieve Certificate Details",
+    description="Fetches the details of a specific certificate. If the certificate is verified and the files haven't been generated, it will create them on the fly.",
+    responses={
+        200: CertificateSerializer,
+        403: ErrorResponseSerializer,
+        404: ErrorResponseSerializer,
+    }
+)
 class CertificateDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CertificateSerializer
@@ -76,7 +96,6 @@ class CertificateDetailView(generics.RetrieveAPIView):
         if not cert.is_verified:
             raise PermissionDenied('Certificate is not verified yet.')
 
-        # Generate SVG files only if missing
         if not cert.file_en or not cert.file_fa:
             cert = self._generate_certificate(enrollment)
 
@@ -115,6 +134,12 @@ class CertificateDetailView(generics.RetrieveAPIView):
         return cert
 
 
+@extend_schema(
+    tags=['User - Certificates'],
+    summary="List Completed Enrollments for Certificates",
+    description="Retrieves a list of the user's presentation enrollments that are completed, finished, and eligible for a certificate request.",
+    responses={200: CompletedEnrollmentSerializer(many=True)}
+)
 class CompletedEnrollmentsView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CompletedEnrollmentSerializer

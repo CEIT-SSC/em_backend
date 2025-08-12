@@ -69,15 +69,28 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
     tags=['Public - Events & Activities']
 )
 class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Presentation.objects.select_related('event').prefetch_related('presenters').filter(
-        event__is_active=True).order_by('start_time')
     serializer_class = PresentationSerializer
     filterset_fields = ['event', 'type', 'is_online', 'is_paid']
+
+    def get_queryset(self):
+        event_id = self.request.query_params.get('event')
+        if event_id:
+            return Presentation.objects.select_related('event').prefetch_related('presenters').filter(
+                event_id=event_id, event__is_active=True, is_active=True
+            ).order_by('start_time')
+        else:
+            return Presentation.objects.select_related('event').prefetch_related('presenters').filter(
+                (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
+            ).order_by('start_time')
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='enroll')
     def enroll(self, request, pk=None):
         presentation = self.get_object()
         user = request.user
+        if not presentation.is_active:
+            return Response({"error": "This presentation is not currently active for enrollment."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         if PresentationEnrollment.objects.filter(user=user, presentation=presentation,
                                                  status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).exists():
             return Response({"message": "Already actively enrolled."}, status=status.HTTP_200_OK)
@@ -110,10 +123,21 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
     tags=['Public - Events & Activities']
 )
 class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = SoloCompetition.objects.select_related('event').filter(is_active=True, event__is_active=True).order_by(
-        'start_datetime')
     serializer_class = SoloCompetitionSerializer
     filterset_fields = ['event', 'is_paid']
+
+    def get_queryset(self):
+        event_id = self.request.query_params.get('event')
+        base_query = SoloCompetition.objects.select_related('event')
+
+        if event_id:
+            return base_query.filter(
+                event_id=event_id, event__is_active=True, is_active=True
+            ).order_by('start_datetime')
+        else:
+            return base_query.filter(
+                (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
+            ).order_by('start_datetime')
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='register')
     def register(self, request, pk=None):
@@ -152,10 +176,21 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
     tags=['Public - Events & Activities']
 )
 class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = GroupCompetition.objects.select_related('event').filter(is_active=True, event__is_active=True).order_by(
-        'start_datetime')
     serializer_class = GroupCompetitionSerializer
     filterset_fields = ['event', 'is_paid', 'requires_admin_approval']
+
+    def get_queryset(self):
+        event_id = self.request.query_params.get('event')
+        base_query = GroupCompetition.objects.select_related('event')
+
+        if event_id:
+            return base_query.filter(
+                event_id=event_id, event__is_active=True, is_active=True
+            ).order_by('start_datetime')
+        else:
+            return base_query.filter(
+                (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
+            ).order_by('start_datetime')
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='register-team')
     def register_team(self, request, pk=None):

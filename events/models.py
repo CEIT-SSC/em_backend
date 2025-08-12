@@ -54,15 +54,16 @@ class Presentation(models.Model):
     is_paid = models.BooleanField(default=False, verbose_name="Is Paid?")
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, blank=True, null=True, verbose_name="Price (e.g., Toman)")
     capacity = models.PositiveIntegerField(blank=True, null=True, verbose_name="Capacity")
+    is_active = models.BooleanField(default=True, verbose_name="Is Active for Registration?")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.title} ({self.event.title})"
+        return f"{self.title}"
 
     class Meta:
         verbose_name = "Presentation"
         verbose_name_plural = "Presentations"
-        ordering = ['event', 'start_time', 'title']
+        ordering = ['start_time', 'title']
 
 class BaseCompetition(models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, verbose_name="Parent Event", blank=True, null=True)
@@ -79,10 +80,10 @@ class BaseCompetition(models.Model):
 
     class Meta:
         abstract = True
-        ordering = ['event', 'start_datetime', 'title']
+        ordering = ['start_datetime', 'title']
 
     def __str__(self):
-        return f"{self.title} ({self.event.title})"
+        return f"{self.title}"
 
 class SoloCompetition(BaseCompetition):
     price_per_participant = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, blank=True, null=True, verbose_name="Price per Participant (e.g., Toman)")
