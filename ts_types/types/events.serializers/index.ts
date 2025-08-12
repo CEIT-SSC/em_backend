@@ -1,4 +1,4 @@
-import type { Presenter, ContentComment, Presentation, MemberDetailSubmit, TeamContent, GroupCompetition, SoloCompetition, TeamMembershipUserDetail, TeamMembership } from '../default';
+import type { MemberDetailSubmit, TeamMembership, GroupCompetition, Presentation, TeamContent, ContentComment, SoloCompetition, TeamMembershipUserDetail, Presenter } from '../default';
 
 export enum StatusChoiceEnum {
     PENDING_ADMIN_VERIFICATION = 'pending_admin_verification',
@@ -269,7 +269,7 @@ export interface GroupCompetition {
     * @label Parent Event
     */
     event?: number | null;
-    eventTitle?: string;
+    eventTitle?: string | null;
     /**
     * @label Competition Title
     * @maxLength 255
@@ -414,7 +414,7 @@ export interface Presentation {
     * @label Parent Event
     */
     event?: number | null;
-    eventTitle?: string;
+    eventTitle?: string | null;
     /**
     * @label Presentation Title
     * @maxLength 255
@@ -468,6 +468,10 @@ export interface Presentation {
     * @format date-time
     */
     createdAt?: string;
+    /**
+    * @label Is Active for Registration?
+    */
+    isActive?: boolean;
 }
 
 export interface Presenter {
@@ -530,7 +534,7 @@ export interface SoloCompetition {
     * @label Parent Event
     */
     event?: number | null;
-    eventTitle?: string;
+    eventTitle?: string | null;
     /**
     * @label Competition Title
     * @maxLength 255
