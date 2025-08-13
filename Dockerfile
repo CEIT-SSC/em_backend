@@ -6,13 +6,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# OS deps (PostgreSQL client for psycopg2, build-essential for wheels)
+# Install runtime dependencies
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential libpq-dev postgresql-client && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+    libpq5 \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 
+# Install Python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install --no-cache-dir gunicorn -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir \
+    gunicorn \
+    psycopg==3.1.8 \
+    -r requirements.txt
 
 # Copy project
 COPY . .
