@@ -26,7 +26,7 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='refresh_token'),
     path('token/blacklist/', token_blacklist, name='blacklist_token'),
 
-    path('staff/', include(router.urls)),
+    path('', include(router.urls)),
     path('profile/', UserProfileView.as_view(), name='user_profile'),
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('forgot-password/', SimpleForgotPasswordView.as_view(), name='forgot_password_simple'),
