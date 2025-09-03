@@ -1,15 +1,21 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from .views import (
     UserRegistrationView,
     EmailVerificationView,
     ResendVerificationEmailView,
     UserProfileView,
     ChangePasswordView,
-    SimpleForgotPasswordView, GoogleLogin
+    SimpleForgotPasswordView,
+    GoogleLogin,
+    StaffViewSet
 )
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, token_blacklist
 
 app_name = 'accounts'
+
+router = DefaultRouter()
+router.register(r'staff', StaffViewSet, basename='staff')
 
 urlpatterns = [
     path('register/', UserRegistrationView.as_view(), name='user_register'),
@@ -20,6 +26,7 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='refresh_token'),
     path('token/blacklist/', token_blacklist, name='blacklist_token'),
 
+    path('staff/', include(router.urls)),
     path('profile/', UserProfileView.as_view(), name='user_profile'),
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('forgot-password/', SimpleForgotPasswordView.as_view(), name='forgot_password_simple'),
