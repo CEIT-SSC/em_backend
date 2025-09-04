@@ -4,16 +4,14 @@ from django.utils.translation import gettext_lazy as _
 from accounts.models import validate_phone_number, Staff
 from django_typomatic import ts_interface
 from rest_framework_simplejwt.serializers import (
-    TokenObtainPairSerializer,
     TokenRefreshSerializer, TokenBlacklistSerializer
 )
 
 CustomUser = get_user_model()
 
-
 @ts_interface()
-class JSTokenObtainPairSerializer(TokenObtainPairSerializer):
-    pass
+class JSAccessSerializer(serializers.Serializer):
+    access = serializers.CharField()
 
 @ts_interface()
 class JSTokenRefreshSerializer(TokenRefreshSerializer):
@@ -34,8 +32,6 @@ class ErrorResponseSerializer(serializers.Serializer):
 @ts_interface()
 class UserRegistrationSuccessSerializer(serializers.Serializer):
     email   = serializers.EmailField()
-    message = serializers.CharField()
-
 
 @ts_interface()
 class UserRegistrationSerializer(serializers.ModelSerializer):

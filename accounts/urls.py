@@ -8,9 +8,9 @@ from .views import (
     ChangePasswordView,
     SimpleForgotPasswordView,
     GoogleLogin,
-    StaffViewSet
+    StaffViewSet, CustomTokenObtainView
 )
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, token_blacklist
+from rest_framework_simplejwt.views import TokenRefreshView, token_blacklist
 
 app_name = 'accounts'
 
@@ -22,7 +22,7 @@ urlpatterns = [
     path('verify-email/', EmailVerificationView.as_view(), name='email_verify'),
     path('resend-verify-email/', ResendVerificationEmailView.as_view(), name='resend_verify_email'),
 
-    path('token/', TokenObtainPairView.as_view(), name='token'),
+    path('token/', CustomTokenObtainView.as_view(), name='token'),
     path('token/refresh/', TokenRefreshView.as_view(), name='refresh_token'),
     path('token/blacklist/', token_blacklist, name='blacklist_token'),
 
