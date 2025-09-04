@@ -100,6 +100,9 @@ class UserRegistrationView(generics.CreateAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             else:
+                serializer = self.get_serializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+
                 code = generate_numeric_code(length=6)
                 user.email_verification_code = code
                 user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)
