@@ -3,19 +3,33 @@ from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from accounts.models import validate_phone_number, Staff
 from django_typomatic import ts_interface
-from rest_framework_simplejwt.serializers import (
-    TokenRefreshSerializer, TokenBlacklistSerializer
-)
+from rest_framework_simplejwt.serializers import TokenBlacklistSerializer
+from django.contrib.auth import authenticate
 
 CustomUser = get_user_model()
 
 @ts_interface()
-class JSAccessSerializer(serializers.Serializer):
-    access = serializers.CharField()
+class CustomTokenObtainSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        email = attrs.get('email')
+        password = attrs.get('password')
+
+        if email and password:
+            user = authenticate(request=self.context.get('request'), email=email, password=password)
+            if not user:
+                raise serializers.ValidationError("Unable to log in with provided credentials.", code='authorization')
+        else:
+            raise serializers.ValidationError("Must include 'email' and 'password'.", code='authorization')
+
+        attrs['user'] = user
+        return attrs
 
 @ts_interface()
-class JSTokenRefreshSerializer(TokenRefreshSerializer):
-    pass
+class JSAccessSerializer(serializers.Serializer):
+    access = serializers.CharField()
 
 @ts_interface()
 class JSTokenBlacklistSerializer(TokenBlacklistSerializer):

@@ -5,8 +5,9 @@ from rest_framework import generics, status, views
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
 from rest_framework.viewsets import ReadOnlyModelViewSet
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenRefreshView
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Staff, CustomUser
 from .serializers import (
@@ -19,7 +20,7 @@ from .serializers import (
     SimpleForgotPasswordSerializer,
     UserRegistrationSuccessSerializer,
     StaffSerializer,
-    JSAccessSerializer
+    JSAccessSerializer, CustomTokenObtainSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
@@ -38,24 +39,26 @@ from django.conf import settings
         - Returns the access token in the response body.
         - Sets the refresh token as an HttpOnly cookie.
     """,
-    request=None,
+    request=CustomTokenObtainSerializer,
     responses={
         200: get_api_response_serializer(JSAccessSerializer),
         400: ApiErrorResponseSerializer,
         401: ApiErrorResponseSerializer,
     },
-    tags=['api']
+    tags=['Authentication']
 )
-class CustomTokenObtainView(TokenObtainPairView):
+class CustomTokenObtainView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = CustomTokenObtainSerializer
+
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.user
+        user = serializer.validated_data['user']
         refresh = RefreshToken.for_user(user)
 
-        data = {"access": str(refresh.access_token)}
-        response_serializer = JSAccessSerializer(data)
-        response = Response(response_serializer.data, status=status.HTTP_200_OK)
+        data_payload = {"access": str(refresh.access_token)}
+        response = Response(data_payload, status=status.HTTP_200_OK)
 
         response.set_cookie(
             key="refresh_token",
@@ -64,9 +67,97 @@ class CustomTokenObtainView(TokenObtainPairView):
             secure=not settings.DEBUG,
             samesite="Lax",
             path="/",
+            max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
+        )
+        return response
+
+
+@extend_schema(
+    summary="Refresh access token",
+    description="""
+        Refreshes an access token using the refresh token from the HttpOnly cookie.
+        Returns a new access token in the response body.
+        The refresh token is automatically rotated if configured in settings.
+    """,
+    request=None,
+    responses={
+        200: get_api_response_serializer(JSAccessSerializer),
+        401: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomTokenRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        refresh_token_from_cookie = request.COOKIES.get("refresh_token")
+
+        request_data = request.data.copy()
+        if refresh_token_from_cookie and 'refresh' not in request_data:
+            request_data['refresh'] = refresh_token_from_cookie
+
+        serializer = self.get_serializer(data=request_data)
+        serializer.is_valid(raise_exception=True)
+
+        new_access_token = serializer.validated_data['access']
+        new_refresh_token = serializer.validated_data.get('refresh')
+
+        data_payload = {"access": new_access_token}
+        response = Response(data_payload, status=status.HTTP_200_OK)
+
+        if new_refresh_token:
+            response.set_cookie(
+                key="refresh_token",
+                value=new_refresh_token,
+                httponly=True,
+                secure=not settings.DEBUG,
+                samesite="Lax",
+                path="/",
+                max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
+            )
+        return response
+
+
+@extend_schema(
+    summary="Logout user (blacklist refresh token)",
+    description="""
+        Blacklists the refresh token sent in the HttpOnly cookie and clears the cookie.
+        This effectively logs the user out.
+    """,
+    request=None,  # The request body is empty
+    responses={
+        200: get_api_response_serializer(None),  # Success message, no data
+        400: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomTokenBlacklistView(views.APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        refresh_token = request.COOKIES.get("refresh_token")
+
+        if not refresh_token:
+            return Response(
+                {"error": "Refresh token not found in cookie."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+        except TokenError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        response = Response(
+            {"message": "Logout successful. Token has been blacklisted."},
+            status=status.HTTP_200_OK
+        )
+        response.delete_cookie(
+            key="refresh_token",
+            path="/",
         )
 
         return response
+
 
 @extend_schema(
     summary="Register or Login with Google (PKCE or Implicit Flow)",
