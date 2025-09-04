@@ -8,11 +8,13 @@ import logging
 from rest_framework import viewsets, status, generics, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, NoPaginationAutoSchema, \
+    get_paginated_response_serializer
 from .models import DiscountCode, Cart, CartItem, Order, OrderItem
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
-    OrderSerializer, OrderListSerializer, CartItemSerializer, ErrorResponseSerializer, PaymentInitiateResponseSerializer
+    OrderSerializer, OrderListSerializer, CartItemSerializer, PaymentInitiateResponseSerializer
 )
 from .payments import ZarrinPal
 
@@ -38,28 +40,30 @@ class CartView(generics.RetrieveAPIView):
     @extend_schema(
         summary="View user's shopping cart",
         request=None,
-        responses={200: CartSerializer},
+        responses={
+            200: get_api_response_serializer(CartSerializer),
+        },
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
 
 
-@extend_schema(tags=['Shop - Cart'])
+@extend_schema(
+    tags=['Shop - Cart'],
+    summary="Add item to cart",
+    request=AddToCartSerializer,
+    responses={
+        200: get_api_response_serializer(CartSerializer),
+        201: get_api_response_serializer(CartSerializer),
+        400: ApiErrorResponseSerializer,
+        403: ApiErrorResponseSerializer,
+        404: ApiErrorResponseSerializer,
+    },
+)
 class AddToCartView(views.APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = AddToCartSerializer
 
-    @extend_schema(
-        summary="Add item to cart",
-        request=AddToCartSerializer,
-        responses={
-            200: CartSerializer,
-            201: CartSerializer,
-            400: ErrorResponseSerializer,
-            403: ErrorResponseSerializer,
-            404: ErrorResponseSerializer,
-        },
-    )
     def post(self, request, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
         serializer = self.serializer_class(data=request.data)
@@ -119,17 +123,17 @@ class AddToCartView(views.APIView):
         return Response(CartSerializer(cart).data, status=status.HTTP_201_CREATED)
 
 
-@extend_schema(tags=['Shop - Cart'])
+@extend_schema(
+    tags=['Shop - Cart'],
+    summary="Remove item from cart",
+    responses={
+        200: get_api_response_serializer(CartSerializer),
+        404: ApiErrorResponseSerializer,
+    },
+)
 class RemoveCartItemView(views.APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        summary="Remove item from cart",
-        responses={
-            200: CartSerializer,
-            404: ErrorResponseSerializer,
-        },
-    )
     def delete(self, request, cart_item_pk, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
         try:
@@ -148,19 +152,19 @@ class RemoveCartItemView(views.APIView):
             return Response({"error": "Cart item not found."}, status=status.HTTP_404_NOT_FOUND)
 
 
-@extend_schema(tags=['Shop - Cart'])
+@extend_schema(
+    tags=['Shop - Cart'],
+    summary="Apply discount code to cart",
+    request=ApplyDiscountSerializer,
+    responses={
+        200: get_api_response_serializer(CartSerializer),
+        400: ApiErrorResponseSerializer,
+    },
+)
 class ApplyDiscountView(views.APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = ApplyDiscountSerializer
 
-    @extend_schema(
-        summary="Apply discount code to cart",
-        request=ApplyDiscountSerializer,
-        responses={
-            200: CartSerializer,
-            400: ErrorResponseSerializer,
-        },
-    )
     def post(self, request, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
         serializer = self.serializer_class(data=request.data)
@@ -181,14 +185,14 @@ class ApplyDiscountView(views.APIView):
             return Response({"error": "Invalid discount code."}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@extend_schema(tags=['Shop - Cart'])
+@extend_schema(
+    tags=['Shop - Cart'],
+    summary = "Remove discount code from cart",
+    responses = {200: get_api_response_serializer(CartSerializer)}
+)
 class RemoveDiscountView(views.APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        summary = "Remove discount code from cart",
-        responses = {200: CartSerializer}
-    )
     def delete(self, request, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
         if cart.applied_discount_code:
@@ -197,7 +201,14 @@ class RemoveDiscountView(views.APIView):
         return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
 
 
-@extend_schema(tags=['Shop - Orders & Payment'])
+@extend_schema(
+    tags=['Shop - Orders & Payment'],
+    summary="Checkout cart and create an order",
+    responses={
+        201: get_api_response_serializer(OrderSerializer),
+        400: ApiErrorResponseSerializer,
+    },
+)
 class OrderCheckoutView(views.APIView):
     permission_classes = [IsAuthenticated]
 
@@ -232,13 +243,6 @@ class OrderCheckoutView(views.APIView):
             order.save(update_fields=['status'])
         logger.info(f"Finished processing order: {order.order_id}")
 
-    @extend_schema(
-        summary="Checkout cart and create an order",
-        responses={
-            201: OrderSerializer,
-            400: ErrorResponseSerializer,
-        },
-    )
     def post(self, request, *args, **kwargs):
         cart = Cart.objects.filter(user=request.user).prefetch_related('items__content_object').first()
         if not cart or not cart.items.exists():
@@ -304,19 +308,19 @@ class OrderCheckoutView(views.APIView):
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
 
-@extend_schema(tags=['Shop - Orders & Payment'])
+@extend_schema(
+    tags=['Shop - Orders & Payment'],
+    summary="Initiate payment for an order via Zarinpal",
+    responses={
+        200: get_api_response_serializer(PaymentInitiateResponseSerializer),
+        400: ApiErrorResponseSerializer,
+        404: ApiErrorResponseSerializer,
+        500: ApiErrorResponseSerializer,
+    },
+)
 class OrderPaymentInitiateView(views.APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        summary="Initiate payment for an order via Zarinpal",
-        responses={
-            200: PaymentInitiateResponseSerializer,
-            400: ErrorResponseSerializer,
-            404: ErrorResponseSerializer,
-            500: ErrorResponseSerializer,
-        },
-    )
     def post(self, request, order_pk, *args, **kwargs):
         order = get_object_or_404(Order, pk=order_pk, user=request.user)
 
@@ -353,14 +357,15 @@ class OrderPaymentInitiateView(views.APIView):
             return Response({"error": f"Payment gateway error: {error_msg}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@extend_schema(tags=['Shop - Orders & Payment'])
+@extend_schema(
+    tags=['Shop - Orders & Payment'],
+    summary="Handles Zarinpal callback after payment attempt",
+    description="This endpoint does not return JSON. It redirects the user back to the frontend.",
+    responses={302: None},
+)
 class PaymentCallbackView(views.APIView):
     permission_classes = [AllowAny]
 
-    @extend_schema(
-        summary="Handles Zarinpal callback after payment attempt",
-        responses={302: None},
-    )
     def get(self, request, *args, **kwargs):
         authority = request.GET.get('Authority')
         status_param = request.GET.get('Status')
@@ -423,7 +428,21 @@ class PaymentCallbackView(views.APIView):
 
 
 @extend_schema(tags=['Shop - Orders & Payment'])
+@extend_schema_view(
+    list=extend_schema(
+        summary="List user's order history",
+        responses={200: get_paginated_response_serializer(OrderListSerializer)}
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve a single order",
+        responses={
+            200: get_api_response_serializer(OrderSerializer),
+            404: ApiErrorResponseSerializer
+        }
+    )
+)
 class OrderHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    schema = NoPaginationAutoSchema()
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):

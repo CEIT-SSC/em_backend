@@ -4,8 +4,10 @@ from rest_framework import viewsets, status, generics, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from drf_spectacular.types import OpenApiTypes
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
+    get_paginated_response_serializer, NoPaginationAutoSchema
 from .models import (
     Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
@@ -42,7 +44,22 @@ def _add_item_to_user_cart(user, item_instance, item_type_str):
 
 
 @extend_schema(tags=['Public - Events & Activities'])
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all active events",
+        responses={200: get_paginated_response_serializer(EventListSerializer)}
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve a single event",
+        responses={
+            200: get_api_response_serializer(EventDetailSerializer),
+            404: ApiErrorResponseSerializer
+        }
+    )
+)
 class EventViewSet(viewsets.ReadOnlyModelViewSet):
+    schema = NoPaginationAutoSchema()
+
     queryset = Event.objects.filter(is_active=True).prefetch_related(
         models.Prefetch('presentations', queryset=Presentation.objects.filter(event__is_active=True)),
         models.Prefetch('solocompetition_set',
@@ -57,18 +74,13 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
         return EventListSerializer
 
 
-@extend_schema(
-    summary="Enroll in a presentation",
-    description="Allows an authenticated user to enroll in a presentation or add it to cart if paid.",
-    request=None,
-    responses={
-        200: MessageResponseSerializer,
-        201: PresentationEnrollmentSerializer,
-        400: ErrorResponseSerializer,
-    },
-    tags=['Public - Events & Activities']
+@extend_schema(tags=['Public - Events & Activities'])
+@extend_schema_view(
+    list=extend_schema(responses={200: get_paginated_response_serializer(PresentationSerializer)}),
+    retrieve=extend_schema(responses={200: get_api_response_serializer(PresentationSerializer), 404: ApiErrorResponseSerializer})
 )
 class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
+    schema = NoPaginationAutoSchema()
     serializer_class = PresentationSerializer
     filterset_fields = ['event', 'type', 'is_online', 'is_paid']
 
@@ -83,6 +95,16 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
                 (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
             ).order_by('start_time')
 
+    @extend_schema(
+        summary="Enroll in a presentation",
+        description="Allows an authenticated user to enroll in a presentation or add it to cart if paid.",
+        request=None,
+        responses={
+            200: get_api_response_serializer(None),
+            201: get_api_response_serializer(PresentationEnrollmentSerializer),
+            400: ApiErrorResponseSerializer,
+        }
+    )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='enroll')
     def enroll(self, request, pk=None):
         presentation = self.get_object()
@@ -111,18 +133,13 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
                 {"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@extend_schema(
-    summary="Register for a solo competition",
-    description="Allows an authenticated user to register for a solo competition or add to cart if paid.",
-    request=None,
-    responses={
-        200: MessageResponseSerializer,
-        201: SoloCompetitionRegistrationSerializer,
-        400: ErrorResponseSerializer,
-    },
-    tags=['Public - Events & Activities']
+@extend_schema(tags=['Public - Events & Activities'])
+@extend_schema_view(
+    list=extend_schema(responses={200: get_paginated_response_serializer(SoloCompetitionSerializer)}),
+    retrieve=extend_schema(responses={200: get_api_response_serializer(SoloCompetitionSerializer), 404: ApiErrorResponseSerializer})
 )
 class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
+    schema = NoPaginationAutoSchema()
     serializer_class = SoloCompetitionSerializer
     filterset_fields = ['event', 'is_paid']
 
@@ -139,6 +156,16 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
                 (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
             ).order_by('start_datetime')
 
+    @extend_schema(
+        summary="Register for a solo competition",
+        description="Allows an authenticated user to register for a solo competition or add to cart if paid.",
+        request=None,
+        responses={
+            200: get_api_response_serializer(None),
+            201: get_api_response_serializer(SoloCompetitionRegistrationSerializer),
+            400: ApiErrorResponseSerializer,
+        }
+    )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='register')
     def register(self, request, pk=None):
         competition = self.get_object()
@@ -164,18 +191,13 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
                 {"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@extend_schema(
-    summary="Register/Submit a team",
-    description="Submit a new team for a group competition",
-    request=CompetitionTeamSubmitSerializer,
-    responses={
-        200: CompetitionTeamDetailSerializer,
-        201: CompetitionTeamDetailSerializer,
-        400: ErrorResponseSerializer,
-    },
-    tags=['Public - Events & Activities']
+@extend_schema(tags=['Public - Events & Activities'])
+@extend_schema_view(
+    list=extend_schema(responses={200: get_paginated_response_serializer(GroupCompetitionSerializer)}),
+    retrieve=extend_schema(responses={200: get_api_response_serializer(GroupCompetitionSerializer), 404: ApiErrorResponseSerializer})
 )
 class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
+    schema = NoPaginationAutoSchema()
     serializer_class = GroupCompetitionSerializer
     filterset_fields = ['event', 'is_paid', 'requires_admin_approval']
 
@@ -192,6 +214,16 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
                 (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
             ).order_by('start_datetime')
 
+    @extend_schema(
+        summary="Register/Submit a team",
+        description="Submit a new team for a group competition.",
+        request=CompetitionTeamSubmitSerializer,
+        responses={
+            200: get_api_response_serializer(CompetitionTeamDetailSerializer),
+            201: get_api_response_serializer(CompetitionTeamDetailSerializer),
+            400: ApiErrorResponseSerializer,
+        }
+    )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='register-team')
     def register_team(self, request, pk=None):
         group_competition = self.get_object()
@@ -253,11 +285,11 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
     @extend_schema(
         summary="List all content submissions for a group competition",
-        description="Retrieve all submitted content for an active group competition",
+        description="Retrieve all submitted content for an active group competition. This is a non-paginated list.",
         responses={
-            200: TeamContentSerializer(many=True),
-            400: ErrorResponseSerializer,
-        },
+            200: get_api_response_serializer(TeamContentSerializer(many=True)),
+            400: ApiErrorResponseSerializer,
+        }
     )
     @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='list-content')
     def list_content_submissions(self, request, pk=None):
@@ -276,8 +308,23 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 @extend_schema(tags=['User - My Activities & Teams'])
+@extend_schema_view(
+    list=extend_schema(responses={200: get_paginated_response_serializer(CompetitionTeamDetailSerializer)}),
+    retrieve=extend_schema(responses={200: get_api_response_serializer(CompetitionTeamDetailSerializer), 404: ApiErrorResponseSerializer}),
+    destroy=extend_schema(
+        summary="Delete a team (leader only)",
+        description="Allows the team leader to delete their team. A 204 response from the view becomes a 200 response from the renderer.",
+        responses={
+            200: get_api_response_serializer(None),
+            400: ApiErrorResponseSerializer,
+            403: ApiErrorResponseSerializer,
+            404: ApiErrorResponseSerializer,
+        }
+    )
+)
 class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.DestroyModelMixin,
                      viewsets.GenericViewSet):
+    schema = NoPaginationAutoSchema()
     serializer_class = CompetitionTeamDetailSerializer
     permission_classes = [IsAuthenticated]
 
@@ -297,9 +344,10 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
         description="Adds a team awaiting payment to the user's cart",
         request=None,
         responses={
-            200: MessageResponseSerializer,
-            400: ErrorResponseSerializer,
-        },
+            200: get_api_response_serializer(None),
+            400: ApiErrorResponseSerializer,
+            403: ApiErrorResponseSerializer,
+        }
     )
     @action(detail=True, methods=['post'], url_path='add-to-cart')
     def add_approved_team_to_cart(self, request, pk=None):
@@ -323,9 +371,9 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
         summary="Delete a team (leader only)",
         description="Allows the team leader to delete their team under eligible conditions",
         responses={
-            204: OpenApiTypes.NONE,
-            403: ErrorResponseSerializer,
-            404: ErrorResponseSerializer,
+            204: get_api_response_serializer(None),
+            403: ApiErrorResponseSerializer,
+            404: ApiErrorResponseSerializer,
         },
     )
     def destroy(self, request, *args, **kwargs):
@@ -346,11 +394,12 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
         description="Allows the team leader to submit or update their team's competition content",
         request=TeamContentSerializer,
         responses={
-            200: TeamContentSerializer,
-            201: TeamContentSerializer,
-            400: ErrorResponseSerializer,
-            403: ErrorResponseSerializer,
-        },
+            200: get_api_response_serializer(TeamContentSerializer),
+            201: get_api_response_serializer(TeamContentSerializer),
+            400: ApiErrorResponseSerializer,
+            403: ApiErrorResponseSerializer,
+            404: ApiErrorResponseSerializer,
+        }
     )
     @action(detail=True, methods=['post', 'put'], url_path='submit-content', permission_classes=[IsAuthenticated])
     def submit_update_content(self, request, pk=None):
@@ -384,36 +433,42 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-@extend_schema(tags=['User - My Activities & Teams'])
+@extend_schema(
+    tags=['User - My Activities & Teams'],
+    responses={200: get_paginated_response_serializer(PresentationEnrollmentSerializer)}
+)
 class MyPresentationEnrollmentsView(generics.ListAPIView):
+    schema = NoPaginationAutoSchema()
     serializer_class = PresentationEnrollmentSerializer
     permission_classes = [IsAuthenticated]
 
-
-    @extend_schema(
-        responses={200: PresentationEnrollmentSerializer},
-    )
     def get_queryset(self):
         return PresentationEnrollment.objects.filter(user=self.request.user).select_related('presentation__event',
                                                                                             'user').order_by(
             '-enrolled_at')
 
 
-@extend_schema(tags=['User - My Activities & Teams'])
+@extend_schema(
+    tags=['User - My Activities & Teams'],
+    responses={200: get_paginated_response_serializer(SoloCompetitionRegistrationSerializer)}
+)
 class MySoloCompetitionRegistrationsView(generics.ListAPIView):
+    schema = NoPaginationAutoSchema()
     serializer_class = SoloCompetitionRegistrationSerializer
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        responses={200: SoloCompetitionRegistrationSerializer},
-    )
     def get_queryset(self):
         return SoloCompetitionRegistration.objects.filter(user=self.request.user).select_related(
             'solo_competition__event', 'user').order_by('-registered_at')
 
 
 @extend_schema(tags=['Events - Content Interactions'])
+@extend_schema_view(
+    list=extend_schema(responses={200: get_paginated_response_serializer(TeamContentSerializer)}),
+    retrieve=extend_schema(responses={200: get_api_response_serializer(TeamContentSerializer), 404: ApiErrorResponseSerializer})
+)
 class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
+    schema = NoPaginationAutoSchema()
     queryset = TeamContent.objects.filter(team__status=CompetitionTeam.STATUS_ACTIVE).select_related('team__leader',
                                                                                                      'team__group_competition').prefetch_related(
         'images', 'likes', 'comments')
@@ -427,10 +482,10 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
         summary="Like or Unlike a Team Content Submission",
         request=None,
         responses={
-            200: LikeStatusSerializer,
-            403: ErrorResponseSerializer,
-            404: ErrorResponseSerializer,
-        },
+            200: get_api_response_serializer(LikeStatusSerializer),
+            403: ApiErrorResponseSerializer,
+            404: ApiErrorResponseSerializer,
+        }
     )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='toggle-like')
     def toggle_like(self, request, pk=None):
@@ -448,9 +503,9 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
     @extend_schema(
         summary="List comments for a Team Content Submission",
         responses={
-            200: CommentListSerializer,
-            400: ErrorResponseSerializer,
-        },
+            200: get_api_response_serializer(CommentListSerializer),
+            404: ApiErrorResponseSerializer,
+        }
     )
     @action(detail=True, methods=['get'], permission_classes=[AllowAny], url_path='comments')
     def list_comments(self, request, pk=None):
@@ -469,10 +524,11 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
         summary="Post a comment on a Team Content Submission",
         request=CommentCreateSerializer,
         responses={
-            201: ContentCommentSerializer,
-            400: ErrorResponseSerializer,
-            403: ErrorResponseSerializer,
-        },
+            201: get_api_response_serializer(ContentCommentSerializer),
+            400: ApiErrorResponseSerializer,
+            403: ApiErrorResponseSerializer,
+            404: ApiErrorResponseSerializer,
+        }
     )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='add-comment')
     def add_comment(self, request, pk=None):
@@ -488,6 +544,27 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 @extend_schema(tags=['Events - Content Interactions'])
+@extend_schema_view(
+    partial_update=extend_schema(
+        summary="Update user's own comment",
+        request=CommentUpdateSerializer,
+        responses={
+            200: get_api_response_serializer(ContentCommentSerializer),
+            400: ApiErrorResponseSerializer,
+            403: ApiErrorResponseSerializer,
+            404: ApiErrorResponseSerializer
+        }
+    ),
+    destroy=extend_schema(
+        summary="Delete user's own comment",
+        description="A 204 from the view becomes a 200 from the renderer.",
+        responses={
+            200: get_api_response_serializer(None),
+            403: ApiErrorResponseSerializer,
+            404: ApiErrorResponseSerializer
+        }
+    )
+)
 class ContentCommentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     queryset = ContentComment.objects.all()
     serializer_class = ContentCommentSerializer
@@ -496,11 +573,6 @@ class ContentCommentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, v
     def get_queryset(self):
         return ContentComment.objects.filter(user=self.request.user)
 
-    @extend_schema(
-        summary="Update user's own comment",
-        request=CommentUpdateSerializer,
-        responses={200: ContentCommentSerializer, 400: ErrorResponseSerializer},
-    )
     def partial_update(self, request, *args, **kwargs):
         text = request.data.get('text')
         if 'text' not in request.data or not str(text).strip():
@@ -509,16 +581,17 @@ class ContentCommentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, v
             return Response({"error": "Only the 'text' field can be updated."}, status=status.HTTP_400_BAD_REQUEST)
         return super().partial_update(request, *args, **kwargs)
 
-    @extend_schema(
-        summary="Delete user's own comment",
-        responses={204: OpenApiTypes.NONE},
-    )
     def destroy(self, request, *args, **kwargs):
         return super().destroy(request, *args, **kwargs)
 
 
 @extend_schema(tags=["Public - News"])
+@extend_schema_view(
+    list=extend_schema(responses={200: get_paginated_response_serializer(PostListSerializer)}),
+    retrieve=extend_schema(responses={200: get_api_response_serializer(PostDetailSerializer), 404: ApiErrorResponseSerializer})
+)
 class PostViewSet(viewsets.ReadOnlyModelViewSet):
+    schema = NoPaginationAutoSchema()
     queryset = Post.objects.filter(is_active=True)
     permission_classes = [AllowAny]
 
