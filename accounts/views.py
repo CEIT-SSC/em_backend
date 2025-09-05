@@ -1,11 +1,19 @@
+import json
+from drf_spectacular.utils import OpenApiParameter
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 from django.core.exceptions import ObjectDoesNotExist
-from oauth2_provider.views import TokenView
+from oauth2_provider.views import (
+    TokenView,
+    RevokeTokenView,
+    IntrospectTokenView,
+    AuthorizationView
+)
 from rest_framework import generics, status, views
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
+from rest_framework.views import APIView
 from rest_framework.viewsets import ReadOnlyModelViewSet
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Staff, CustomUser
@@ -20,7 +28,11 @@ from .serializers import (
     UserRegistrationSuccessSerializer,
     StaffSerializer,
     TokenSerializer,
-    SocialLoginSerializer, TokenRequestSerializer,
+    SocialLoginSerializer,
+    TokenRequestSerializer,
+    RevokeTokenRequestSerializer,
+    IntrospectTokenRequestSerializer,
+    IntrospectTokenResponseSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
@@ -99,6 +111,7 @@ class GoogleLoginView(SocialLoginView):
 
         return Response(tokens, status=status.HTTP_200_OK)
 
+
 @extend_schema(
     summary="Obtain OAuth2 Tokens (Login/Refresh)",
     description="""
@@ -124,17 +137,106 @@ class GoogleLoginView(SocialLoginView):
         ```
         **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
     """,
-    request=TokenRequestSerializer,
+    request={'application/x-www-form-urlencoded': TokenRequestSerializer},
     responses={
-        200: TokenSerializer,
+        200: get_api_response_serializer(TokenSerializer),
         400: ApiErrorResponseSerializer,
         401: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
 )
-class CustomTokenView(TokenView):
+class CustomTokenView(APIView, TokenView):
+    permission_classes = [AllowAny]
+
     def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
+        return TokenView.post(self, request, *args, **kwargs)
+
+
+@extend_schema(
+    summary="Revoke OAuth2 Tokens (Logout)",
+    description="""
+        This endpoint revokes an access or refresh token, effectively logging a user out from a client.
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
+    responses={
+        200: get_api_response_serializer(TokenSerializer),
+        400: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomRevokeTokenView(APIView, RevokeTokenView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        return RevokeTokenView.post(self, request, *args, **kwargs)
+
+
+@extend_schema(
+    summary="Introspect OAuth2 Token",
+    description="""
+        Checks the validity and metadata of a given token. 
+        Returns `{"active": true}` for a valid token, along with its metadata.
+        Returns `{"active": false}` for an invalid or expired token.
+        This is typically used by resource servers to validate tokens.
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': IntrospectTokenRequestSerializer},
+    responses={
+        200: get_api_response_serializer(IntrospectTokenResponseSerializer),
+    },
+    tags=['Authentication']
+)
+class CustomIntrospectTokenView(APIView, IntrospectTokenView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        django_response = IntrospectTokenView.post(self, request, *args, **kwargs)
+        content_str = django_response.content.decode('utf-8')
+        data = json.loads(content_str) if content_str else {}
+        return Response(data, status=django_response.status_code)
+
+
+@extend_schema(
+    summary="Authorization Endpoint (Browser Flow)",
+    description="""
+        **This is not a standard API endpoint.** It is the starting point for the 
+        user-facing, browser-based OAuth2 Authorization Code flow (e.g., for SSO).
+
+        A client application redirects the user's browser **TO** this endpoint.
+        This endpoint will then render a login and consent page.
+
+        **Example Query Parameters:**
+        - `response_type=code`
+        - `client_id=your_client_id`
+        - `redirect_uri=your_callback_url`
+        - `scope=read write`
+        - `code_challenge=pkce_challenge`
+        - `code_challenge_method=S256`
+    """,
+    parameters=[
+        OpenApiParameter(name='response_type', description='Should be "code".', required=True, type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='client_id', required=True, type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='redirect_uri', required=True, type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='scope', type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='code_challenge', type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='code_challenge_method', type=str, location=OpenApiParameter.QUERY),
+    ],
+    responses={
+        200: "Returns an HTML login/consent page.",
+        302: "Redirects back to the client's `redirect_uri` after successful login.",
+    },
+    tags=['Authentication']
+)
+class CustomAuthorizationView(APIView, AuthorizationView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        return AuthorizationView.get(self, request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return AuthorizationView.post(self, request, *args, **kwargs)
+
 
 @extend_schema(
     summary="Register a new user",

@@ -10,6 +10,9 @@ from .views import (
     StaffViewSet,
     GoogleLoginView,
     CustomTokenView,
+    CustomAuthorizationView,
+    CustomIntrospectTokenView,
+    CustomRevokeTokenView,
 )
 
 app_name = 'accounts'
@@ -17,8 +20,15 @@ app_name = 'accounts'
 router = DefaultRouter()
 router.register(r'staff', StaffViewSet, basename='staff')
 
-urlpatterns = [
+oauth2_urlpatterns = [
+    path('authorize/', CustomAuthorizationView.as_view(), name='authorize'),
     path('token/', CustomTokenView.as_view(), name='token'),
+    path('revoke-token/', CustomRevokeTokenView.as_view(), name='revoke-token'),
+    path('introspect/', CustomIntrospectTokenView.as_view(), name='introspect'),
+]
+
+urlpatterns = [
+    path('o/', include(oauth2_urlpatterns)),
     path('social/google/', GoogleLoginView.as_view(), name='google_login'),
 
     path('register/', UserRegistrationView.as_view(), name='user_register'),
