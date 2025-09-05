@@ -6,6 +6,8 @@ from drf_spectacular.utils import (
     OpenApiParameter, OpenApiTypes,
 )
 from django.db.models import Q
+from em_backend.schemas import get_paginated_response_serializer, get_api_response_serializer, \
+    ApiErrorResponseSerializer, NoPaginationAutoSchema
 from .models import Job
 from .serializers import JobListSerializer, JobDetailSerializer
 from .pagination import JobPagination
@@ -36,13 +38,21 @@ list_params = [
         tags=['Public - Jobs'],
         parameters=list_params,
         description='Paginated list of active jobs.',
+        responses={
+            200: get_paginated_response_serializer(JobListSerializer)
+        }
     ),
     retrieve=extend_schema(
         tags=['Public - Jobs'],
         description='Job detail.',
+        responses={
+            200: get_api_response_serializer(JobDetailSerializer),
+            404: ApiErrorResponseSerializer
+        }
     ),
 )
 class JobViewSet(viewsets.ReadOnlyModelViewSet):
+    schema = NoPaginationAutoSchema()
     permission_classes = [AllowAny]
     pagination_class = JobPagination
     serializer_class = JobListSerializer

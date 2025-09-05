@@ -133,10 +133,12 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
 class Staff(models.Model):
     name = models.CharField(max_length=200)
+    team = models.CharField(max_length=200, null=True, blank=True)
     role = models.CharField(max_length=100)
     description = models.TextField()
     picture = models.ImageField(upload_to='staff_pictures/')
     social_account_link = models.URLField(max_length=300, blank=True, null=True)
+    Github_link = models.URLField(max_length=300, blank=True, null=True)
 
     def __str__(self):
         return self.name

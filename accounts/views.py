@@ -1,14 +1,14 @@
 from dj_rest_auth.registration.serializers import SocialLoginSerializer
-from dj_rest_auth.serializers import JWTSerializer
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework import generics, status, views
-from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiResponse
-from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework.viewsets import ReadOnlyModelViewSet
-from em_backend import settings
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Staff, CustomUser
 from .serializers import (
     UserRegistrationSerializer,
@@ -17,8 +17,10 @@ from .serializers import (
     UserProfileSerializer,
     UserProfileUpdateSerializer,
     ChangePasswordSerializer,
-    SimpleForgotPasswordSerializer, MessageResponseSerializer, ErrorResponseSerializer,
-    UserRegistrationSuccessSerializer, StaffSerializer,
+    SimpleForgotPasswordSerializer,
+    UserRegistrationSuccessSerializer,
+    StaffSerializer,
+    JSAccessSerializer, CustomTokenObtainSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
@@ -26,6 +28,135 @@ from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 from django.template.loader import render_to_string
+from rest_framework.response import Response
+from django.conf import settings
+
+
+@extend_schema(
+    summary="Login with email and password",
+    description="""
+        Authenticates a user using email and password.
+        - Returns the access token in the response body.
+        - Sets the refresh token as an HttpOnly cookie.
+    """,
+    request=CustomTokenObtainSerializer,
+    responses={
+        200: get_api_response_serializer(JSAccessSerializer),
+        400: ApiErrorResponseSerializer,
+        401: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomTokenObtainView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = CustomTokenObtainSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+        refresh = RefreshToken.for_user(user)
+
+        data_payload = {"access": str(refresh.access_token)}
+        response = Response(data_payload, status=status.HTTP_200_OK)
+
+        response.set_cookie(
+            key="refresh_token",
+            value=str(refresh),
+            httponly=True,
+            secure=not settings.DEBUG,
+            samesite="Lax",
+            path="/",
+            max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
+        )
+        return response
+
+
+@extend_schema(
+    summary="Refresh access token",
+    description="""
+        Refreshes an access token using the refresh token from the HttpOnly cookie.
+        Returns a new access token in the response body.
+        The refresh token is automatically rotated if configured in settings.
+    """,
+    request=None,
+    responses={
+        200: get_api_response_serializer(JSAccessSerializer),
+        401: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomTokenRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        refresh_token_from_cookie = request.COOKIES.get("refresh_token")
+
+        request_data = request.data.copy()
+        if refresh_token_from_cookie and 'refresh' not in request_data:
+            request_data['refresh'] = refresh_token_from_cookie
+
+        serializer = self.get_serializer(data=request_data)
+        serializer.is_valid(raise_exception=True)
+
+        new_access_token = serializer.validated_data['access']
+        new_refresh_token = serializer.validated_data.get('refresh')
+
+        data_payload = {"access": new_access_token}
+        response = Response(data_payload, status=status.HTTP_200_OK)
+
+        if new_refresh_token:
+            response.set_cookie(
+                key="refresh_token",
+                value=new_refresh_token,
+                httponly=True,
+                secure=not settings.DEBUG,
+                samesite="Lax",
+                path="/",
+                max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
+            )
+        return response
+
+
+@extend_schema(
+    summary="Logout user (blacklist refresh token)",
+    description="""
+        Blacklists the refresh token sent in the HttpOnly cookie and clears the cookie.
+        This effectively logs the user out.
+    """,
+    request=None,  # The request body is empty
+    responses={
+        200: get_api_response_serializer(None),  # Success message, no data
+        400: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomTokenBlacklistView(views.APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        refresh_token = request.COOKIES.get("refresh_token")
+
+        if not refresh_token:
+            return Response(
+                {"error": "Refresh token not found in cookie."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+        except TokenError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        response = Response(
+            {"message": "Logout successful. Token has been blacklisted."},
+            status=status.HTTP_200_OK
+        )
+        response.delete_cookie(
+            key="refresh_token",
+            path="/",
+        )
+
+        return response
 
 
 @extend_schema(
@@ -37,8 +168,8 @@ from django.template.loader import render_to_string
     """,
     request=SocialLoginSerializer,
     responses={
-        200: OpenApiResponse(response=JWTSerializer, description="Successfully authenticated"),
-        400: OpenApiResponse(description="Bad Request"),
+        200: get_api_response_serializer(JSAccessSerializer),
+        400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
 )
@@ -47,16 +178,32 @@ class GoogleLogin(SocialLoginView):
     callback_url = settings.FRONTEND_URL
     client_class = OAuth2Client
 
+    def get_response(self):
+        user = self.user
+        refresh = RefreshToken.for_user(user)
+        serializer = JSAccessSerializer({"access": str(refresh.access_token)})
+        response = Response(serializer.data)
+
+        response.set_cookie(
+            key="refresh_token",
+            value=str(refresh),
+            httponly=True,
+            secure=not settings.DEBUG,
+            samesite="Lax",
+            path="/",
+        )
+        return response
+
 @extend_schema(
     summary="Register a new user",
     description="Creates a new user account if email doesn't exist. If email exists and is inactive, resends verification. If active, prompts to login.",
     request=UserRegistrationSerializer,
     responses={
-        201: UserRegistrationSuccessSerializer,
-        200: MessageResponseSerializer,
-        400: ErrorResponseSerializer,
+        201: get_api_response_serializer(UserRegistrationSuccessSerializer),
+        200: get_api_response_serializer(None),
+        400: ApiErrorResponseSerializer,
     },
-tags=['Authentication']
+    tags=['Authentication']
 )
 class UserRegistrationView(generics.CreateAPIView):
     queryset = CustomUser.objects.all()
@@ -143,9 +290,9 @@ class UserRegistrationView(generics.CreateAPIView):
     description="Activates a user account using the verification code sent to their email.",
     request=EmailVerificationSerializer,
     responses={
-        200: MessageResponseSerializer,
-        400: ErrorResponseSerializer,
-        404: ErrorResponseSerializer,
+        200: get_api_response_serializer(None),
+        400: ApiErrorResponseSerializer,
+        404: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
 )
@@ -186,8 +333,8 @@ class EmailVerificationView(views.APIView):
     description="Resends the email verification code if the user's account is not yet active.",
     request=ResendVerificationEmailSerializer,
     responses={
-        200: MessageResponseSerializer,
-        400: ErrorResponseSerializer,
+        200: get_api_response_serializer(None),
+        400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
 )
@@ -236,7 +383,10 @@ class ResendVerificationEmailView(views.APIView):
 @extend_schema(
     summary="Retrieve or update user profile",
     description="Allows authenticated users to retrieve or update their profile information.",
-    responses={200: UserProfileSerializer},
+    responses={
+        200: get_api_response_serializer(UserProfileSerializer),
+        400: ApiErrorResponseSerializer,
+    },
     tags=['User Profile']
 )
 class UserProfileView(generics.RetrieveUpdateAPIView):
@@ -257,8 +407,8 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     description="Allows authenticated users to change their current password.",
     request=ChangePasswordSerializer,
     responses={
-        200: MessageResponseSerializer,
-        400: ErrorResponseSerializer,
+        200: get_api_response_serializer(None),
+        400: ApiErrorResponseSerializer,
     },
     tags=['User Profile']
 )
@@ -291,8 +441,8 @@ class ChangePasswordView(generics.UpdateAPIView):
     description="Resets user password to a new 8-digit code and emails it. User should change this temporary password upon login.",
     request=SimpleForgotPasswordSerializer,
     responses={
-        200: MessageResponseSerializer,
-        400: OpenApiTypes.OBJECT,
+        200: get_api_response_serializer(None),
+        400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
 )
@@ -338,8 +488,8 @@ class SimpleForgotPasswordView(views.APIView):
     summary="List or Retrieve Staff",
     request=None,
     responses={
-        200: StaffSerializer,
-        404: "Not Found"
+        200: get_api_response_serializer(StaffSerializer),
+        404: ApiErrorResponseSerializer,
     },
     tags=["Staff"]
 )

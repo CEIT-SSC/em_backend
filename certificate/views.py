@@ -6,6 +6,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, PermissionDenied
+
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from events.models import PresentationEnrollment
 from .models import Certificate, CompetitionCertificate
 from events.models import SoloCompetitionRegistration, CompetitionTeam
@@ -27,9 +29,9 @@ from django.conf import settings
     description="Allows an authenticated user to request a certificate for a completed and finished presentation enrollment.",
     request=CertificateRequestSerializer,
     responses={
-        201: MessageResponseSerializer,
-        400: ErrorResponseSerializer,
-        404: ErrorResponseSerializer,
+        201: get_api_response_serializer(None),
+        400: ApiErrorResponseSerializer,
+        404: ApiErrorResponseSerializer,
     }
 )
 class CertificateRequestView(generics.GenericAPIView):
@@ -73,9 +75,9 @@ class CertificateRequestView(generics.GenericAPIView):
     summary="Retrieve Certificate Details",
     description="Fetches the details of a specific certificate. If the certificate is verified and the files haven't been generated, it will create them on the fly.",
     responses={
-        200: CertificateSerializer,
-        403: ErrorResponseSerializer,
-        404: ErrorResponseSerializer,
+        200: get_api_response_serializer(CertificateSerializer),
+        403: ApiErrorResponseSerializer,
+        404: ApiErrorResponseSerializer,
     }
 )
 class CertificateDetailView(generics.RetrieveAPIView):
@@ -142,7 +144,9 @@ class CertificateDetailView(generics.RetrieveAPIView):
     tags=['User - Certificates'],
     summary="List Completed Enrollments for Certificates",
     description="Retrieves a list of the user's presentation enrollments that are completed, finished, and eligible for a certificate request.",
-    responses={200: CompletedEnrollmentSerializer(many=True)}
+    responses={
+        200: get_api_response_serializer(CompletedEnrollmentSerializer)
+    }
 )
 class CompletedEnrollmentsView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
