@@ -178,7 +178,7 @@ class OrderSerializer(serializers.ModelSerializer):
 class OrderListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
-        fields = ['order_id', 'total_amount', 'status', 'created_at', 'paid_at']
+        fields = ['id', 'order_id', 'total_amount', 'status', 'created_at', 'paid_at']
 
 
 @ts_interface()

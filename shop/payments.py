@@ -11,12 +11,24 @@ class ZarrinPal:
     PAY_URL = f"{BASE}/pg/v4/payment/request.json"
     VERIFY_URL = f"{BASE}/pg/v4/payment/verify.json"
     START_PAY_URL = f"{BASE}/pg/StartPay/{{authority}}"
+    UNVERIFIED_URL = f"{BASE}/pg/v4/payment/unVerified.json"
 
     STATUS_SUCCESS = 100
     STATUS_VERIFIED = 101
 
     def generate_link(self, authority):
         return self.START_PAY_URL.format(authority=authority)
+    
+
+    def list_unverified(self):
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        body = {"merchant_id": self.merchant_id}
+        resp = requests.post(self.UNVERIFIED_URL, json=body, headers=headers)
+        payload = resp.json() if resp.content else {}
+        data = payload.get("data") or {}
+        if data.get("code") == 100:
+            return data.get("authorities") or []
+        return []
 
     def create_payment(self, amount, mobile, email, order_id=None):
         data = {
