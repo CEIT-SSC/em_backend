@@ -28,6 +28,44 @@ CustomUser = apps.get_model(settings.AUTH_USER_MODEL)
 logger = logging.getLogger(__name__)
 
 
+CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
+
+@extend_schema(
+    tags=['Shop - Orders & Payment'],
+    summary="Cancel a pending order (by order_id)",
+    responses={
+        200: get_api_response_serializer(OrderSerializer),
+        400: ApiErrorResponseSerializer,
+        404: ApiErrorResponseSerializer,
+    },
+)
+class OrderCancelView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, order_pk, *args, **kwargs):
+        order = get_object_or_404(Order, pk=order_pk, user=request.user)
+
+        if order.status != Order.STATUS_PENDING_PAYMENT:
+            return Response(
+                {"error": f"Order cannot be cancelled in status: {order.get_status_display()}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            for oi in order.items.select_related().all():
+                obj = oi.content_object
+                if isinstance(obj, CompetitionTeam) and obj.status == CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION:
+                    if obj.group_competition.requires_admin_approval:
+                        obj.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+                    else:
+                        obj.status = CompetitionTeam.STATUS_CANCELLED
+                    obj.save(update_fields=["status"])
+
+            order.status = Order.STATUS_CANCELLED
+            order.save(update_fields=["status"])
+
+        return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
+
 @extend_schema(tags=['Shop - Cart'])
 class CartView(generics.RetrieveAPIView):
     serializer_class = CartSerializer
