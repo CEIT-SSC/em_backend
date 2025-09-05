@@ -31,7 +31,7 @@ from .serializers import (
     TokenRequestSerializer,
     RevokeTokenRequestSerializer,
     IntrospectTokenRequestSerializer,
-    IntrospectTokenResponseSerializer
+    IntrospectTokenResponseSerializer, AuthorizationFormSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
@@ -70,84 +70,85 @@ class GoogleLoginView(SocialLoginView):
         return response
 
 
-@extend_schema(
-    summary="Obtain OAuth2 Tokens (Login/Refresh)",
-    description="""
-        This endpoint is used for all OAuth2 token-related operations.
-
-        **1. Login with Email & Password:**
-        ```json
-        {
-          "grant_type": "password",
-          "username": "user@example.com",
-          "password": "your-password",
-          "client_id": "your-client-id"
-        }
-        ```
-
-        **2. Refresh an Access Token:**
-        ```json
-        {
-          "grant_type": "refresh_token",
-          "refresh_token": "your-refresh-token",
-          "client_id": "your-client-id"
-        }
-        ```
-        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
-    """,
-    request={'application/x-www-form-urlencoded': TokenRequestSerializer},
-    responses={
-        200: get_api_response_serializer(TokenSerializer),
-        400: ApiErrorResponseSerializer,
-        401: ApiErrorResponseSerializer,
-    },
-    tags=['Authentication']
-)
 class CustomTokenView(APIView, TokenView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="Obtain OAuth2 Tokens (Login/Refresh)",
+        description="""
+            This endpoint is used for all OAuth2 token-related operations.
+
+            **1. Login with Email & Password:**
+            ```json
+            {
+              "grant_type": "password",
+              "username": "user@example.com",
+              "password": "your-password",
+              "client_id": "your-client-id"
+            }
+            ```
+
+            **2. Refresh an Access Token:**
+            ```json
+            {
+              "grant_type": "refresh_token",
+              "refresh_token": "your-refresh-token",
+              "client_id": "your-client-id"
+            }
+            ```
+            **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+        """,
+        request={'application/x-www-form-urlencoded': TokenRequestSerializer},
+        responses={
+            200: get_api_response_serializer(TokenSerializer),
+            400: ApiErrorResponseSerializer,
+            401: ApiErrorResponseSerializer,
+        },
+        tags=['Authentication']
+    )
     def post(self, request, *args, **kwargs):
         return TokenView.post(self, request, *args, **kwargs)
 
 
-@extend_schema(
-    summary="Revoke OAuth2 Tokens (Logout)",
-    description="""
-        This endpoint revokes an access or refresh token, effectively logging a user out from a client.
-        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
-    """,
-    request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
-    responses={
-        200: get_api_response_serializer(None),
-        400: ApiErrorResponseSerializer,
-    },
-    tags=['Authentication']
-)
 class CustomRevokeTokenView(APIView, RevokeTokenView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="Revoke OAuth2 Tokens (Logout)",
+        description="""
+            This endpoint revokes an access or refresh token, effectively logging a user out from a client.
+            **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+        """,
+        request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
+        responses={
+            200: get_api_response_serializer(None),
+            400: ApiErrorResponseSerializer,
+        },
+        tags=['Authentication']
+    )
     def post(self, request, *args, **kwargs):
         return RevokeTokenView.post(self, request, *args, **kwargs)
 
 
-@extend_schema(
-    summary="Introspect OAuth2 Token",
-    description="""
-        Checks the validity and metadata of a given token. 
-        Returns `{"active": true}` for a valid token, along with its metadata.
-        Returns `{"active": false}` for an invalid or expired token.
-        This is typically used by resource servers to validate tokens.
-        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
-    """,
-    request={'application/x-www-form-urlencoded': IntrospectTokenRequestSerializer},
-    responses={
-        200: get_api_response_serializer(IntrospectTokenResponseSerializer),
-    },
-    tags=['Authentication']
-)
+
 class CustomIntrospectTokenView(APIView, IntrospectTokenView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="Introspect OAuth2 Token",
+        description="""
+            Checks the validity and metadata of a given token. 
+            Returns `{"active": true}` for a valid token, along with its metadata.
+            Returns `{"active": false}` for an invalid or expired token.
+            This is typically used by resource servers to validate tokens.
+            **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+        """,
+        request={'application/x-www-form-urlencoded': IntrospectTokenRequestSerializer},
+        responses={
+            200: get_api_response_serializer(IntrospectTokenResponseSerializer),
+        },
+        tags=['Authentication']
+    )
     def post(self, request, *args, **kwargs):
         django_response = IntrospectTokenView.post(self, request, *args, **kwargs)
         content_str = django_response.content.decode('utf-8')
@@ -155,43 +156,51 @@ class CustomIntrospectTokenView(APIView, IntrospectTokenView):
         return Response(data, status=django_response.status_code)
 
 
-@extend_schema(
-    summary="Authorization Endpoint (Browser Flow)",
-    description="""
-        **This is not a standard API endpoint.** It is the starting point for the 
-        user-facing, browser-based OAuth2 Authorization Code flow (e.g., for SSO).
-
-        A client application redirects the user's browser **TO** this endpoint.
-        This endpoint will then render a login and consent page.
-
-        **Example Query Parameters:**
-        - `response_type=code`
-        - `client_id=your_client_id`
-        - `redirect_uri=your_callback_url`
-        - `scope=read write`
-        - `code_challenge=pkce_challenge`
-        - `code_challenge_method=S256`
-    """,
-    parameters=[
-        OpenApiParameter(name='response_type', description='Should be "code".', required=True, type=str, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name='client_id', required=True, type=str, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name='redirect_uri', required=True, type=str, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name='scope', type=str, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name='code_challenge', type=str, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name='code_challenge_method', type=str, location=OpenApiParameter.QUERY),
-    ],
-    responses={
-        200: "Returns an HTML login/consent page.",
-        302: "Redirects back to the client's `redirect_uri` after successful login.",
-    },
-    tags=['Authentication']
-)
 class CustomAuthorizationView(APIView, AuthorizationView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="Authorization Checkpoint (Headless SSO)",
+        description="""
+                **This is the second step in a headless SSO handshake (e.g., after a social login).**
+                It requires a valid session cookie to have been established by a prior API call (like `/social/google/`).
+
+                This endpoint validates the session and immediately redirects the user back to the
+                original client's `redirect_uri` with an `authorization_code`.
+            """,
+        parameters=[
+            OpenApiParameter(name='response_type', description='Should be "code".', required=True, type=str,
+                             location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='client_id', required=True, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='redirect_uri', required=True, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='scope', type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='code_challenge', type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='code_challenge_method', type=str, location=OpenApiParameter.QUERY),
+        ],
+        responses={
+            302: "Redirects back to the client's `redirect_uri` with a `code` or an `error`.",
+            401: ApiErrorResponseSerializer,
+        },
+        tags=['Authentication']
+    )
     def get(self, request, *args, **kwargs):
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {
+                    "detail": "A valid session is required to access this endpoint. Please authenticate via a login API call first."
+                },
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
         return AuthorizationView.get(self, request, *args, **kwargs)
 
+    @extend_schema(
+        summary="Authorization Page (Form Submission)",
+        description="This endpoint handles the form submission from the central login page.",
+        request={'application/x-www-form-urlencoded': AuthorizationFormSerializer},
+        responses={302: "Redirects back to the client's `redirect_uri` after successful login."},
+        tags=['Authentication']
+    )
     def post(self, request, *args, **kwargs):
         return AuthorizationView.post(self, request, *args, **kwargs)
 

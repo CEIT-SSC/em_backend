@@ -55,6 +55,22 @@ class SocialLoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Either 'code' or 'access_token' must be provided.")
         return attrs
 
+
+@ts_interface()
+class AuthorizationFormSerializer(serializers.Serializer):
+    username = serializers.CharField(required=True, help_text="The user's email address.")
+    password = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
+
+    client_id = serializers.CharField(required=True)
+    redirect_uri = serializers.URLField(required=True)
+    response_type = serializers.CharField(required=True, help_text="Must be 'code'.")
+    scope = serializers.CharField(required=False)
+    code_challenge = serializers.CharField(required=False)
+    code_challenge_method = serializers.CharField(required=False)
+
+    allow = serializers.CharField(required=True,
+                                  help_text="Must be a truthy value like 'true' to indicate user consent.")
+
 @ts_interface()
 class TokenSerializer(serializers.Serializer):
     access_token = serializers.CharField()
