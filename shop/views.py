@@ -340,7 +340,8 @@ class OrderPaymentInitiateView(views.APIView):
         payment_result = zarrinpal_client.create_payment(
             amount=float(order.total_amount),  # ZarrinPal class expects amount in Toman
             mobile=order.user.phone_number or "",
-            email=order.user.email or ""
+            email=order.user.email or "",
+            order_id=order.order_id
         )
 
         if payment_result.get('status') == 'success':

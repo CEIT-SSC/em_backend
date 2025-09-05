@@ -58,7 +58,13 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 SMS_KEY = os.getenv("SMS_KEY", default="key")
 SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
-PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", default="auth")
+ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", default=False)
+
+if ZARINPAL_SANDBOX:
+    PAYMENT_API_KEY = os.getenv("ZARINPAL_MERCHANT_ID", "11111111-1111-1111-1111-111111111111")
+else:
+    PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
+
 PAYMENT_CALLBACK_URL = os.getenv("PAYMENT_CALLBACK_URL", default="callback")
 
 # allauth
