@@ -7,8 +7,9 @@ from .views import (
     UserProfileView,
     ChangePasswordView,
     SimpleForgotPasswordView,
-    GoogleLogin,
-    StaffViewSet, CustomTokenObtainView, CustomTokenRefreshView, CustomTokenBlacklistView
+    StaffViewSet,
+    GoogleLoginView,
+    CustomTokenView,
 )
 
 app_name = 'accounts'
@@ -17,18 +18,15 @@ router = DefaultRouter()
 router.register(r'staff', StaffViewSet, basename='staff')
 
 urlpatterns = [
+    path('token/', CustomTokenView.as_view(), name='token'),
+    path('social/google/', GoogleLoginView.as_view(), name='google_login'),
+
     path('register/', UserRegistrationView.as_view(), name='user_register'),
     path('verify-email/', EmailVerificationView.as_view(), name='email_verify'),
     path('resend-verify-email/', ResendVerificationEmailView.as_view(), name='resend_verify_email'),
-
-    path('token/', CustomTokenObtainView.as_view(), name='token'),
-    path('token/refresh/', CustomTokenRefreshView.as_view(), name='refresh_token'),
-    path('token/blacklist/', CustomTokenBlacklistView.as_view(), name='blacklist_token'),
 
     path('', include(router.urls)),
     path('profile/', UserProfileView.as_view(), name='user_profile'),
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('forgot-password/', SimpleForgotPasswordView.as_view(), name='forgot_password_simple'),
-
-    path('auth/google/', GoogleLogin.as_view(), name='google_login'),
 ]

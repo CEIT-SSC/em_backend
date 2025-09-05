@@ -69,19 +69,6 @@ ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_USERNAME_REQUIRED = False
 SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomAdapter'
 
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-    "UPDATE_LAST_LOGIN": True,
-    "AUTH_COOKIE": "refresh_token",
-    "AUTH_COOKIE_HTTP_ONLY": True,
-    "AUTH_COOKIE_SECURE": not DEBUG,
-    "AUTH_COOKIE_PATH": "/",
-    "AUTH_COOKIE_SAMESITE": "Lax",
-}
-
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'APP': {
@@ -94,10 +81,20 @@ SOCIALACCOUNT_PROVIDERS = {
             'email',
         ],
         'AUTH_PARAMS': {
-            'access_type': 'online',
+            'access_type': 'offline',
         },
         'OAUTH_PKCE_ENABLED': True,
     }
+}
+
+OAUTH2_PROVIDER = {
+    'OAUTH2_VALIDATOR_CLASS': 'oauth2_provider.oauth2_validators.OAuth2Validator',
+    'OAUTH2_BACKEND_CLASS': 'oauth2_provider.oauth2_backends.JSONOAuthLibCore',
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 300,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 7,
+    "SCOPES": {"read": "Read scope", "write": "Write scope"},
+    "PKCE_REQUIRED": True,
+    "ROTATE_REFRESH_TOKEN": True,
 }
 
 SPECTACULAR_SETTINGS = {
@@ -112,10 +109,11 @@ SPECTACULAR_SETTINGS = {
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
+        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PARSER_CLASSES': (
         'rest_framework.parsers.JSONParser',
@@ -133,8 +131,8 @@ REST_FRAMEWORK = {
 }
 
 AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
+    'django.contrib.auth.backends.ModelBackend',
 ]
 
 # Application definition
@@ -146,7 +144,6 @@ INSTALLED_APPS = [
     'shop',
     'events',
     'rest_framework',
-    'rest_framework_simplejwt.token_blacklist',
     'rest_framework.authtoken',
     'allauth',
     'allauth.account',
@@ -158,6 +155,7 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'django.contrib.sites',
+    "oauth2_provider",
 
     # Default
     'django.contrib.admin',
