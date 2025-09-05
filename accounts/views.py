@@ -160,24 +160,6 @@ class CustomAuthorizationView(APIView, AuthorizationView):
     permission_classes = [AllowAny]
 
     @extend_schema(
-        summary="Authorization Page (Browser Flow Start)",
-        description="This is the page where a user is redirected TO to begin the login/consent flow.",
-        parameters=[
-            OpenApiParameter(name='response_type', description='Should be "code".', required=True, type=str,
-                             location=OpenApiParameter.QUERY),
-            OpenApiParameter(name='client_id', required=True, type=str, location=OpenApiParameter.QUERY),
-            OpenApiParameter(name='redirect_uri', required=True, type=str, location=OpenApiParameter.QUERY),
-            OpenApiParameter(name='scope', type=str, location=OpenApiParameter.QUERY),
-            OpenApiParameter(name='code_challenge', type=str, location=OpenApiParameter.QUERY),
-            OpenApiParameter(name='code_challenge_method', type=str, location=OpenApiParameter.QUERY),
-        ],
-        responses={200: "Returns an HTML login/consent page."},
-        tags=['Authentication']
-    )
-    def get(self, request, *args, **kwargs):
-        return AuthorizationView.get(self, request, *args, **kwargs)
-
-    @extend_schema(
         summary="Authorization Page (Form Submission)",
         description="This endpoint handles the form submission from the central login page.",
         request={'application/x-www-form-urlencoded': AuthorizationFormSerializer},
