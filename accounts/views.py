@@ -1,4 +1,3 @@
-import json
 from drf_spectacular.utils import OpenApiParameter
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
@@ -6,7 +5,6 @@ from dj_rest_auth.registration.views import SocialLoginView
 from oauth2_provider.views import (
     TokenView,
     RevokeTokenView,
-    IntrospectTokenView,
     AuthorizationView
 )
 from rest_framework import generics, status, views
@@ -30,8 +28,7 @@ from .serializers import (
     SocialLoginSerializer,
     TokenRequestSerializer,
     RevokeTokenRequestSerializer,
-    IntrospectTokenRequestSerializer,
-    IntrospectTokenResponseSerializer, AuthorizationFormSerializer
+    AuthorizationFormSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
@@ -128,32 +125,6 @@ class CustomRevokeTokenView(APIView, RevokeTokenView):
     )
     def post(self, request, *args, **kwargs):
         return RevokeTokenView.post(self, request, *args, **kwargs)
-
-
-
-class CustomIntrospectTokenView(APIView, IntrospectTokenView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(
-        summary="Introspect OAuth2 Token",
-        description="""
-            Checks the validity and metadata of a given token. 
-            Returns `{"active": true}` for a valid token, along with its metadata.
-            Returns `{"active": false}` for an invalid or expired token.
-            This is typically used by resource servers to validate tokens.
-            **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
-        """,
-        request={'application/x-www-form-urlencoded': IntrospectTokenRequestSerializer},
-        responses={
-            200: get_api_response_serializer(IntrospectTokenResponseSerializer),
-        },
-        tags=['Authentication']
-    )
-    def post(self, request, *args, **kwargs):
-        django_response = IntrospectTokenView.post(self, request, *args, **kwargs)
-        content_str = django_response.content.decode('utf-8')
-        data = json.loads(content_str) if content_str else {}
-        return Response(data, status=django_response.status_code)
 
 
 class CustomAuthorizationView(APIView, AuthorizationView):

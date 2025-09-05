@@ -27,23 +27,6 @@ class RevokeTokenRequestSerializer(serializers.Serializer):
                                               help_text="Optional hint about the type of token.")
 
 @ts_interface()
-class IntrospectTokenRequestSerializer(serializers.Serializer):
-    token = serializers.CharField(help_text="The token to be introspected.")
-    token_type_hint = serializers.ChoiceField(choices=["access_token", "refresh_token"], required=False,
-                                              help_text="Optional hint about the type of token.")
-
-@ts_interface()
-class IntrospectTokenResponseSerializer(serializers.Serializer):
-    active = serializers.BooleanField()
-    scope = serializers.CharField(required=False)
-    client_id = serializers.CharField(required=False)
-    token_type = serializers.CharField(required=False)
-    exp = serializers.IntegerField(required=False, help_text="Token expiration timestamp.")
-    iat = serializers.IntegerField(required=False, help_text="Token issuance timestamp.")
-    sub = serializers.CharField(required=False, help_text="Subject (user identifier).")
-    username = serializers.CharField(required=False)
-
-@ts_interface()
 class SocialLoginSerializer(serializers.Serializer):
     code = serializers.CharField(required=False, allow_blank=True)
     access_token = serializers.CharField(required=False, allow_blank=True)
