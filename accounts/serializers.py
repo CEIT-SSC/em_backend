@@ -3,37 +3,65 @@ from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from accounts.models import validate_phone_number, Staff
 from django_typomatic import ts_interface
-from rest_framework_simplejwt.serializers import TokenBlacklistSerializer
-from django.contrib.auth import authenticate
 
 CustomUser = get_user_model()
 
 @ts_interface()
-class CustomTokenObtainSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+class TokenRequestSerializer(serializers.Serializer):
+    grant_type = serializers.ChoiceField(
+        choices=["password", "refresh_token"],
+        help_text="The grant type. Use 'password' for user login, 'refresh_token' for refreshing an expired access token."
+    )
+    username = serializers.CharField(required=False, help_text="Required for grant_type='password'. The user's email.")
+    password = serializers.CharField(required=False, help_text="Required for grant_type='password'.")
+    refresh_token = serializers.CharField(required=False, help_text="Required for grant_type='refresh_token'.")
+    client_id = serializers.CharField(required=True, help_text="The client ID of your application.")
+    client_secret = serializers.CharField(required=False, help_text="The client secret, if your application is confidential.")
+
+@ts_interface()
+class RevokeTokenRequestSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="The access or refresh token to be revoked.")
+    client_id = serializers.CharField(help_text="The client ID of your application.")
+    client_secret = serializers.CharField(required=False, help_text="The client secret, if your application is confidential.")
+    token_type_hint = serializers.ChoiceField(choices=["access_token", "refresh_token"], required=False,
+                                              help_text="Optional hint about the type of token.")
+
+@ts_interface()
+class IntrospectTokenRequestSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="The token to be introspected.")
+    token_type_hint = serializers.ChoiceField(choices=["access_token", "refresh_token"], required=False,
+                                              help_text="Optional hint about the type of token.")
+
+@ts_interface()
+class IntrospectTokenResponseSerializer(serializers.Serializer):
+    active = serializers.BooleanField()
+    scope = serializers.CharField(required=False)
+    client_id = serializers.CharField(required=False)
+    token_type = serializers.CharField(required=False)
+    exp = serializers.IntegerField(required=False, help_text="Token expiration timestamp.")
+    iat = serializers.IntegerField(required=False, help_text="Token issuance timestamp.")
+    sub = serializers.CharField(required=False, help_text="Subject (user identifier).")
+    username = serializers.CharField(required=False)
+
+@ts_interface()
+class SocialLoginSerializer(serializers.Serializer):
+    code = serializers.CharField(required=False, allow_blank=True)
+    access_token = serializers.CharField(required=False, allow_blank=True)
+    code_verifier = serializers.CharField(required=False, allow_blank=True)
+    client_id = serializers.CharField(required=True)
 
     def validate(self, attrs):
-        email = attrs.get('email')
-        password = attrs.get('password')
-
-        if email and password:
-            user = authenticate(request=self.context.get('request'), email=email, password=password)
-            if not user:
-                raise serializers.ValidationError("Unable to log in with provided credentials.", code='authorization')
-        else:
-            raise serializers.ValidationError("Must include 'email' and 'password'.", code='authorization')
-
-        attrs['user'] = user
+        if not attrs.get('code') and not attrs.get('access_token'):
+            raise serializers.ValidationError("Either 'code' or 'access_token' must be provided.")
         return attrs
 
 @ts_interface()
-class JSAccessSerializer(serializers.Serializer):
-    access = serializers.CharField()
-
-@ts_interface()
-class JSTokenBlacklistSerializer(TokenBlacklistSerializer):
-    pass
+class TokenSerializer(serializers.Serializer):
+    access_token = serializers.CharField()
+    expires_in = serializers.IntegerField()
+    token_type = serializers.CharField()
+    scope = serializers.CharField()
+    refresh_token = serializers.CharField()
 
 @ts_interface()
 class MessageResponseSerializer(serializers.Serializer):

@@ -1,13 +1,19 @@
-from dj_rest_auth.registration.serializers import SocialLoginSerializer
-from django.utils import timezone
-from datetime import timedelta
+import json
+from drf_spectacular.utils import OpenApiParameter
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+from dj_rest_auth.registration.views import SocialLoginView
+from oauth2_provider.views import (
+    TokenView,
+    RevokeTokenView,
+    IntrospectTokenView,
+    AuthorizationView
+)
 from rest_framework import generics, status, views
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
+from rest_framework.views import APIView
 from rest_framework.viewsets import ReadOnlyModelViewSet
-from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenRefreshView
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Staff, CustomUser
 from .serializers import (
@@ -20,179 +26,175 @@ from .serializers import (
     SimpleForgotPasswordSerializer,
     UserRegistrationSuccessSerializer,
     StaffSerializer,
-    JSAccessSerializer, CustomTokenObtainSerializer
+    TokenSerializer,
+    SocialLoginSerializer,
+    TokenRequestSerializer,
+    RevokeTokenRequestSerializer,
+    IntrospectTokenRequestSerializer,
+    IntrospectTokenResponseSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
-from allauth.socialaccount.providers.oauth2.client import OAuth2Client
-from dj_rest_auth.registration.views import SocialLoginView
 from django.template.loader import render_to_string
 from rest_framework.response import Response
-from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta
+from oauth2_provider.models import get_application_model
+
+Application = get_application_model()
 
 
 @extend_schema(
-    summary="Login with email and password",
+    summary="Register or Login with Google",
     description="""
-        Authenticates a user using email and password.
-        - Returns the access token in the response body.
-        - Sets the refresh token as an HttpOnly cookie.
-    """,
-    request=CustomTokenObtainSerializer,
-    responses={
-        200: get_api_response_serializer(JSAccessSerializer),
-        400: ApiErrorResponseSerializer,
-        401: ApiErrorResponseSerializer,
-    },
-    tags=['Authentication']
-)
-class CustomTokenObtainView(generics.GenericAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = CustomTokenObtainSerializer
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data['user']
-        refresh = RefreshToken.for_user(user)
-
-        data_payload = {"access": str(refresh.access_token)}
-        response = Response(data_payload, status=status.HTTP_200_OK)
-
-        response.set_cookie(
-            key="refresh_token",
-            value=str(refresh),
-            httponly=True,
-            secure=not settings.DEBUG,
-            samesite="Lax",
-            path="/",
-            max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
-        )
-        return response
-
-
-@extend_schema(
-    summary="Refresh access token",
-    description="""
-        Refreshes an access token using the refresh token from the HttpOnly cookie.
-        Returns a new access token in the response body.
-        The refresh token is automatically rotated if configured in settings.
-    """,
-    request=None,
-    responses={
-        200: get_api_response_serializer(JSAccessSerializer),
-        401: ApiErrorResponseSerializer,
-    },
-    tags=['Authentication']
-)
-class CustomTokenRefreshView(TokenRefreshView):
-    def post(self, request, *args, **kwargs):
-        refresh_token_from_cookie = request.COOKIES.get("refresh_token")
-
-        request_data = request.data.copy()
-        if refresh_token_from_cookie and 'refresh' not in request_data:
-            request_data['refresh'] = refresh_token_from_cookie
-
-        serializer = self.get_serializer(data=request_data)
-        serializer.is_valid(raise_exception=True)
-
-        new_access_token = serializer.validated_data['access']
-        new_refresh_token = serializer.validated_data.get('refresh')
-
-        data_payload = {"access": new_access_token}
-        response = Response(data_payload, status=status.HTTP_200_OK)
-
-        if new_refresh_token:
-            response.set_cookie(
-                key="refresh_token",
-                value=new_refresh_token,
-                httponly=True,
-                secure=not settings.DEBUG,
-                samesite="Lax",
-                path="/",
-                max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
-            )
-        return response
-
-
-@extend_schema(
-    summary="Logout user (blacklist refresh token)",
-    description="""
-        Blacklists the refresh token sent in the HttpOnly cookie and clears the cookie.
-        This effectively logs the user out.
-    """,
-    request=None,  # The request body is empty
-    responses={
-        200: get_api_response_serializer(None),  # Success message, no data
-        400: ApiErrorResponseSerializer,
-    },
-    tags=['Authentication']
-)
-class CustomTokenBlacklistView(views.APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        refresh_token = request.COOKIES.get("refresh_token")
-
-        if not refresh_token:
-            return Response(
-                {"error": "Refresh token not found in cookie."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-        except TokenError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        response = Response(
-            {"message": "Logout successful. Token has been blacklisted."},
-            status=status.HTTP_200_OK
-        )
-        response.delete_cookie(
-            key="refresh_token",
-            path="/",
-        )
-
-        return response
-
-
-@extend_schema(
-    summary="Register or Login with Google (PKCE or Implicit Flow)",
-    description="""
-        Handles user authentication via Google. This endpoint is flexible and accepts either:
-            1.  Authorization Code Flow (PKCE): `code`
-            2.  Implicit Flow: `access_token`
+        Handles user authentication via Google. The frontend should perform the OAuth2 flow
+        and send the `code` (from the Authorization Code Flow with PKCE) to this endpoint.
     """,
     request=SocialLoginSerializer,
     responses={
-        200: get_api_response_serializer(JSAccessSerializer),
+        200: get_api_response_serializer(None),
         400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
 )
-class GoogleLogin(SocialLoginView):
+class GoogleLoginView(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
-    callback_url = settings.FRONTEND_URL
     client_class = OAuth2Client
+    serializer_class = SocialLoginSerializer
 
-    def get_response(self):
-        user = self.user
-        refresh = RefreshToken.for_user(user)
-        serializer = JSAccessSerializer({"access": str(refresh.access_token)})
-        response = Response(serializer.data)
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            return Response({"message": "success"}, status=status.HTTP_200_OK)
 
-        response.set_cookie(
-            key="refresh_token",
-            value=str(refresh),
-            httponly=True,
-            secure=not settings.DEBUG,
-            samesite="Lax",
-            path="/",
-        )
         return response
+
+
+@extend_schema(
+    summary="Obtain OAuth2 Tokens (Login/Refresh)",
+    description="""
+        This endpoint is used for all OAuth2 token-related operations.
+
+        **1. Login with Email & Password:**
+        ```json
+        {
+          "grant_type": "password",
+          "username": "user@example.com",
+          "password": "your-password",
+          "client_id": "your-client-id"
+        }
+        ```
+
+        **2. Refresh an Access Token:**
+        ```json
+        {
+          "grant_type": "refresh_token",
+          "refresh_token": "your-refresh-token",
+          "client_id": "your-client-id"
+        }
+        ```
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': TokenRequestSerializer},
+    responses={
+        200: get_api_response_serializer(TokenSerializer),
+        400: ApiErrorResponseSerializer,
+        401: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomTokenView(APIView, TokenView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        return TokenView.post(self, request, *args, **kwargs)
+
+
+@extend_schema(
+    summary="Revoke OAuth2 Tokens (Logout)",
+    description="""
+        This endpoint revokes an access or refresh token, effectively logging a user out from a client.
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
+    responses={
+        200: get_api_response_serializer(None),
+        400: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomRevokeTokenView(APIView, RevokeTokenView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        return RevokeTokenView.post(self, request, *args, **kwargs)
+
+
+@extend_schema(
+    summary="Introspect OAuth2 Token",
+    description="""
+        Checks the validity and metadata of a given token. 
+        Returns `{"active": true}` for a valid token, along with its metadata.
+        Returns `{"active": false}` for an invalid or expired token.
+        This is typically used by resource servers to validate tokens.
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': IntrospectTokenRequestSerializer},
+    responses={
+        200: get_api_response_serializer(IntrospectTokenResponseSerializer),
+    },
+    tags=['Authentication']
+)
+class CustomIntrospectTokenView(APIView, IntrospectTokenView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        django_response = IntrospectTokenView.post(self, request, *args, **kwargs)
+        content_str = django_response.content.decode('utf-8')
+        data = json.loads(content_str) if content_str else {}
+        return Response(data, status=django_response.status_code)
+
+
+@extend_schema(
+    summary="Authorization Endpoint (Browser Flow)",
+    description="""
+        **This is not a standard API endpoint.** It is the starting point for the 
+        user-facing, browser-based OAuth2 Authorization Code flow (e.g., for SSO).
+
+        A client application redirects the user's browser **TO** this endpoint.
+        This endpoint will then render a login and consent page.
+
+        **Example Query Parameters:**
+        - `response_type=code`
+        - `client_id=your_client_id`
+        - `redirect_uri=your_callback_url`
+        - `scope=read write`
+        - `code_challenge=pkce_challenge`
+        - `code_challenge_method=S256`
+    """,
+    parameters=[
+        OpenApiParameter(name='response_type', description='Should be "code".', required=True, type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='client_id', required=True, type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='redirect_uri', required=True, type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='scope', type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='code_challenge', type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(name='code_challenge_method', type=str, location=OpenApiParameter.QUERY),
+    ],
+    responses={
+        200: "Returns an HTML login/consent page.",
+        302: "Redirects back to the client's `redirect_uri` after successful login.",
+    },
+    tags=['Authentication']
+)
+class CustomAuthorizationView(APIView, AuthorizationView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        return AuthorizationView.get(self, request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return AuthorizationView.post(self, request, *args, **kwargs)
+
 
 @extend_schema(
     summary="Register a new user",
@@ -410,7 +412,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         200: get_api_response_serializer(None),
         400: ApiErrorResponseSerializer,
     },
-    tags=['User Profile']
+    tags=['Authentication']
 )
 class ChangePasswordView(generics.UpdateAPIView):
     serializer_class = ChangePasswordSerializer
