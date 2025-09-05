@@ -160,6 +160,41 @@ class CustomAuthorizationView(APIView, AuthorizationView):
     permission_classes = [AllowAny]
 
     @extend_schema(
+        summary="Authorization Checkpoint (Headless SSO)",
+        description="""
+                **This is the second step in a headless SSO handshake (e.g., after a social login).**
+                It requires a valid session cookie to have been established by a prior API call (like `/social/google/`).
+
+                This endpoint validates the session and immediately redirects the user back to the
+                original client's `redirect_uri` with an `authorization_code`.
+            """,
+        parameters=[
+            OpenApiParameter(name='response_type', description='Should be "code".', required=True, type=str,
+                             location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='client_id', required=True, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='redirect_uri', required=True, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='scope', type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='code_challenge', type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='code_challenge_method', type=str, location=OpenApiParameter.QUERY),
+        ],
+        responses={
+            302: "Redirects back to the client's `redirect_uri` with a `code` or an `error`.",
+            401: ApiErrorResponseSerializer,
+        },
+        tags=['Authentication']
+    )
+    def get(self, request, *args, **kwargs):
+        if not request.user or not request.user.is_authenticated:
+            return Response(
+                {
+                    "detail": "A valid session is required to access this endpoint. Please authenticate via a login API call first."
+                },
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        return AuthorizationView.get(self, request, *args, **kwargs)
+
+    @extend_schema(
         summary="Authorization Page (Form Submission)",
         description="This endpoint handles the form submission from the central login page.",
         request={'application/x-www-form-urlencoded': AuthorizationFormSerializer},
