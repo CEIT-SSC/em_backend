@@ -3,7 +3,6 @@ from drf_spectacular.utils import OpenApiParameter
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
-from django.core.exceptions import ObjectDoesNotExist
 from oauth2_provider.views import (
     TokenView,
     RevokeTokenView,
@@ -40,42 +39,9 @@ from django.template.loader import render_to_string
 from rest_framework.response import Response
 from django.utils import timezone
 from datetime import timedelta
-from django.conf import settings
-from oauth2_provider.models import get_application_model, AccessToken, RefreshToken
+from oauth2_provider.models import get_application_model
 
 Application = get_application_model()
-
-
-def generate_tokens_for_user(user, client_id):
-    try:
-        app = Application.objects.get(client_id=client_id)
-    except ObjectDoesNotExist:
-        raise ValueError("Invalid client_id provided.")
-
-    AccessToken.objects.filter(user=user, application=app).delete()
-    RefreshToken.objects.filter(user=user, application=app).delete()
-    token_expires = timezone.now() + timedelta(seconds=settings.OAUTH2_PROVIDER['ACCESS_TOKEN_EXPIRE_SECONDS'])
-
-    access_token = AccessToken.objects.create(
-        user=user,
-        application=app,
-        expires=token_expires,
-        scope="read write",
-    )
-
-    refresh_token = RefreshToken.objects.create(
-        user=user,
-        access_token=access_token,
-        application=app,
-    )
-
-    return {
-        "access_token": access_token.token,
-        "expires_in": settings.OAUTH2_PROVIDER['ACCESS_TOKEN_EXPIRE_SECONDS'],
-        "token_type": "Bearer",
-        "scope": access_token.scope,
-        "refresh_token": refresh_token.token,
-    }
 
 
 @extend_schema(
@@ -86,7 +52,7 @@ def generate_tokens_for_user(user, client_id):
     """,
     request=SocialLoginSerializer,
     responses={
-        200: get_api_response_serializer(TokenSerializer),
+        200: get_api_response_serializer(None),
         400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
@@ -98,18 +64,10 @@ class GoogleLoginView(SocialLoginView):
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
-        if response.status_code != 200:
-            return response
+        if response.status_code == 200:
+            return Response({"message": "success"}, status=status.HTTP_200_OK)
 
-        client_id = request.data.get('client_id')
-        user = self.user
-
-        try:
-            tokens = generate_tokens_for_user(user, client_id)
-        except ValueError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(tokens, status=status.HTTP_200_OK)
+        return response
 
 
 @extend_schema(
@@ -160,7 +118,7 @@ class CustomTokenView(APIView, TokenView):
     """,
     request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
     responses={
-        200: get_api_response_serializer(TokenSerializer),
+        200: get_api_response_serializer(None),
         400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
