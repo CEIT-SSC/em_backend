@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+import uuid
 
 class Presenter(models.Model):
     name = models.CharField(max_length=255, verbose_name="Full Name")
@@ -248,10 +249,17 @@ class PresentationEnrollment(models.Model):
         return f"{self.user.email} enrolled in {self.presentation.title} ({self.get_status_display()})"
 
 class SoloCompetitionRegistration(models.Model):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+
     STATUS_PENDING_PAYMENT = "pending_payment"
     STATUS_COMPLETED_OR_FREE = "completed_or_free"
     STATUS_PAYMENT_FAILED = "payment_failed"
     STATUS_CANCELLED = "cancelled"
+
     REGISTRATION_STATUS_CHOICES = [
         (STATUS_PENDING_PAYMENT, "Pending Payment"),
         (STATUS_COMPLETED_OR_FREE, "Completed/Free"),
@@ -259,10 +267,29 @@ class SoloCompetitionRegistration(models.Model):
         (STATUS_CANCELLED, "Cancelled"),
     ]
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="solo_competition_registrations")
-    solo_competition = models.ForeignKey(SoloCompetition, on_delete=models.CASCADE, related_name="registrations")
-    order_item = models.OneToOneField('shop.OrderItem', on_delete=models.SET_NULL, null=True, blank=True, related_name="solo_registration_record_link")
-    status = models.CharField(max_length=20, choices=REGISTRATION_STATUS_CHOICES, default=PresentationEnrollment.STATUS_PENDING_PAYMENT, verbose_name="Registration Status")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="solo_competition_registrations"
+    )
+    solo_competition = models.ForeignKey(
+        "SoloCompetition",
+        on_delete=models.CASCADE,
+        related_name="registrations"
+    )
+    order_item = models.OneToOneField(
+        "shop.OrderItem",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="solo_registration_record_link"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=REGISTRATION_STATUS_CHOICES,
+        default=STATUS_PENDING_PAYMENT,
+        verbose_name="Registration Status"
+    )
     registered_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -272,7 +299,6 @@ class SoloCompetitionRegistration(models.Model):
 
     def __str__(self):
         return f"{self.user.email} registered for {self.solo_competition.title} ({self.get_status_display()})"
-
 class Post(models.Model):
     title = models.CharField(max_length=255)
     excerpt = models.TextField(

@@ -1,7 +1,7 @@
 from django_typomatic import ts_interface
 from rest_framework import serializers
 from events.models import PresentationEnrollment
-from .models import Certificate
+from .models import Certificate, CompetitionCertificate
 
 
 @ts_interface()
@@ -49,3 +49,45 @@ class CompletedEnrollmentSerializer(serializers.ModelSerializer):
         if hasattr(obj, 'certificate'):
             return obj.certificate.is_verified
         return False
+
+@ts_interface()
+class CompetitionCertificateRequestSerializer(serializers.Serializer):
+    registration_type = serializers.ChoiceField(choices=["solo", "group"])
+    registration_id = serializers.UUIDField()
+    name = serializers.CharField(max_length=255)
+
+
+@ts_interface()
+class CompetitionCertificateSerializer(serializers.ModelSerializer):
+    competition_title = serializers.SerializerMethodField()
+    event_title = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CompetitionCertificate
+        fields = [
+            'id',
+            'registration_type',
+            'name_on_certificate',
+            'ranking',
+            'file_en',
+            'file_fa',
+            'is_verified',
+            'requested_at',
+            'competition_title',
+            'event_title',
+        ]
+        read_only_fields = ['id', 'file_en', 'file_fa', 'requested_at']
+
+    def get_competition_title(self, obj: CompetitionCertificate):
+        if obj.registration_type == "solo" and obj.solo_registration:
+            return obj.solo_registration.solo_competition.title
+        elif obj.registration_type == "group" and obj.team:
+            return obj.team.group_competition.title
+        return None
+
+    def get_event_title(self, obj: CompetitionCertificate):
+        if obj.registration_type == "solo" and obj.solo_registration:
+            return obj.solo_registration.solo_competition.event.title
+        elif obj.registration_type == "group" and obj.team:
+            return obj.team.group_competition.event.title
+        return None
