@@ -7,6 +7,10 @@ from django_typomatic import ts_interface
 CustomUser = get_user_model()
 
 @ts_interface()
+class HandshakeTokenSerializer(serializers.Serializer):
+    handshake_token = serializers.CharField()
+
+@ts_interface()
 class TokenRequestSerializer(serializers.Serializer):
     grant_type = serializers.ChoiceField(
         choices=["password", "refresh_token"],
@@ -85,6 +89,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'first_name': {'required': False, 'allow_blank': True, 'default': ''},
             'last_name': {'required': False, 'allow_blank': True, 'default': ''},
+            'phone_number': {'required': False, 'allow_blank': True, 'default': None},
         }
 
     def validate(self, attrs):
