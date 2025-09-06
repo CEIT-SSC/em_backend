@@ -83,11 +83,11 @@ SOCIALACCOUNT_PROVIDERS = {
         'SCOPE': [
             'profile',
             'email',
+            'openid',
         ],
         'AUTH_PARAMS': {
             'access_type': 'offline',
         },
-        'OAUTH_PKCE_ENABLED': True,
     }
 }
 

@@ -46,9 +46,9 @@ from django.core.signing import BadSignature, SignatureExpired
 @extend_schema(
     summary="Start Google SSO Flow",
     description="""
-        The frontend sends a Google `code`. This endpoint validates it and returns a
-        short-lived, single-use `handshake_token`. The frontend must then immediately
-        redirect the user to the `/o/authorize/` endpoint, passing this token.
+        The frontend sends a Google `code`. (Manual Google Authorization URL, NO GIS initCodeClient, NO PKCE)
+        This endpoint validates it and returns a short-lived, single-use `handshake_token`.
+        The frontend must then immediately redirect the user to the `/o/authorize/` endpoint, passing this token.
     """,
     request=SocialLoginSerializer,
     responses={
@@ -62,6 +62,7 @@ class GoogleLoginView(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
     client_class = OAuth2Client
     serializer_class = SocialLoginSerializer
+    callback_url = "http://localhost:8001/google-callback.html"
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
@@ -249,7 +250,7 @@ class CustomAuthorizationView(views.APIView):
                 user.backend = 'django.contrib.auth.backends.ModelBackend'
                 login(django_request, user)
             else:
-                return Response({"detail": "Invalid username or password."},
+                return Response({"detail": "Invalid username or password, or this user is inactive."},
                                 status=status.HTTP_401_UNAUTHORIZED)
 
         return self.authorization_view_class.as_view()(django_request, *args, **kwargs)
