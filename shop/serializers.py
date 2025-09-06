@@ -1,16 +1,37 @@
 from django_typomatic import ts_interface
 from rest_framework import serializers
 from django.apps import apps
+from events.models import Presentation, SoloCompetition, CompetitionTeam
 from events.serializers import PresentationSerializer, SoloCompetitionSerializer, CompetitionTeamDetailSerializer
 from .models import Cart, CartItem, Order, OrderItem
+from events.serializers import CompetitionTeamDetailSerializer
 
 
 @ts_interface()
 class ItemDetailSerializer(serializers.Serializer):
-    presentation = PresentationSerializer(read_only=True, required=False)
-    solo_competition = SoloCompetitionSerializer(read_only=True, required=False)
-    competition_team = CompetitionTeamDetailSerializer(read_only=True, required=False)
-    item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'competition_team'])
+    item_type = serializers.SerializerMethodField()
+    presentation = PresentationSerializer(read_only=True)
+    solo_competition = SoloCompetitionSerializer(read_only=True)
+    competition_team = CompetitionTeamDetailSerializer(read_only=True)
+
+    def get_item_type(self, obj):
+        if isinstance(obj, Presentation):
+            return 'presentation'
+        if isinstance(obj, SoloCompetition):
+            return 'solo_competition'
+        if isinstance(obj, CompetitionTeam):
+            return 'competition_team'
+        return None
+
+    def to_representation(self, obj):
+        data = {'item_type': self.get_item_type(obj)}
+        if isinstance(obj, Presentation):
+            data['presentation'] = PresentationSerializer(obj, context=self.context).data
+        elif isinstance(obj, SoloCompetition):
+            data['solo_competition'] = SoloCompetitionSerializer(obj, context=self.context).data
+        elif isinstance(obj, CompetitionTeam):
+            data['competition_team'] = CompetitionTeamDetailSerializer(obj, context=self.context).data
+        return data
 
 
 @ts_interface()
@@ -157,7 +178,7 @@ class OrderSerializer(serializers.ModelSerializer):
 class OrderListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
-        fields = ['order_id', 'total_amount', 'status', 'created_at', 'paid_at']
+        fields = ['id', 'order_id', 'total_amount', 'status', 'created_at', 'paid_at']
 
 
 @ts_interface()
