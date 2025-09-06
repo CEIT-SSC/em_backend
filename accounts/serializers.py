@@ -3,8 +3,13 @@ from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from accounts.models import validate_phone_number, Staff
 from django_typomatic import ts_interface
+from dj_rest_auth.registration.serializers import SocialLoginSerializer as BaseSocialLoginSerializer
 
 CustomUser = get_user_model()
+
+@ts_interface()
+class HandshakeTokenSerializer(serializers.Serializer):
+    handshake_token = serializers.CharField()
 
 @ts_interface()
 class TokenRequestSerializer(serializers.Serializer):
@@ -27,16 +32,8 @@ class RevokeTokenRequestSerializer(serializers.Serializer):
                                               help_text="Optional hint about the type of token.")
 
 @ts_interface()
-class SocialLoginSerializer(serializers.Serializer):
-    code = serializers.CharField(required=False, allow_blank=True)
-    access_token = serializers.CharField(required=False, allow_blank=True)
-    code_verifier = serializers.CharField(required=False, allow_blank=True)
-    client_id = serializers.CharField(required=True)
-
-    def validate(self, attrs):
-        if not attrs.get('code') and not attrs.get('access_token'):
-            raise serializers.ValidationError("Either 'code' or 'access_token' must be provided.")
-        return attrs
+class SocialLoginSerializer(BaseSocialLoginSerializer):
+    pass
 
 
 @ts_interface()
@@ -85,6 +82,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'first_name': {'required': False, 'allow_blank': True, 'default': ''},
             'last_name': {'required': False, 'allow_blank': True, 'default': ''},
+            'phone_number': {'required': False, 'allow_blank': True, 'default': None},
         }
 
     def validate(self, attrs):

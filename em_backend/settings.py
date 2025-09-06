@@ -28,8 +28,6 @@ DEBUG = os.getenv("DEBUG", default="False") == "True"
 
 # Custom
 AUTH_USER_MODEL = 'accounts.CustomUser'
-LOGIN_URL = 'accounts:token'
-
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATIC_URL = '/static/'
 
@@ -39,11 +37,11 @@ MEDIA_URL = 'media/'
 FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
 DOMAIN = os.getenv("DOMAIN", default="domain.ir")
 
-CORS_ORIGIN_ALLOW_ALL = False
+CORS_ORIGIN_ALLOW_ALL = DEBUG
 USE_X_FORWARDED_HOST = True
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost', DOMAIN]
-CSRF_TRUSTED_ORIGINS = ['https://localhost', 'https://127.0.0.1', "https://" + DOMAIN]
-CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "https://" + DOMAIN, "http://127.0.0.1:8000"]
+CSRF_TRUSTED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "https://" + DOMAIN]
+CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "http://localhost:8002", "https://" + DOMAIN]
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -91,23 +89,28 @@ SOCIALACCOUNT_PROVIDERS = {
         'SCOPE': [
             'profile',
             'email',
+            'openid',
         ],
         'AUTH_PARAMS': {
             'access_type': 'offline',
         },
-        'OAUTH_PKCE_ENABLED': True,
     }
 }
 
 OAUTH2_PROVIDER = {
     'OAUTH2_VALIDATOR_CLASS': 'oauth2_provider.oauth2_validators.OAuth2Validator',
-    'OAUTH2_BACKEND_CLASS': 'oauth2_provider.oauth2_backends.JSONOAuthLibCore',
     "ACCESS_TOKEN_EXPIRE_SECONDS": 300,
     "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 7,
     "SCOPES": {"read": "Read scope", "write": "Write scope"},
     "PKCE_REQUIRED": True,
     "ROTATE_REFRESH_TOKEN": True,
 }
+
+if DEBUG:
+    OAUTH2_PROVIDER |= {
+        "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
+        "ALLOWED_SCHEMES": ["http", "https"],
+    }
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Event Manager',
@@ -125,7 +128,6 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
-        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PARSER_CLASSES': (
         'rest_framework.parsers.JSONParser',

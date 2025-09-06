@@ -1,7 +1,12 @@
+import json
+from django.contrib.auth import authenticate, login
+from django.core import signing
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
+from oauth2_provider.models import get_application_model
 from oauth2_provider.views import (
     TokenView,
     RevokeTokenView,
@@ -10,7 +15,6 @@ from oauth2_provider.views import (
 from rest_framework import generics, status, views
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
-from rest_framework.views import APIView
 from rest_framework.viewsets import ReadOnlyModelViewSet
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Staff, CustomUser
@@ -28,122 +32,157 @@ from .serializers import (
     SocialLoginSerializer,
     TokenRequestSerializer,
     RevokeTokenRequestSerializer,
+    HandshakeTokenSerializer,
     AuthorizationFormSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
 from django.template.loader import render_to_string
 from rest_framework.response import Response
-from django.utils import timezone
 from datetime import timedelta
-from oauth2_provider.models import get_application_model
-
-Application = get_application_model()
+from django.core.signing import BadSignature, SignatureExpired
 
 
 @extend_schema(
-    summary="Register or Login with Google",
+    summary="Start Google SSO Flow",
     description="""
-        Handles user authentication via Google. The frontend should perform the OAuth2 flow
-        and send the `code` (from the Authorization Code Flow with PKCE) to this endpoint.
+        The frontend sends a Google `code`. (Manual Google Authorization URL, NO GIS initCodeClient, NO PKCE)
+        This endpoint validates it and returns a short-lived, single-use `handshake_token`.
+        The frontend must then immediately redirect the user to the `/o/authorize/` endpoint, passing this token.
     """,
     request=SocialLoginSerializer,
     responses={
-        200: get_api_response_serializer(None),
+        200: get_api_response_serializer(HandshakeTokenSerializer),
         400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
 )
 class GoogleLoginView(SocialLoginView):
+    permission_classes = [AllowAny]
     adapter_class = GoogleOAuth2Adapter
     client_class = OAuth2Client
     serializer_class = SocialLoginSerializer
+    callback_url = "http://localhost:8001/google-callback.html"
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
-        if response.status_code == 200:
-            return Response({"message": "success"}, status=status.HTTP_200_OK)
+        user = getattr(self, "user", None)
 
-        return response
-
-
-class CustomTokenView(APIView, TokenView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(
-        summary="Obtain OAuth2 Tokens (Login/Refresh)",
-        description="""
-            This endpoint is used for all OAuth2 token-related operations.
-
-            **1. Login with Email & Password:**
-            ```json
-            {
-              "grant_type": "password",
-              "username": "user@example.com",
-              "password": "your-password",
-              "client_id": "your-client-id"
+        if response.status_code == 200 and user:
+            payload = {
+                "user_pk": user.pk,
+                "ts": int(timezone.now().timestamp())
             }
-            ```
+            handshake_token = signing.dumps(payload)
+            return Response({"handshake_token": handshake_token}, status=status.HTTP_200_OK)
 
-            **2. Refresh an Access Token:**
-            ```json
-            {
-              "grant_type": "refresh_token",
-              "refresh_token": "your-refresh-token",
-              "client_id": "your-client-id"
-            }
-            ```
-            **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
-        """,
-        request={'application/x-www-form-urlencoded': TokenRequestSerializer},
-        responses={
-            200: get_api_response_serializer(TokenSerializer),
-            400: ApiErrorResponseSerializer,
-            401: ApiErrorResponseSerializer,
-        },
-        tags=['Authentication']
-    )
-    def post(self, request, *args, **kwargs):
-        return TokenView.post(self, request, *args, **kwargs)
+        try:
+            resp_data = response.data
+        except Exception:
+            resp_data = {"detail": "Social login failed"}
+        return Response(resp_data, status=response.status_code)
 
 
-class CustomRevokeTokenView(APIView, RevokeTokenView):
+@extend_schema(
+    summary="Obtain OAuth2 Tokens (Login/Refresh)",
+    description="""
+        This endpoint is used for all OAuth2 token-related operations.
+
+        **1. Login with Email & Password:**
+        ```json
+        {
+          "grant_type": "password",
+          "username": "user@example.com",
+          "password": "your-password",
+          "client_id": "your-client-id"
+        }
+        ```
+
+        **2. Refresh an Access Token:**
+        ```json
+        {
+          "grant_type": "refresh_token",
+          "refresh_token": "your-refresh-token",
+          "client_id": "your-client-id"
+        }
+        ```
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': TokenRequestSerializer},
+    responses={
+        200: get_api_response_serializer(TokenSerializer),
+        400: ApiErrorResponseSerializer,
+        401: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomTokenView(views.APIView):
     permission_classes = [AllowAny]
 
-    @extend_schema(
-        summary="Revoke OAuth2 Tokens (Logout)",
-        description="""
-            This endpoint revokes an access or refresh token, effectively logging a user out from a client.
-            **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
-        """,
-        request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
-        responses={
-            200: get_api_response_serializer(None),
-            400: ApiErrorResponseSerializer,
-        },
-        tags=['Authentication']
-    )
     def post(self, request, *args, **kwargs):
-        return RevokeTokenView.post(self, request, *args, **kwargs)
+        django_request = request._request
+        django_request.POST = request.data
+        django_request.META['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
+
+        original_response = TokenView.as_view()(django_request, *args, **kwargs)
+
+        try:
+            data = json.loads(original_response.content)
+        except json.JSONDecodeError:
+            data = {}
+
+        return Response(data, status=original_response.status_code)
 
 
-class CustomAuthorizationView(APIView, AuthorizationView):
+@extend_schema(
+    summary="Revoke OAuth2 Tokens (Logout)",
+    description="""
+        This endpoint revokes an access or refresh token, effectively logging a user out from a client.
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
+    responses={
+        200: ApiErrorResponseSerializer,
+        400: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomRevokeTokenView(views.APIView):
     permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        django_request = request._request
+        django_request.POST = request.data
+        django_request.META['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
+
+        original_response = RevokeTokenView.as_view()(django_request, *args, **kwargs)
+
+        try:
+            data = json.loads(original_response.content)
+        except json.JSONDecodeError:
+            data = {}
+
+        return Response(data, status=original_response.status_code)
+
+
+@extend_schema(tags=['Authentication'])
+class CustomAuthorizationView(views.APIView):
+    permission_classes = [AllowAny]
+    authorization_view_class = AuthorizationView
 
     @extend_schema(
         summary="Authorization Checkpoint (Headless SSO)",
         description="""
-                **This is the second step in a headless SSO handshake (e.g., after a social login).**
-                It requires a valid session cookie to have been established by a prior API call (like `/social/google/`).
+            It requires a valid session cookie to have been established by a prior API call (like `/social/google/`).
 
-                This endpoint validates the session and immediately redirects the user back to the
-                original client's `redirect_uri` with an `authorization_code`.
-            """,
+            This endpoint validates the short-lived handshake_token and immediately redirects the user back to the
+            original client's `redirect_uri` with an `authorization_code`.
+        """,
         parameters=[
-            OpenApiParameter(name='response_type', description='Should be "code".', required=True, type=str,
-                             location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='response_type', required=True, type=str, location=OpenApiParameter.QUERY),
             OpenApiParameter(name='client_id', required=True, type=str, location=OpenApiParameter.QUERY),
             OpenApiParameter(name='redirect_uri', required=True, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='handshake_token', required=False, type=str, location=OpenApiParameter.QUERY),
             OpenApiParameter(name='scope', type=str, location=OpenApiParameter.QUERY),
             OpenApiParameter(name='code_challenge', type=str, location=OpenApiParameter.QUERY),
             OpenApiParameter(name='code_challenge_method', type=str, location=OpenApiParameter.QUERY),
@@ -155,15 +194,24 @@ class CustomAuthorizationView(APIView, AuthorizationView):
         tags=['Authentication']
     )
     def get(self, request, *args, **kwargs):
-        if not request.user or not request.user.is_authenticated:
-            return Response(
-                {
-                    "detail": "A valid session is required to access this endpoint. Please authenticate via a login API call first."
-                },
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+        django_request = request._request
+        handshake_token = django_request.GET.get('handshake_token')
 
-        return AuthorizationView.get(self, request, *args, **kwargs)
+        if handshake_token:
+            try:
+                payload = signing.loads(handshake_token, max_age=60)
+                user_pk = payload.get("user_pk")
+                user = CustomUser.objects.get(pk=user_pk)
+            except SignatureExpired:
+                return Response({"detail": "Handshake token expired."}, status=status.HTTP_401_UNAUTHORIZED)
+            except BadSignature:
+                return Response({"detail": "Invalid handshake token."}, status=status.HTTP_401_UNAUTHORIZED)
+            except CustomUser.DoesNotExist:
+                return Response({"detail": "User not found."}, status=status.HTTP_401_UNAUTHORIZED)
+
+            django_request.user = user
+
+        return self.authorization_view_class.as_view()(django_request, *args, **kwargs)
 
     @extend_schema(
         summary="Authorization Page (Form Submission)",
@@ -173,7 +221,39 @@ class CustomAuthorizationView(APIView, AuthorizationView):
         tags=['Authentication']
     )
     def post(self, request, *args, **kwargs):
-        return AuthorizationView.post(self, request, *args, **kwargs)
+        django_request = request._request
+        django_request.POST = request.data
+
+        client_id = request.data.get('client_id') or request.query_params.get('client_id')
+
+        if not client_id:
+            return Response(
+                {"detail": "Missing required 'client_id' parameter."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        Application = get_application_model()
+        try:
+            Application.objects.get(client_id=client_id)
+        except Application.DoesNotExist:
+            return Response(
+                {"detail": "Invalid client_id: application not found."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        username = request.data.get('username') or request.data.get('email')
+        password = request.data.get('password')
+
+        if username and password:
+            user = authenticate(django_request, username=username, password=password)
+            if user:
+                user.backend = 'django.contrib.auth.backends.ModelBackend'
+                login(django_request, user)
+            else:
+                return Response({"detail": "Invalid username or password, or this user is inactive."},
+                                status=status.HTTP_401_UNAUTHORIZED)
+
+        return self.authorization_view_class.as_view()(django_request, *args, **kwargs)
 
 
 @extend_schema(
