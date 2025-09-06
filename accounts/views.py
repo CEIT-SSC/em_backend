@@ -1,3 +1,4 @@
+import json
 from django.contrib.auth import authenticate, login
 from django.core import signing
 from django.utils import timezone
@@ -14,7 +15,6 @@ from oauth2_provider.views import (
 from rest_framework import generics, status, views
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
-from rest_framework.views import APIView
 from rest_framework.viewsets import ReadOnlyModelViewSet
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Staff, CustomUser
@@ -115,12 +115,22 @@ class GoogleLoginView(SocialLoginView):
     },
     tags=['Authentication']
 )
-class CustomTokenView(APIView):
+class CustomTokenView(views.APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         django_request = request._request
-        return TokenView.as_view()(django_request, *args, **kwargs)
+        django_request.POST = request.data
+        django_request.META['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
+
+        original_response = TokenView.as_view()(django_request, *args, **kwargs)
+
+        try:
+            data = json.loads(original_response.content)
+        except json.JSONDecodeError:
+            data = {}
+
+        return Response(data, status=original_response.status_code)
 
 
 @extend_schema(
@@ -136,16 +146,26 @@ class CustomTokenView(APIView):
     },
     tags=['Authentication']
 )
-class CustomRevokeTokenView(APIView):
+class CustomRevokeTokenView(views.APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         django_request = request._request
-        return RevokeTokenView.as_view()(django_request, *args, **kwargs)
+        django_request.POST = request.data
+        django_request.META['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
+
+        original_response = RevokeTokenView.as_view()(django_request, *args, **kwargs)
+
+        try:
+            data = json.loads(original_response.content)
+        except json.JSONDecodeError:
+            data = {}
+
+        return Response(data, status=original_response.status_code)
 
 
 @extend_schema(tags=['Authentication'])
-class CustomAuthorizationView(APIView):
+class CustomAuthorizationView(views.APIView):
     permission_classes = [AllowAny]
     authorization_view_class = AuthorizationView
 
@@ -154,7 +174,7 @@ class CustomAuthorizationView(APIView):
         description="""
             It requires a valid session cookie to have been established by a prior API call (like `/social/google/`).
 
-            This endpoint validates the session (or a short-lived handshake_token) and immediately redirects the user back to the
+            This endpoint validates the short-lived handshake_token and immediately redirects the user back to the
             original client's `redirect_uri` with an `authorization_code`.
         """,
         parameters=[
@@ -178,7 +198,7 @@ class CustomAuthorizationView(APIView):
 
         if handshake_token:
             try:
-                payload = signing.loads(handshake_token, max_age=60)  # 60s expiry
+                payload = signing.loads(handshake_token, max_age=60)
                 user_pk = payload.get("user_pk")
                 user = CustomUser.objects.get(pk=user_pk)
             except SignatureExpired:
@@ -190,6 +210,8 @@ class CustomAuthorizationView(APIView):
 
             django_request.user = user
 
+        return self.authorization_view_class.as_view()(django_request, *args, **kwargs)
+
     @extend_schema(
         summary="Authorization Page (Form Submission)",
         description="This endpoint handles the form submission from the central login page.",
@@ -199,12 +221,9 @@ class CustomAuthorizationView(APIView):
     )
     def post(self, request, *args, **kwargs):
         django_request = request._request
+        django_request.POST = request.data
 
-        client_id = (
-            django_request.POST.get('client_id')
-            or request.data.get('client_id')
-            or django_request.GET.get('client_id')
-        )
+        client_id = request.data.get('client_id') or request.query_params.get('client_id')
 
         if not client_id:
             return Response(
@@ -221,12 +240,8 @@ class CustomAuthorizationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        username = django_request.POST.get('username') or django_request.POST.get('email')
-        password = django_request.POST.get('password')
-
-        if not username and hasattr(request, 'data'):
-            username = request.data.get('username') or request.data.get('email')
-            password = password or request.data.get('password')
+        username = request.data.get('username') or request.data.get('email')
+        password = request.data.get('password')
 
         if username and password:
             user = authenticate(django_request, username=username, password=password)

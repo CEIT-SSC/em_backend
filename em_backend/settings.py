@@ -93,7 +93,6 @@ SOCIALACCOUNT_PROVIDERS = {
 
 OAUTH2_PROVIDER = {
     'OAUTH2_VALIDATOR_CLASS': 'oauth2_provider.oauth2_validators.OAuth2Validator',
-    'OAUTH2_BACKEND_CLASS': 'oauth2_provider.oauth2_backends.JSONOAuthLibCore',
     "ACCESS_TOKEN_EXPIRE_SECONDS": 300,
     "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 7,
     "SCOPES": {"read": "Read scope", "write": "Write scope"},
