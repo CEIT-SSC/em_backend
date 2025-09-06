@@ -142,7 +142,7 @@ class CustomTokenView(views.APIView):
     """,
     request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
     responses={
-        200: ApiErrorResponseSerializer,
+        200: get_api_response_serializer(None),
         400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
