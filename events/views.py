@@ -4,8 +4,7 @@ from rest_framework import viewsets, status, generics, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from drf_spectacular.utils import extend_schema, extend_schema_view
-from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
     get_paginated_response_serializer, NoPaginationAutoSchema
 from .models import (
@@ -20,8 +19,7 @@ from .serializers import (
     CompetitionTeamSubmitSerializer, CompetitionTeamDetailSerializer,
     TeamContentSerializer, ContentCommentSerializer,
     PresentationEnrollmentSerializer, SoloCompetitionRegistrationSerializer, LikeStatusSerializer,
-    CommentListSerializer, CommentCreateSerializer, CommentUpdateSerializer, MessageResponseSerializer,
-    ErrorResponseSerializer, PostListSerializer, PostDetailSerializer
+    CommentListSerializer, CommentCreateSerializer, CommentUpdateSerializer, PostListSerializer, PostDetailSerializer
 )
 from django.contrib.auth import get_user_model
 
@@ -76,7 +74,15 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(tags=['Public - Events & Activities'])
 @extend_schema_view(
-    list=extend_schema(responses={200: get_paginated_response_serializer(PresentationSerializer)}),
+    list=extend_schema(
+        responses={200: get_paginated_response_serializer(PresentationSerializer)},
+        parameters=[
+                OpenApiParameter(name='event', type=str, location=OpenApiParameter.QUERY, description='Event ID'),
+                OpenApiParameter(name='type', type=str, location=OpenApiParameter.QUERY, description='Type of presentation'),
+                OpenApiParameter(name='is_online', type=bool, location=OpenApiParameter.QUERY, description='Is online?'),
+                OpenApiParameter(name='is_paid', type=bool, location=OpenApiParameter.QUERY, description='Is paid?'),
+            ]
+    ),
     retrieve=extend_schema(responses={200: get_api_response_serializer(PresentationSerializer), 404: ApiErrorResponseSerializer})
 )
 class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
@@ -135,7 +141,13 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(tags=['Public - Events & Activities'])
 @extend_schema_view(
-    list=extend_schema(responses={200: get_paginated_response_serializer(SoloCompetitionSerializer)}),
+    list=extend_schema(
+        responses={200: get_paginated_response_serializer(SoloCompetitionSerializer)},
+        parameters = [
+            OpenApiParameter(name='event', type=str, location=OpenApiParameter.QUERY, description='Event ID'),
+            OpenApiParameter(name='is_paid', type=bool, location=OpenApiParameter.QUERY, description='Is paid?'),
+        ]
+    ),
     retrieve=extend_schema(responses={200: get_api_response_serializer(SoloCompetitionSerializer), 404: ApiErrorResponseSerializer})
 )
 class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -193,13 +205,19 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(tags=['Public - Events & Activities'])
 @extend_schema_view(
-    list=extend_schema(responses={200: get_paginated_response_serializer(GroupCompetitionSerializer)}),
+    list=extend_schema(
+        responses={200: get_paginated_response_serializer(GroupCompetitionSerializer)},
+        parameters=[
+            OpenApiParameter(name='event', type=str, location=OpenApiParameter.QUERY, description='Event ID'),
+            OpenApiParameter(name='is_paid', type=bool, location=OpenApiParameter.QUERY, description='Is paid?'),
+        ]
+    ),
     retrieve=extend_schema(responses={200: get_api_response_serializer(GroupCompetitionSerializer), 404: ApiErrorResponseSerializer})
 )
 class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
     schema = NoPaginationAutoSchema()
     serializer_class = GroupCompetitionSerializer
-    filterset_fields = ['event', 'is_paid', 'requires_admin_approval']
+    filterset_fields = ['event', 'is_paid']
 
     def get_queryset(self):
         event_id = self.request.query_params.get('event')
