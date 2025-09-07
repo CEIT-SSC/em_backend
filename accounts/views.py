@@ -43,6 +43,13 @@ from django.template.loader import render_to_string
 from rest_framework.response import Response
 from datetime import timedelta
 from django.core.signing import BadSignature, SignatureExpired
+import pytz
+
+
+def _format_datetime(dt):
+    iran_tz = pytz.timezone('Asia/Tehran')
+    local_dt = timezone.localtime(dt, iran_tz)
+    return local_dt.strftime('%Y/%m/%d %H:%M')
 
 
 @extend_schema(
@@ -284,7 +291,7 @@ class UserRegistrationView(generics.CreateAPIView):
 
         ctx = {
             'code': code,
-            'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
+            'expiration': _format_datetime(expiry),
         }
         html_content = render_to_string('verification.html', ctx)
         text_content = f'کد تأیید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
@@ -313,13 +320,13 @@ class UserRegistrationView(generics.CreateAPIView):
             else:
                 code = generate_numeric_code(length=6)
                 user.email_verification_code = code
-                user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)
+                user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=2)
                 user.save()
 
                 expiry = user.email_verification_code_expires_at
                 ctx = {
                     'code': code,
-                    'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
+                    'expiration': _format_datetime(expiry),
                 }
                 html_content = render_to_string('verification.html', ctx)
                 text_content = f'کد تأیید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
@@ -417,13 +424,13 @@ class ResendVerificationEmailView(views.APIView):
 
                 code = generate_numeric_code(length=6)
                 user.email_verification_code = code
-                user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)
+                user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=2)
                 user.save()
 
                 expiry = user.email_verification_code_expires_at
                 ctx = {
                     'code': code,
-                    'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
+                    'expiration': _format_datetime(expiry),
                 }
                 html_content = render_to_string('verification.html', ctx)
                 text_content = f'کد تأیید جدید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
