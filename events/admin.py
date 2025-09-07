@@ -2,7 +2,6 @@ import pytz
 from django.contrib import admin, messages
 from django.template.loader import render_to_string
 from django.utils import timezone
-
 from accounts.email_utils import send_email_async_task
 from .models import (
     Presenter, Event, Presentation,
@@ -142,11 +141,16 @@ class GroupCompetitionInline(admin.TabularInline):
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ('title', 'start_date', 'end_date', 'is_active', 'created_at')
-    search_fields = ('title', 'description')
+    list_display = ('id', 'title', 'start_date', 'end_date', 'is_active')
+    search_fields = ('id', 'title', 'description')
     list_filter = ('is_active', 'start_date', 'end_date')
-    readonly_fields = ('created_at',)
-    inlines = [PresentationInline, SoloCompetitionInline, GroupCompetitionInline]
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = ['created_at']
+        if obj:
+            readonly_fields.append('id')
+
+        return readonly_fields
 
 
 class TeamMembershipInline(admin.TabularInline):
