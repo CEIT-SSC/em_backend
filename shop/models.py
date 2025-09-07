@@ -4,6 +4,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
 from django.utils import timezone
+from decimal import Decimal
 import uuid
 
 
@@ -22,6 +23,24 @@ class DiscountCode(models.Model):
     times_used = models.PositiveIntegerField(default=0, verbose_name="Times Used")
     min_order_value = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, blank=True, null=True, verbose_name="Minimum Order Value")
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    def has_remaining_user_quota(self, user):
+        if self.max_uses_per_user is None:
+            return True
+        return self.redemptions.filter(user=user).count() < self.max_uses_per_user
+
+    event = models.ForeignKey(
+        'events.Event',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='discount_codes',
+        db_index=True,
+        help_text="If set, discount applies only to items of this event."
+    )
+    max_uses_per_user = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="If set, number of times a single user can redeem this code."
+    )
 
     def __str__(self):
         return self.code
@@ -53,31 +72,49 @@ class Cart(models.Model):
     def __str__(self):
         return f"Cart for {self.user.email}"
 
-    def get_subtotal(self):
-        subtotal = 0
+    def _eligible_items_for_code(self, code: 'DiscountCode'):
+        """Return list of cart items eligible for this code based on event scope."""
+        items = list(self.items.select_related('event', 'content_type'))
+        if code.event_id:
+            return [ci for ci in items if (ci.event_id == code.event_id)]
+        return items
+    def _subtotal_for_items(self, items):
+        subtotal = Decimal('0')
         PresentationModel = apps.get_model('events', 'Presentation')
         SoloCompetitionModel = apps.get_model('events', 'SoloCompetition')
         CompetitionTeamModel = apps.get_model('events', 'CompetitionTeam')
-
-        for item in self.items.all():
-            price = 0
-            content_object = item.content_object
-            if content_object:
-                if hasattr(content_object, 'is_paid') and not content_object.is_paid: price = 0
-                elif isinstance(content_object, PresentationModel) and content_object.price is not None: price = content_object.price
-                elif isinstance(content_object, SoloCompetitionModel) and content_object.price_per_participant is not None: price = content_object.price_per_participant
-                elif isinstance(content_object, CompetitionTeamModel):
-                    parent_comp = content_object.group_competition
-                    if parent_comp.is_paid and parent_comp.price_per_group is not None: price = parent_comp.price_per_group
-                    else: price = 0
+        for ci in items:
+            obj = ci.content_object
+            if not obj:
+                continue
+            if hasattr(obj, 'is_paid') and not obj.is_paid:
+                price = Decimal('0')
+            elif isinstance(obj, PresentationModel) and obj.price is not None:
+                price = obj.price
+            elif isinstance(obj, SoloCompetitionModel) and obj.price_per_participant is not None:
+                price = obj.price_per_participant
+            elif isinstance(obj, CompetitionTeamModel):
+                parent = obj.group_competition
+                price = parent.price_per_group if parent.is_paid and parent.price_per_group is not None else Decimal('0')
+            else:
+                price = Decimal('0')
             subtotal += price
         return subtotal
 
     def get_discount_amount(self):
         subtotal = self.get_subtotal()
-        if self.applied_discount_code and self.applied_discount_code.is_valid(subtotal):
-            return self.applied_discount_code.calculate_discount(subtotal)
-        return 0
+        code = self.applied_discount_code
+        if not code or not code.is_valid(subtotal):
+            return Decimal('0')
+
+        eligible = self._eligible_items_for_code(code)
+        eligible_subtotal = self._subtotal_for_items(eligible)
+
+        if eligible_subtotal <= 0:
+            return Decimal('0')
+
+        discount_value = Decimal(code.calculate_discount(eligible_subtotal))
+        return min(discount_value, Decimal(subtotal))
 
     def get_total(self):
         return self.get_subtotal() - self.get_discount_amount()
@@ -250,3 +287,14 @@ class PaymentBatch(models.Model):
 
     def __str__(self):
         return f"Batch {self.batch_id} for {self.user_id} — {self.status}"
+    
+
+class DiscountRedemption(models.Model):
+    code = models.ForeignKey(DiscountCode, on_delete=models.CASCADE, related_name='redemptions')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='discount_redemptions')
+    order = models.ForeignKey('shop.Order', on_delete=models.CASCADE, related_name='discount_redemptions')
+    used_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('code', 'user', 'order')
+        indexes = [models.Index(fields=['code', 'user'])]

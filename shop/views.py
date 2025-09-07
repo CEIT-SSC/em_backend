@@ -12,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, NoPaginationAutoSchema, \
     get_paginated_response_serializer
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountRedemption
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
     OrderSerializer, OrderListSerializer, CartItemSerializer, PaymentInitiateResponseSerializer, PartialCheckoutSerializer, BatchPaymentInitiateSerializer
@@ -261,12 +261,21 @@ class OrderPartialCheckoutView(views.APIView):
                 if price is None or price <= 0:
                     continue
 
+                discount_code = cart.applied_discount_code
+                discount_amount = 0
+                if discount_code and discount_code.is_valid(price):
+                    if (discount_code.event_id is None) or (discount_code.event_id == ci.event_id):
+                        discount_amount = min(
+                            discount_code.calculate_discount(price),
+                            price
+                        )
+
                 order = Order.objects.create(
                     user=request.user,
                     subtotal_amount=price,
-                    discount_code_applied=cart.applied_discount_code,
-                    discount_amount=0,
-                    total_amount=price,
+                    discount_code_applied=discount_code if discount_amount > 0 else None,
+                    discount_amount=discount_amount,
+                    total_amount=(price - discount_amount),
                     status=Order.STATUS_PENDING_PAYMENT,
                 )
                 order_item = OrderItem.objects.create(
@@ -345,6 +354,11 @@ class ApplyDiscountView(views.APIView):
         code_str = serializer.validated_data['code']
         try:
             discount_code = DiscountCode.objects.get(code__iexact=code_str)
+            eligible_items = cart._eligible_items_for_code(discount_code)
+            if not eligible_items:
+                return Response({"error": "This code does not apply to any items in your cart."}, status=400)
+            if not discount_code.has_remaining_user_quota(request.user):
+                return Response({"error": "You have already used this code the maximum allowed times."}, status=400)
             if discount_code.is_valid(cart.get_subtotal()):
                 cart.applied_discount_code = discount_code
                 cart.save()
@@ -415,6 +429,7 @@ class OrderCheckoutView(views.APIView):
             order.status = Order.STATUS_COMPLETED
             if order.discount_code_applied:
                 discount = order.discount_code_applied
+                DiscountRedemption.objects.get_or_create(code=discount, user=order.user, order=order)
                 discount.times_used = models.F('times_used') + 1
                 discount.save(update_fields=['times_used'])
             order.save(update_fields=['status'])
