@@ -65,8 +65,19 @@ class DiscountCode(models.Model):
         ordering = ['-created_at', 'code']
 
 class Cart(models.Model):
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cart", verbose_name="User")
-    applied_discount_code = models.ForeignKey(DiscountCode, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Applied Discount Code")
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="cart",
+        verbose_name="User"
+    )
+    applied_discount_code = models.ForeignKey(
+        DiscountCode,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Applied Discount Code"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -74,19 +85,22 @@ class Cart(models.Model):
 
     def _eligible_items_for_code(self, code: 'DiscountCode'):
         """Return list of cart items eligible for this code based on event scope."""
-        items = list(self.items.select_related('event', 'content_type'))
+        items = list(self.items.select_related('content_type'))
         if code.event_id:
             return [ci for ci in items if (ci.event_id == code.event_id)]
         return items
+
     def _subtotal_for_items(self, items):
         subtotal = Decimal('0')
         PresentationModel = apps.get_model('events', 'Presentation')
         SoloCompetitionModel = apps.get_model('events', 'SoloCompetition')
         CompetitionTeamModel = apps.get_model('events', 'CompetitionTeam')
+
         for ci in items:
             obj = ci.content_object
             if not obj:
                 continue
+
             if hasattr(obj, 'is_paid') and not obj.is_paid:
                 price = Decimal('0')
             elif isinstance(obj, PresentationModel) and obj.price is not None:
@@ -95,11 +109,20 @@ class Cart(models.Model):
                 price = obj.price_per_participant
             elif isinstance(obj, CompetitionTeamModel):
                 parent = obj.group_competition
-                price = parent.price_per_group if parent.is_paid and parent.price_per_group is not None else Decimal('0')
+                price = (
+                    parent.price_per_group
+                    if parent.is_paid and parent.price_per_group is not None
+                    else Decimal('0')
+                )
             else:
                 price = Decimal('0')
+
             subtotal += price
+
         return subtotal
+
+    def get_subtotal(self):
+        return self._subtotal_for_items(self.items.all())
 
     def get_discount_amount(self):
         subtotal = self.get_subtotal()
