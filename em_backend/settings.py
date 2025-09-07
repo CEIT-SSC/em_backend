@@ -28,8 +28,6 @@ DEBUG = os.getenv("DEBUG", default="False") == "True"
 
 # Custom
 AUTH_USER_MODEL = 'accounts.CustomUser'
-LOGIN_URL = 'accounts:token'
-
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATIC_URL = '/static/'
 
@@ -39,11 +37,12 @@ MEDIA_URL = 'media/'
 FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
 DOMAIN = os.getenv("DOMAIN", default="domain.ir")
 
-CORS_ORIGIN_ALLOW_ALL = False
+CORS_ORIGIN_ALLOW_ALL = DEBUG
 USE_X_FORWARDED_HOST = True
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost', DOMAIN]
-CSRF_TRUSTED_ORIGINS = ['https://localhost', 'https://127.0.0.1', "https://" + DOMAIN]
-CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "https://" + DOMAIN, "http://127.0.0.1:8000"]
+CSRF_TRUSTED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "https://" + DOMAIN]
+CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "http://localhost:8002", "https://" + DOMAIN,
+                        "https://gamecraft.ir", "https://aut-ssc.ir", "https://ceit-ssc.ir"]
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -58,8 +57,20 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 SMS_KEY = os.getenv("SMS_KEY", default="key")
 SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
-PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", default="auth")
+ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", default=False)
+
+if ZARINPAL_SANDBOX:
+    PAYMENT_API_KEY = os.getenv("ZARINPAL_MERCHANT_ID", "11111111-1111-1111-1111-111111111111")
+else:
+    PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
+
 PAYMENT_CALLBACK_URL = os.getenv("PAYMENT_CALLBACK_URL", default="callback")
+
+CORS_ALLOW_CREDENTIALS = True
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
 
 # allauth
 SITE_ID = 1
@@ -68,19 +79,7 @@ ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_USERNAME_REQUIRED = False
 SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomAdapter'
-
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-    "UPDATE_LAST_LOGIN": True,
-    "AUTH_COOKIE": "refresh_token",
-    "AUTH_COOKIE_HTTP_ONLY": True,
-    "AUTH_COOKIE_SECURE": not DEBUG,
-    "AUTH_COOKIE_PATH": "/",
-    "AUTH_COOKIE_SAMESITE": "Lax",
-}
+GOOGLE_CALLBACK_URL=os.getenv('GOOGLE_CALLBACK_URL', 'http://localhost:3000')
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
@@ -92,13 +91,28 @@ SOCIALACCOUNT_PROVIDERS = {
         'SCOPE': [
             'profile',
             'email',
+            'openid',
         ],
         'AUTH_PARAMS': {
-            'access_type': 'online',
+            'access_type': 'offline',
         },
-        'OAUTH_PKCE_ENABLED': True,
     }
 }
+
+OAUTH2_PROVIDER = {
+    'OAUTH2_VALIDATOR_CLASS': 'oauth2_provider.oauth2_validators.OAuth2Validator',
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 300,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 7,
+    "SCOPES": {"read": "Read scope", "write": "Write scope"},
+    "PKCE_REQUIRED": True,
+    "ROTATE_REFRESH_TOKEN": True,
+}
+
+if DEBUG:
+    OAUTH2_PROVIDER |= {
+        "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
+        "ALLOWED_SCHEMES": ["http", "https"],
+    }
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Event Manager',
@@ -115,7 +129,7 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.AllowAny',
     ),
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
     ),
     'DEFAULT_PARSER_CLASSES': (
         'rest_framework.parsers.JSONParser',
@@ -133,8 +147,8 @@ REST_FRAMEWORK = {
 }
 
 AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
+    'django.contrib.auth.backends.ModelBackend',
 ]
 
 # Application definition
@@ -146,7 +160,6 @@ INSTALLED_APPS = [
     'shop',
     'events',
     'rest_framework',
-    'rest_framework_simplejwt.token_blacklist',
     'rest_framework.authtoken',
     'allauth',
     'allauth.account',
@@ -158,6 +171,7 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'django.contrib.sites',
+    "oauth2_provider",
 
     # Default
     'django.contrib.admin',
@@ -167,6 +181,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 ]
+
+PERIODIC_JOBS_ENABLED = True
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

@@ -18,6 +18,7 @@ class Presenter(models.Model):
         ordering = ['name']
 
 class Event(models.Model):
+    id = models.IntegerField(primary_key=True, verbose_name="Event ID")
     title = models.CharField(max_length=255, verbose_name="Event Title")
     description = models.TextField(verbose_name="Event Description")
     start_date = models.DateTimeField(verbose_name="Start Date & Time")

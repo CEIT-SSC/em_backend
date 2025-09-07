@@ -32,11 +32,9 @@ def validate_phone_number(value):
 
 
 class CustomUserManager(BaseUserManager):
-    def _create_user_and_cart(self, email, phone_number, password, **extra_fields):
+    def _create_user_and_cart(self, email, password, phone_number=None, **extra_fields):
         if not email:
             raise ValueError('The Email field must be set')
-        if not phone_number:
-            raise ValueError('The Phone Number field must be set')
 
         email = self.normalize_email(email)
         user = self.model(email=email, phone_number=phone_number, **extra_fields)
@@ -47,7 +45,8 @@ class CustomUserManager(BaseUserManager):
         Cart.objects.create(user=user)
         return user
 
-    def create_user(self, email, phone_number, password=None, first_name=None, last_name=None, **other_extra_fields):
+    def create_user(self, email, password=None, phone_number=None, first_name=None, last_name=None,
+                    **other_extra_fields):
         actual_extra_fields = other_extra_fields.copy()
         if first_name is not None:
             actual_extra_fields['first_name'] = first_name
@@ -57,9 +56,9 @@ class CustomUserManager(BaseUserManager):
         actual_extra_fields.setdefault('is_staff', False)
         actual_extra_fields.setdefault('is_superuser', False)
 
-        return self._create_user_and_cart(email, phone_number, password, **actual_extra_fields)
+        return self._create_user_and_cart(email, password, phone_number=phone_number, **actual_extra_fields)
 
-    def create_superuser(self, email, phone_number, password=None, first_name=None, last_name=None,
+    def create_superuser(self, email, password=None, phone_number=None, first_name=None, last_name=None,
                          **other_extra_fields):
         actual_extra_fields = other_extra_fields.copy()
         if first_name is not None:
@@ -69,14 +68,14 @@ class CustomUserManager(BaseUserManager):
 
         actual_extra_fields.setdefault('is_staff', True)
         actual_extra_fields.setdefault('is_superuser', True)
-        actual_extra_fields.setdefault('is_active', True)  # Superusers should be active by default
+        actual_extra_fields.setdefault('is_active', True)
 
         if actual_extra_fields.get('is_staff') is not True:
             raise ValueError('Superuser must have is_staff=True.')
         if actual_extra_fields.get('is_superuser') is not True:
             raise ValueError('Superuser must have is_superuser=True.')
 
-        return self._create_user_and_cart(email, phone_number, password, **actual_extra_fields)
+        return self._create_user_and_cart(email, password, phone_number=phone_number, **actual_extra_fields)
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
@@ -113,7 +112,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['phone_number']
+    REQUIRED_FIELDS = []
 
     def __str__(self):
         return self.email

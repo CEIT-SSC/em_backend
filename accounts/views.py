@@ -1,13 +1,23 @@
-from dj_rest_auth.registration.serializers import SocialLoginSerializer
+import json
+from django.contrib.auth import authenticate, login
+from django.core import signing
 from django.utils import timezone
-from datetime import timedelta
+from drf_spectacular.utils import OpenApiParameter
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+from dj_rest_auth.registration.views import SocialLoginView
+from oauth2_provider.models import get_application_model
+from oauth2_provider.views import (
+    TokenView,
+    RevokeTokenView,
+    AuthorizationView
+)
 from rest_framework import generics, status, views
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
 from rest_framework.viewsets import ReadOnlyModelViewSet
-from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenRefreshView
+
+from em_backend import settings
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Staff, CustomUser
 from .serializers import (
@@ -20,179 +30,240 @@ from .serializers import (
     SimpleForgotPasswordSerializer,
     UserRegistrationSuccessSerializer,
     StaffSerializer,
-    JSAccessSerializer, CustomTokenObtainSerializer
+    TokenSerializer,
+    SocialLoginSerializer,
+    TokenRequestSerializer,
+    RevokeTokenRequestSerializer,
+    HandshakeTokenSerializer,
+    AuthorizationFormSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
-from allauth.socialaccount.providers.oauth2.client import OAuth2Client
-from dj_rest_auth.registration.views import SocialLoginView
 from django.template.loader import render_to_string
 from rest_framework.response import Response
-from django.conf import settings
+from datetime import timedelta
+from django.core.signing import BadSignature, SignatureExpired
+import pytz
+
+
+def _format_datetime(dt):
+    iran_tz = pytz.timezone('Asia/Tehran')
+    local_dt = timezone.localtime(dt, iran_tz)
+    return local_dt.strftime('%Y/%m/%d %H:%M')
 
 
 @extend_schema(
-    summary="Login with email and password",
+    summary="Start Google SSO Flow",
     description="""
-        Authenticates a user using email and password.
-        - Returns the access token in the response body.
-        - Sets the refresh token as an HttpOnly cookie.
-    """,
-    request=CustomTokenObtainSerializer,
-    responses={
-        200: get_api_response_serializer(JSAccessSerializer),
-        400: ApiErrorResponseSerializer,
-        401: ApiErrorResponseSerializer,
-    },
-    tags=['Authentication']
-)
-class CustomTokenObtainView(generics.GenericAPIView):
-    permission_classes = [AllowAny]
-    serializer_class = CustomTokenObtainSerializer
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data['user']
-        refresh = RefreshToken.for_user(user)
-
-        data_payload = {"access": str(refresh.access_token)}
-        response = Response(data_payload, status=status.HTTP_200_OK)
-
-        response.set_cookie(
-            key="refresh_token",
-            value=str(refresh),
-            httponly=True,
-            secure=not settings.DEBUG,
-            samesite="Lax",
-            path="/",
-            max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
-        )
-        return response
-
-
-@extend_schema(
-    summary="Refresh access token",
-    description="""
-        Refreshes an access token using the refresh token from the HttpOnly cookie.
-        Returns a new access token in the response body.
-        The refresh token is automatically rotated if configured in settings.
-    """,
-    request=None,
-    responses={
-        200: get_api_response_serializer(JSAccessSerializer),
-        401: ApiErrorResponseSerializer,
-    },
-    tags=['Authentication']
-)
-class CustomTokenRefreshView(TokenRefreshView):
-    def post(self, request, *args, **kwargs):
-        refresh_token_from_cookie = request.COOKIES.get("refresh_token")
-
-        request_data = request.data.copy()
-        if refresh_token_from_cookie and 'refresh' not in request_data:
-            request_data['refresh'] = refresh_token_from_cookie
-
-        serializer = self.get_serializer(data=request_data)
-        serializer.is_valid(raise_exception=True)
-
-        new_access_token = serializer.validated_data['access']
-        new_refresh_token = serializer.validated_data.get('refresh')
-
-        data_payload = {"access": new_access_token}
-        response = Response(data_payload, status=status.HTTP_200_OK)
-
-        if new_refresh_token:
-            response.set_cookie(
-                key="refresh_token",
-                value=new_refresh_token,
-                httponly=True,
-                secure=not settings.DEBUG,
-                samesite="Lax",
-                path="/",
-                max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()
-            )
-        return response
-
-
-@extend_schema(
-    summary="Logout user (blacklist refresh token)",
-    description="""
-        Blacklists the refresh token sent in the HttpOnly cookie and clears the cookie.
-        This effectively logs the user out.
-    """,
-    request=None,  # The request body is empty
-    responses={
-        200: get_api_response_serializer(None),  # Success message, no data
-        400: ApiErrorResponseSerializer,
-    },
-    tags=['Authentication']
-)
-class CustomTokenBlacklistView(views.APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request, *args, **kwargs):
-        refresh_token = request.COOKIES.get("refresh_token")
-
-        if not refresh_token:
-            return Response(
-                {"error": "Refresh token not found in cookie."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-        except TokenError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        response = Response(
-            {"message": "Logout successful. Token has been blacklisted."},
-            status=status.HTTP_200_OK
-        )
-        response.delete_cookie(
-            key="refresh_token",
-            path="/",
-        )
-
-        return response
-
-
-@extend_schema(
-    summary="Register or Login with Google (PKCE or Implicit Flow)",
-    description="""
-        Handles user authentication via Google. This endpoint is flexible and accepts either:
-            1.  Authorization Code Flow (PKCE): `code`
-            2.  Implicit Flow: `access_token`
+        The frontend sends a Google `code`. (Manual Google Authorization URL, NO GIS initCodeClient, NO PKCE)
+        This endpoint validates it and returns a short-lived, single-use `handshake_token`.
+        The frontend must then immediately redirect the user to the `/o/authorize/` endpoint, passing this token.
     """,
     request=SocialLoginSerializer,
     responses={
-        200: get_api_response_serializer(JSAccessSerializer),
+        200: get_api_response_serializer(HandshakeTokenSerializer),
         400: ApiErrorResponseSerializer,
     },
     tags=['Authentication']
 )
-class GoogleLogin(SocialLoginView):
+class GoogleLoginView(SocialLoginView):
+    permission_classes = [AllowAny]
     adapter_class = GoogleOAuth2Adapter
-    callback_url = settings.FRONTEND_URL
     client_class = OAuth2Client
+    serializer_class = SocialLoginSerializer
+    callback_url = settings.GOOGLE_CALLBACK_URL
 
-    def get_response(self):
-        user = self.user
-        refresh = RefreshToken.for_user(user)
-        serializer = JSAccessSerializer({"access": str(refresh.access_token)})
-        response = Response(serializer.data)
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        user = getattr(self, "user", None)
 
-        response.set_cookie(
-            key="refresh_token",
-            value=str(refresh),
-            httponly=True,
-            secure=not settings.DEBUG,
-            samesite="Lax",
-            path="/",
-        )
-        return response
+        if response.status_code == 200 and user:
+            payload = {
+                "user_pk": user.pk,
+                "ts": int(timezone.now().timestamp())
+            }
+            handshake_token = signing.dumps(payload)
+            return Response({"handshake_token": handshake_token}, status=status.HTTP_200_OK)
+
+        try:
+            resp_data = response.data
+        except Exception:
+            resp_data = {"detail": "Social login failed"}
+        return Response(resp_data, status=response.status_code)
+
+
+@extend_schema(
+    summary="Obtain OAuth2 Tokens (Login/Refresh)",
+    description="""
+        This endpoint is used for all OAuth2 token-related operations.
+
+        **1. Login with Email & Password:**
+        ```json
+        {
+          "grant_type": "password",
+          "username": "user@example.com",
+          "password": "your-password",
+          "client_id": "your-client-id"
+        }
+        ```
+
+        **2. Refresh an Access Token:**
+        ```json
+        {
+          "grant_type": "refresh_token",
+          "refresh_token": "your-refresh-token",
+          "client_id": "your-client-id"
+        }
+        ```
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': TokenRequestSerializer},
+    responses={
+        200: get_api_response_serializer(TokenSerializer),
+        400: ApiErrorResponseSerializer,
+        401: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomTokenView(views.APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        django_request = request._request
+        django_request.POST = request.data
+        django_request.META['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
+
+        original_response = TokenView.as_view()(django_request, *args, **kwargs)
+
+        try:
+            data = json.loads(original_response.content)
+        except json.JSONDecodeError:
+            data = {}
+
+        return Response(data, status=original_response.status_code)
+
+
+@extend_schema(
+    summary="Revoke OAuth2 Tokens (Logout)",
+    description="""
+        This endpoint revokes an access or refresh token, effectively logging a user out from a client.
+        **Note:** This endpoint expects a `Content-Type` of `application/x-www-form-urlencoded`.
+    """,
+    request={'application/x-www-form-urlencoded': RevokeTokenRequestSerializer},
+    responses={
+        200: get_api_response_serializer(None),
+        400: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class CustomRevokeTokenView(views.APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        django_request = request._request
+        django_request.POST = request.data
+        django_request.META['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
+
+        original_response = RevokeTokenView.as_view()(django_request, *args, **kwargs)
+
+        try:
+            data = json.loads(original_response.content)
+        except json.JSONDecodeError:
+            data = {}
+
+        return Response(data, status=original_response.status_code)
+
+
+@extend_schema(tags=['Authentication'])
+class CustomAuthorizationView(views.APIView):
+    permission_classes = [AllowAny]
+    authorization_view_class = AuthorizationView
+
+    @extend_schema(
+        summary="Authorization Checkpoint (Headless SSO)",
+        description="""
+            It requires a valid session cookie to have been established by a prior API call (like `/social/google/`).
+
+            This endpoint validates the short-lived handshake_token and immediately redirects the user back to the
+            original client's `redirect_uri` with an `authorization_code`.
+        """,
+        parameters=[
+            OpenApiParameter(name='response_type', required=True, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='client_id', required=True, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='redirect_uri', required=True, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='handshake_token', required=False, type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='scope', type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='code_challenge', type=str, location=OpenApiParameter.QUERY),
+            OpenApiParameter(name='code_challenge_method', type=str, location=OpenApiParameter.QUERY),
+        ],
+        responses={
+            302: "Redirects back to the client's `redirect_uri` with a `code` or an `error`.",
+            401: ApiErrorResponseSerializer,
+        },
+        tags=['Authentication']
+    )
+    def get(self, request, *args, **kwargs):
+        django_request = request._request
+        handshake_token = django_request.GET.get('handshake_token')
+
+        if handshake_token:
+            try:
+                payload = signing.loads(handshake_token, max_age=60)
+                user_pk = payload.get("user_pk")
+                user = CustomUser.objects.get(pk=user_pk)
+            except SignatureExpired:
+                return Response({"detail": "Handshake token expired."}, status=status.HTTP_401_UNAUTHORIZED)
+            except BadSignature:
+                return Response({"detail": "Invalid handshake token."}, status=status.HTTP_401_UNAUTHORIZED)
+            except CustomUser.DoesNotExist:
+                return Response({"detail": "User not found."}, status=status.HTTP_401_UNAUTHORIZED)
+
+            django_request.user = user
+
+        return self.authorization_view_class.as_view()(django_request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Authorization Page (Form Submission)",
+        description="This endpoint handles the form submission from the central login page.",
+        request={'application/x-www-form-urlencoded': AuthorizationFormSerializer},
+        responses={302: "Redirects back to the client's `redirect_uri` after successful login."},
+        tags=['Authentication']
+    )
+    def post(self, request, *args, **kwargs):
+        django_request = request._request
+        django_request.POST = request.data
+
+        client_id = request.data.get('client_id') or request.query_params.get('client_id')
+
+        if not client_id:
+            return Response(
+                {"detail": "Missing required 'client_id' parameter."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        Application = get_application_model()
+        try:
+            Application.objects.get(client_id=client_id)
+        except Application.DoesNotExist:
+            return Response(
+                {"detail": "Invalid client_id: application not found."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        username = request.data.get('username') or request.data.get('email')
+        password = request.data.get('password')
+
+        if username and password:
+            user = authenticate(django_request, username=username, password=password)
+            if user:
+                user.backend = 'django.contrib.auth.backends.ModelBackend'
+                login(django_request, user)
+            else:
+                return Response({"detail": "Invalid username or password, or this user is inactive."},
+                                status=status.HTTP_401_UNAUTHORIZED)
+
+        return self.authorization_view_class.as_view()(django_request, *args, **kwargs)
+
 
 @extend_schema(
     summary="Register a new user",
@@ -220,7 +291,7 @@ class UserRegistrationView(generics.CreateAPIView):
 
         ctx = {
             'code': code,
-            'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
+            'expiration': _format_datetime(expiry),
         }
         html_content = render_to_string('verification.html', ctx)
         text_content = f'کد تأیید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
@@ -249,13 +320,13 @@ class UserRegistrationView(generics.CreateAPIView):
             else:
                 code = generate_numeric_code(length=6)
                 user.email_verification_code = code
-                user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)
+                user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=2)
                 user.save()
 
                 expiry = user.email_verification_code_expires_at
                 ctx = {
                     'code': code,
-                    'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
+                    'expiration': _format_datetime(expiry),
                 }
                 html_content = render_to_string('verification.html', ctx)
                 text_content = f'کد تأیید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
@@ -353,13 +424,13 @@ class ResendVerificationEmailView(views.APIView):
 
                 code = generate_numeric_code(length=6)
                 user.email_verification_code = code
-                user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=10)
+                user.email_verification_code_expires_at = timezone.now() + timedelta(minutes=2)
                 user.save()
 
                 expiry = user.email_verification_code_expires_at
                 ctx = {
                     'code': code,
-                    'expiration': expiry.strftime('%Y/%m/%d %H:%M'),
+                    'expiration': _format_datetime(expiry),
                 }
                 html_content = render_to_string('verification.html', ctx)
                 text_content = f'کد تأیید جدید شما: {code}\nاین کد تا {ctx["expiration"]} معتبر است.'
@@ -410,7 +481,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         200: get_api_response_serializer(None),
         400: ApiErrorResponseSerializer,
     },
-    tags=['User Profile']
+    tags=['Authentication']
 )
 class ChangePasswordView(generics.UpdateAPIView):
     serializer_class = ChangePasswordSerializer

@@ -3,37 +3,61 @@ from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from accounts.models import validate_phone_number, Staff
 from django_typomatic import ts_interface
-from rest_framework_simplejwt.serializers import TokenBlacklistSerializer
-from django.contrib.auth import authenticate
+from dj_rest_auth.registration.serializers import SocialLoginSerializer as BaseSocialLoginSerializer
 
 CustomUser = get_user_model()
 
 @ts_interface()
-class CustomTokenObtainSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
-
-    def validate(self, attrs):
-        email = attrs.get('email')
-        password = attrs.get('password')
-
-        if email and password:
-            user = authenticate(request=self.context.get('request'), email=email, password=password)
-            if not user:
-                raise serializers.ValidationError("Unable to log in with provided credentials.", code='authorization')
-        else:
-            raise serializers.ValidationError("Must include 'email' and 'password'.", code='authorization')
-
-        attrs['user'] = user
-        return attrs
+class HandshakeTokenSerializer(serializers.Serializer):
+    handshake_token = serializers.CharField()
 
 @ts_interface()
-class JSAccessSerializer(serializers.Serializer):
-    access = serializers.CharField()
+class TokenRequestSerializer(serializers.Serializer):
+    grant_type = serializers.ChoiceField(
+        choices=["password", "refresh_token"],
+        help_text="The grant type. Use 'password' for user login, 'refresh_token' for refreshing an expired access token."
+    )
+    username = serializers.CharField(required=False, help_text="Required for grant_type='password'. The user's email.")
+    password = serializers.CharField(required=False, help_text="Required for grant_type='password'.")
+    refresh_token = serializers.CharField(required=False, help_text="Required for grant_type='refresh_token'.")
+    client_id = serializers.CharField(required=True, help_text="The client ID of your application.")
+    client_secret = serializers.CharField(required=False, help_text="The client secret, if your application is confidential.")
 
 @ts_interface()
-class JSTokenBlacklistSerializer(TokenBlacklistSerializer):
+class RevokeTokenRequestSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="The access or refresh token to be revoked.")
+    client_id = serializers.CharField(help_text="The client ID of your application.")
+    client_secret = serializers.CharField(required=False, help_text="The client secret, if your application is confidential.")
+    token_type_hint = serializers.ChoiceField(choices=["access_token", "refresh_token"], required=False,
+                                              help_text="Optional hint about the type of token.")
+
+@ts_interface()
+class SocialLoginSerializer(BaseSocialLoginSerializer):
     pass
+
+
+@ts_interface()
+class AuthorizationFormSerializer(serializers.Serializer):
+    username = serializers.CharField(required=True, help_text="The user's email address.")
+    password = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
+
+    client_id = serializers.CharField(required=True)
+    redirect_uri = serializers.URLField(required=True)
+    response_type = serializers.CharField(required=True, help_text="Must be 'code'.")
+    scope = serializers.CharField(required=False)
+    code_challenge = serializers.CharField(required=False)
+    code_challenge_method = serializers.CharField(required=False)
+
+    allow = serializers.CharField(required=True,
+                                  help_text="Must be a truthy value like 'true' to indicate user consent.")
+
+@ts_interface()
+class TokenSerializer(serializers.Serializer):
+    access_token = serializers.CharField()
+    expires_in = serializers.IntegerField()
+    token_type = serializers.CharField()
+    scope = serializers.CharField()
+    refresh_token = serializers.CharField()
 
 @ts_interface()
 class MessageResponseSerializer(serializers.Serializer):
@@ -58,6 +82,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'first_name': {'required': False, 'allow_blank': True, 'default': ''},
             'last_name': {'required': False, 'allow_blank': True, 'default': ''},
+            'phone_number': {'required': False, 'allow_blank': True, 'default': None},
         }
 
     def validate(self, attrs):
