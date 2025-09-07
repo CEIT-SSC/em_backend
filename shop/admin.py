@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch
 
 @admin.register(DiscountCode)
 class DiscountCodeAdmin(admin.ModelAdmin):
@@ -72,3 +72,9 @@ class CartItemAdmin(admin.ModelAdmin):
     def content_object_display(self, obj):
         return str(obj.content_object) if obj.content_object else "N/A"
     content_object_display.short_description = "Item in Cart"
+
+@admin.register(PaymentBatch)
+class PaymentBatchAdmin(admin.ModelAdmin):
+    list_display = ('batch_id', 'user', 'total_amount', 'status', 'payment_gateway_authority', 'created_at', 'paid_at')
+    search_fields = ('batch_id', 'payment_gateway_authority', 'user__email')
+    list_filter = ('status', 'created_at', 'paid_at')

@@ -44,6 +44,8 @@ class ZarrinPal:
             data["metadata"]["email"] = email
         if order_id is not None:
             data["metadata"]["order_id"] = str(order_id)
+        
+        print(order_id)
 
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
 

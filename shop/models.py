@@ -87,13 +87,54 @@ class Cart(models.Model):
         verbose_name_plural = "Shopping Carts"
 
 class CartItem(models.Model):
-    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name="items", verbose_name="Cart")
-    limit_to_models = models.Q(app_label='events', model='presentation') | \
-                      models.Q(app_label='events', model='solocompetition') | \
-                      models.Q(app_label='events', model='competitionteam')
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, limit_choices_to=limit_to_models, verbose_name="Item Type")
+    STATUS_OWNED = "owned"
+    STATUS_RESERVED = "reserved"
+    STATUS_CHOICES = (
+        (STATUS_OWNED, "owned"),
+        (STATUS_RESERVED, "reserved"),
+    )
+
+    cart = models.ForeignKey('shop.Cart', on_delete=models.CASCADE, related_name='items')
+
+    event = models.ForeignKey(
+        'events.Event',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='shop_cart_items',
+        db_index=True
+    )
+
+    limit_to_models = (
+        models.Q(app_label='events', model='presentation')
+        | models.Q(app_label='events', model='solocompetition')
+        | models.Q(app_label='events', model='competitionteam')
+    )
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        limit_choices_to=limit_to_models,
+        verbose_name="Item Type"
+    )
     object_id = models.PositiveIntegerField(verbose_name="Item ID")
     content_object = GenericForeignKey('content_type', 'object_id')
+
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_OWNED
+    )
+
+    reserved_order = models.ForeignKey(
+        'shop.Order', null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='reserved_cart_items'
+    )
+    reserved_order_item = models.ForeignKey(
+        'shop.OrderItem', null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='reserved_cart_items'
+    )
+
     added_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -104,6 +145,30 @@ class CartItem(models.Model):
         verbose_name = "Cart Item"
         verbose_name_plural = "Cart Items"
         ordering = ['-added_at']
+
+    def save(self, *args, **kwargs):
+        if self.event_id is None:
+            ev_id = None
+            obj = None
+            try:
+                obj = self.content_object
+            except Exception as e:
+                print(f"[CartItem.save] content_object not available yet: {e}")
+            if obj is not None:
+                ev_id = getattr(obj, 'event_id', None)
+                if ev_id is None:
+                    parent = getattr(obj, 'group_competition', None)
+                    ev_id = getattr(parent, 'event_id', None) if parent else None
+
+            if ev_id:
+                self.event_id = ev_id
+            else:
+                print(f"[CartItem.save] WARNING: could not resolve event_id; leaving NULL.")
+
+        if not self.status:
+            self.status = self.STATUS_OWNED
+
+        super().save(*args, **kwargs)
 
 class Order(models.Model):
     STATUS_PENDING_PAYMENT = "pending_payment"
@@ -157,3 +222,31 @@ class OrderItem(models.Model):
         verbose_name = "Order Item"
         verbose_name_plural = "Order Items"
         ordering = ['order']
+
+
+class PaymentBatch(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_AWAITING_GATEWAY_REDIRECT = "awaiting_gateway_redirect"
+    STATUS_PAYMENT_FAILED = "payment_failed"
+    STATUS_VERIFIED = "verified"
+    STATUS_COMPLETED = "completed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_AWAITING_GATEWAY_REDIRECT, "Awaiting Gateway Redirect"),
+        (STATUS_PAYMENT_FAILED, "Payment Failed"),
+        (STATUS_VERIFIED, "Verified"),
+        (STATUS_COMPLETED, "Completed"),
+    ]
+
+    batch_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="payment_batches")
+    orders = models.ManyToManyField('shop.Order', related_name='batches')
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=40, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    payment_gateway_authority = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    payment_gateway_txn_id = models.CharField(max_length=100, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f"Batch {self.batch_id} for {self.user_id} — {self.status}"
