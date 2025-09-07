@@ -568,6 +568,7 @@ class OrderPaymentInitiateView(views.APIView):
             )
 
         zarrinpal_client = ZarrinPal()
+        print(f"[OrderPaymentInitiate] Using BASE = {zarrinpal_client.BASE}")
         if not zarrinpal_client.CALLBACK_URL:
             logger.error("Zarinpal PAYMENT_CALLBACK_URL in settings is not a full URL or is a placeholder.")
             return Response({"error": "Payment callback URL misconfiguration."},

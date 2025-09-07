@@ -5,64 +5,106 @@ from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
 from django.utils import timezone
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 import uuid
 
 
 class DiscountCode(models.Model):
-    PERCENTAGE = "percentage"
-    FIXED_AMOUNT = "fixed_amount"
-    DISCOUNT_TYPE_CHOICES = [(PERCENTAGE, "Percentage Discount"), (FIXED_AMOUNT, "Fixed Amount Discount")]
+    code = models.CharField(max_length=50, unique=True)
+    is_active = models.BooleanField(default=True)
+    percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
-    code = models.CharField(max_length=50, unique=True, db_index=True, verbose_name="Discount Code")
-    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE_CHOICES, verbose_name="Discount Type")
-    value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Value")
-    is_active = models.BooleanField(default=True, verbose_name="Is Active?")
-    valid_from = models.DateTimeField(blank=True, null=True, verbose_name="Valid From")
-    valid_to = models.DateTimeField(blank=True, null=True, verbose_name="Valid To")
-    max_uses = models.PositiveIntegerField(blank=True, null=True, verbose_name="Maximum Uses")
-    times_used = models.PositiveIntegerField(default=0, verbose_name="Times Used")
-    min_order_value = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, blank=True, null=True, verbose_name="Minimum Order Value")
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    def has_remaining_user_quota(self, user):
-        if self.max_uses_per_user is None:
+    valid_from = models.DateTimeField(null=True, blank=True)
+    valid_to = models.DateTimeField(null=True, blank=True)
+
+    min_order_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    max_uses = models.PositiveIntegerField(null=True, blank=True, help_text="Total times this code can be used across all users")
+    times_used = models.PositiveIntegerField(default=0)
+    max_uses_per_user = models.PositiveIntegerField(null=True, blank=True)
+
+    def has_remaining_user_quota(self, user) -> bool:
+        per_user_limit = getattr(self, 'max_uses_per_user', None)
+        if not per_user_limit:
             return True
-        return self.redemptions.filter(user=user).count() < self.max_uses_per_user
 
-    event = models.ForeignKey(
-        'events.Event',
-        null=True, blank=True,
+        DiscountRedemption = apps.get_model('shop', 'DiscountRedemption')
+        used = DiscountRedemption.objects.filter(code=self, user=user).count()
+        return used < per_user_limit
+
+    content_type = models.ForeignKey(
+        ContentType,
         on_delete=models.SET_NULL,
-        related_name='discount_codes',
-        db_index=True,
-        help_text="If set, discount applies only to items of this event."
-    )
-    max_uses_per_user = models.PositiveIntegerField(
         null=True, blank=True,
-        help_text="If set, number of times a single user can redeem this code."
+        limit_choices_to=(
+            models.Q(app_label='events', model='presentation') |
+            models.Q(app_label='events', model='solocompetition') |
+            models.Q(app_label='events', model='competitionteam')
+        ),
+        verbose_name="Discount target type"
     )
+    object_id = models.PositiveIntegerField(null=True, blank=True, verbose_name="Discount target object id")
+    item_object = GenericForeignKey('content_type', 'object_id')
 
-    def __str__(self):
-        return self.code
-
-    def is_valid(self, current_subtotal=None):
-        if not self.is_active: return False
-        now = timezone.now()
-        if self.valid_from and now < self.valid_from: return False
-        if self.valid_to and now > self.valid_to: return False
-        if self.max_uses is not None and self.times_used >= self.max_uses: return False
-        if current_subtotal is not None and self.min_order_value is not None and current_subtotal < self.min_order_value: return False
-        return True
-
-    def calculate_discount(self, amount_to_discount):
-        if not self.is_valid(amount_to_discount): return 0
-        discount_value = (amount_to_discount * self.value) / 100 if self.discount_type == self.PERCENTAGE else self.value
-        return min(discount_value, amount_to_discount)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        indexes = [
+            models.Index(fields=['code']),
+            models.Index(fields=['content_type', 'object_id']),
+        ]
         verbose_name = "Discount Code"
         verbose_name_plural = "Discount Codes"
-        ordering = ['-created_at', 'code']
+
+    def __str__(self):
+        target = None
+        if self.content_type_id and self.object_id:
+            target = f"{self.content_type.app_label}.{self.content_type.model}#{self.object_id}"
+        return f"{self.code}{' → ' + target if target else ''}"
+
+    def is_valid(self, cart_subtotal: Decimal) -> bool:
+        if not self.is_active:
+            return False
+        now = timezone.now()
+        if self.valid_from and now < self.valid_from:
+            return False
+        if self.valid_to and now > self.valid_to:
+            return False
+        if self.min_order_amount and Decimal(cart_subtotal) < self.min_order_amount:
+            return False
+        if self.max_uses is not None and self.times_used >= self.max_uses:
+            return False
+        return True
+    
+    def clean(self):
+        pct = (self.percentage or Decimal('0'))
+        amt = (self.amount or Decimal('0'))
+
+        if (pct > 0 and amt > 0) or (pct <= 0 and amt <= 0):
+            raise ValidationError("Set exactly one of 'percentage' OR 'amount' (and it must be > 0).")
+
+        if self.min_order_amount is not None and self.min_order_amount < 0:
+            raise ValidationError("'min_order_amount' cannot be negative.")
+
+        if self.valid_from and self.valid_to and self.valid_from > self.valid_to:
+            raise ValidationError("'valid_from' must be before 'valid_to'.")
+
+    def is_percentage(self):
+        return bool(self.percentage and self.percentage > 0)
+
+    def is_fixed_amount(self):
+        return bool(self.amount and self.amount > 0)
+
+    def calculate_discount(self, base_amount: Decimal) -> Decimal:
+        base_amount = Decimal(base_amount or 0)
+        if base_amount <= 0:
+            return Decimal('0')
+
+        if self.is_percentage():
+            return (base_amount * self.percentage / Decimal('100')).quantize(Decimal('1.'))
+        if self.is_fixed_amount():
+            return min(self.amount, base_amount)
+        return Decimal('0')
 
 class Cart(models.Model):
     user = models.OneToOneField(
@@ -84,10 +126,12 @@ class Cart(models.Model):
         return f"Cart for {self.user.email}"
 
     def _eligible_items_for_code(self, code: 'DiscountCode'):
-        """Return list of cart items eligible for this code based on event scope."""
         items = list(self.items.select_related('content_type'))
-        if code.event_id:
-            return [ci for ci in items if (ci.event_id == code.event_id)]
+        if code.content_type_id and code.object_id:
+            return [
+                ci for ci in items
+                if ci.content_type_id == code.content_type_id and ci.object_id == code.object_id
+            ]
         return items
 
     def _subtotal_for_items(self, items):

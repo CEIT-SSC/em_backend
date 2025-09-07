@@ -3,7 +3,7 @@ from rest_framework import serializers
 from django.apps import apps
 from events.models import Presentation, SoloCompetition, CompetitionTeam
 from events.serializers import PresentationSerializer, SoloCompetitionSerializer, CompetitionTeamDetailSerializer
-from .models import Cart, CartItem, Order, OrderItem
+from .models import Cart, CartItem, Order, OrderItem, DiscountCode
 from events.serializers import CompetitionTeamDetailSerializer
 
 
@@ -74,7 +74,6 @@ class CartItemSerializer(serializers.ModelSerializer):
         ]
 
     def _find_unpaid_reservation(self, obj):
-        """Return the latest unpaid OrderItem (if any) that already references this cart item."""
         from .models import OrderItem
         qs = (OrderItem.objects
               .select_related('order')
@@ -88,7 +87,6 @@ class CartItemSerializer(serializers.ModelSerializer):
         return qs.first()
 
     def _already_owned(self, obj):
-        """Whether the user already completed purchase/enrollment for this item."""
         from .models import Order, OrderItem
         return OrderItem.objects.filter(
             content_type=obj.content_type,
@@ -209,20 +207,32 @@ class OrderItemWithEventSerializer(serializers.ModelSerializer):
         return obj.description
 
 @ts_interface()
+class DiscountCodeTinySerializer(serializers.ModelSerializer):
+    target_type = serializers.SerializerMethodField()
+    target_id = serializers.IntegerField(source='object_id', read_only=True)
+
+    class Meta:
+        model = DiscountCode
+        fields = ['code', 'percentage', 'amount', 'target_type', 'target_id']
+
+    def get_target_type(self, obj):
+        if obj.content_type_id:
+            return f"{obj.content_type.app_label}.{obj.content_type.model}"
+        return None
+
+@ts_interface()
 class CartSerializer(serializers.ModelSerializer):
     items = CartItemSerializer(many=True, read_only=True)
-    subtotal_amount = serializers.SerializerMethodField()
     discount_code = serializers.CharField(
-        source='applied_discount_code.code',
-        read_only=True,
-        allow_null=True
+        source='applied_discount_code.code', read_only=True, allow_null=True
     )
+    subtotal_amount = serializers.SerializerMethodField()
     discount_amount = serializers.SerializerMethodField()
     total_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = Cart
-        fields = [
+        fields = (
             'id',
             'user',
             'applied_discount_code',
@@ -232,17 +242,7 @@ class CartSerializer(serializers.ModelSerializer):
             'discount_amount',
             'total_amount',
             'created_at',
-        ]
-        read_only_fields = [
-            'id',
-            'user',
-            'discount_code',
-            'items',
-            'subtotal_amount',
-            'discount_amount',
-            'total_amount',
-            'created_at',
-        ]
+        )
 
     def get_subtotal_amount(self, obj):
         return obj.get_subtotal()
