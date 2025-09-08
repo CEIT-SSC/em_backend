@@ -1,4 +1,4 @@
-import type { MemberDetailSubmit, TeamMembership, GroupCompetition, Presentation, TeamContent, ContentComment, SoloCompetition, TeamMembershipUserDetail, Presenter } from '../default';
+import type { GroupCompetition, TeamContent, SoloCompetition, Presentation, ContentComment, TeamMembershipUserDetail, MemberDetailSubmit, Presenter, TeamMembership } from '../default';
 
 export enum StatusChoiceEnum {
     PENDING_ADMIN_VERIFICATION = 'pending_admin_verification',
@@ -159,15 +159,13 @@ export interface ContentLike {
     createdAt?: string;
 }
 
-export interface ErrorResponse {
-    error: string;
-}
-
 export interface EventDetail {
     /**
-    * @label ID
+    * @label Event ID
+    * @minimum -9223372036854775808
+    * @maximum 9223372036854775807
     */
-    id?: number;
+    id: number;
     /**
     * @label Event Title
     * @maxLength 255
@@ -217,9 +215,11 @@ export interface EventDetail {
 
 export interface EventList {
     /**
-    * @label ID
+    * @label Event ID
+    * @minimum -9223372036854775808
+    * @maximum 9223372036854775807
     */
-    id?: number;
+    id: number;
     /**
     * @label Event Title
     * @maxLength 255
@@ -351,10 +351,6 @@ export interface MemberDetailSubmit {
     */
     email: string;
     governmentIdPicture?: File | null;
-}
-
-export interface MessageResponse {
-    message: string;
 }
 
 export interface PostDetail {

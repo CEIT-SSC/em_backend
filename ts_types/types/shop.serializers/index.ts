@@ -1,4 +1,4 @@
-import type { Presentation, ItemDetail, CompetitionTeamDetail, SoloCompetition } from '../default';
+import type { SoloCompetition, CompetitionTeamDetail, Presentation, ItemDetail } from '../default';
 
 export enum ItemTypeChoiceEnum {
     PRESENTATION = 'presentation',
@@ -47,6 +47,10 @@ export interface ApplyDiscount {
     code: string;
 }
 
+export interface BatchPaymentInitiate {
+    orderIds: number[];
+}
+
 export interface CartItem {
     /**
     * @label ID
@@ -67,6 +71,10 @@ export interface CartItem {
     * @format date-time
     */
     addedAt?: string;
+    eventId?: null;
+    status?: null;
+    reservedOrderId?: null;
+    reservedOrderItemId?: null;
 }
 
 export interface Cart {
@@ -74,35 +82,38 @@ export interface Cart {
     * @label ID
     */
     id?: number;
-    user?: number;
-    items?: CartItem[];
+    user: number;
     /**
     * @label Applied Discount Code
     */
     appliedDiscountCode?: number | null;
-    appliedDiscountCodeDetails?: any;
-    subtotal?: number;
-    discountApplied?: number;
-    total?: number;
+    discountCode?: string | null;
+    items?: CartItem[];
+    subtotalAmount?: null;
+    discountAmount?: null;
+    totalAmount?: null;
     /**
     * @format date-time
     */
     createdAt?: string;
 }
 
-export interface ErrorResponse {
-    error: string;
+export interface DiscountCodeTiny {
+    /**
+    * @maxLength 50
+    */
+    code: string;
+    percentage?: number | null;
+    amount?: number | null;
+    targetType?: null;
+    targetId?: number;
 }
 
 export interface ItemDetail {
+    itemType?: null;
     presentation?: Presentation;
     soloCompetition?: SoloCompetition;
     competitionTeam?: CompetitionTeamDetail;
-    itemType: ItemTypeChoiceEnum;
-}
-
-export interface MessageResponse {
-    message: string;
 }
 
 export interface OrderItem {
@@ -122,7 +133,39 @@ export interface OrderItem {
     price: number;
 }
 
+export interface OrderItemWithEvent {
+    /**
+    * @label ID
+    */
+    id?: number;
+    /**
+    * @label Item Description (at time of order)
+    * @maxLength 255
+    */
+    description: string;
+    /**
+    * @label Price (at time of order)
+    */
+    price: number;
+    /**
+    * @label Item Type
+    */
+    contentType?: number | null;
+    /**
+    * @label Item ID
+    * @maximum 9223372036854775807
+    */
+    objectId?: number | null;
+    eventId?: null;
+    itemType?: null;
+    itemTitle?: null;
+}
+
 export interface OrderList {
+    /**
+    * @label ID
+    */
+    id?: number;
     /**
     * @label Order ID
     * @format uuid
@@ -145,6 +188,7 @@ export interface OrderList {
     * @format date-time
     */
     paidAt?: string | null;
+    items?: OrderItemWithEvent[];
 }
 
 export interface Order {
@@ -197,6 +241,10 @@ export interface Order {
     * @format date-time
     */
     paidAt?: string | null;
+}
+
+export interface PartialCheckout {
+    cartItemIds: number[];
 }
 
 export interface PaymentInitiateResponse {

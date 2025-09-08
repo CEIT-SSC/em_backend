@@ -35,16 +35,6 @@ class ItemDetailSerializer(serializers.Serializer):
 
 
 @ts_interface()
-class MessageResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-
-
-@ts_interface()
-class ErrorResponseSerializer(serializers.Serializer):
-    error = serializers.CharField()
-
-
-@ts_interface()
 class CartItemSerializer(serializers.ModelSerializer):
     item_details = ItemDetailSerializer(read_only=True, source='content_object')
     price = serializers.SerializerMethodField()

@@ -6,16 +6,13 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, PermissionDenied
-
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from events.models import PresentationEnrollment
 from .models import Certificate
 from .serializers import (
     CertificateRequestSerializer,
     CertificateSerializer,
-    ErrorResponseSerializer,
     CompletedEnrollmentSerializer,
-    MessageResponseSerializer
 )
 
 
