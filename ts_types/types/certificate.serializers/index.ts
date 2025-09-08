@@ -33,11 +33,3 @@ export interface CompletedEnrollment {
     isCertificateVerified?: boolean;
 }
 
-export interface ErrorResponse {
-    error: string;
-}
-
-export interface MessageResponse {
-    message: string;
-}
-

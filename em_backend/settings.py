@@ -172,6 +172,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django.contrib.sites',
     "oauth2_provider",
+    "django_typomatic",
 
     # Default
     'django.contrib.admin',

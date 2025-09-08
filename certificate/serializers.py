@@ -5,16 +5,6 @@ from .models import Certificate
 
 
 @ts_interface()
-class ErrorResponseSerializer(serializers.Serializer):
-    error = serializers.CharField()
-
-
-@ts_interface()
-class MessageResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-
-
-@ts_interface()
 class CertificateRequestSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
 
