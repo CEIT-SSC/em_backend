@@ -1,11 +1,14 @@
+from json import JSONDecodeError
 from django.conf import settings
 import requests
+
 
 def _to_bool(v):
     if isinstance(v, bool): return v
     if isinstance(v, str):  return v.strip().lower() in {"1","true","yes","on"}
     if isinstance(v, (int, float)): return bool(v)
     return False
+
 
 class ZarrinPal:
     STATUS_SUCCESS  = 100
@@ -26,17 +29,29 @@ class ZarrinPal:
 
     def generate_link(self, authority):
         return self.START_PAY_URL.format(authority=authority)
-    
 
     def list_unverified(self):
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        body = {"merchant_id": self.merchant_id}
-        resp = requests.post(self.UNVERIFIED_URL, json=body, headers=headers)
-        payload = resp.json() if resp.content else {}
-        data = payload.get("data") or {}
-        if data.get("code") == 100:
-            return data.get("authorities") or []
-        return []
+        payload = {"merchant_id": self.merchant_id}
+
+        try:
+            resp = requests.post(self.UNVERIFIED_URL, json=payload, headers=headers)
+        except requests.RequestException:
+            return []
+
+        if resp.status_code < 200 or resp.status_code >= 300:
+            return []
+
+        try:
+            data = resp.json()
+        except (ValueError, JSONDecodeError):
+            return []
+
+        authorities = (
+                data.get("data", {}) or {}
+        ).get("authorities") if data.get("data", {}).get("code") == 100 else []
+
+        return authorities or []
 
     def create_payment(self, amount, mobile, email, order_id=None):
         data = {
