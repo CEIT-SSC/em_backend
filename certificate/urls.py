@@ -2,7 +2,6 @@ from django.urls import path
 from .views import (
     CompletedEnrollmentsView,
     CompetitionCertificateRequestView,
-    CompetitionCertificateDetailView,
     CompetitionCertificateListView,
     CertificateRequestView,
     CertificateDetailView
@@ -16,8 +15,5 @@ urlpatterns = [
     path('competition/<int:id>/request/',
          CompetitionCertificateRequestView.as_view(),
          name='competition-cert-request'),
-    path('competition/<uuid:id>/',
-         CompetitionCertificateDetailView.as_view(),
-         name='competition-cert-detail'),
-             path('competition/', CompetitionCertificateListView.as_view(), name='competition-cert-list'),
+    path('competition/', CompetitionCertificateListView.as_view(), name='competition-cert-list'),
 ]

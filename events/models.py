@@ -250,11 +250,6 @@ class PresentationEnrollment(models.Model):
         return f"{self.user.email} enrolled in {self.presentation.title} ({self.get_status_display()})"
 
 class SoloCompetitionRegistration(models.Model):
-    id = models.UUIDField(
-        primary_key=True,
-        default=uuid.uuid4,
-        editable=False
-    )
 
     STATUS_PENDING_PAYMENT = "pending_payment"
     STATUS_COMPLETED_OR_FREE = "completed_or_free"

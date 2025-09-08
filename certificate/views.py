@@ -6,10 +6,11 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, PermissionDenied
-
+from .utils import generate_certificate
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from events.models import PresentationEnrollment
 from .models import Certificate, CompetitionCertificate
+from django.db.models import Q
 from events.models import SoloCompetitionRegistration, CompetitionTeam
 from .serializers import (
     CertificateRequestSerializer,
@@ -87,7 +88,9 @@ class CertificateDetailView(generics.RetrieveAPIView):
 
     def get_object(self):
         try:
-            enrollment = PresentationEnrollment.objects.select_related('presentation', 'certificate', 'user').get(
+            enrollment = PresentationEnrollment.objects.select_related(
+                'presentation', 'certificate', 'user'
+            ).get(
                 pk=self.kwargs['enrollment_pk'],
                 user=self.request.user
             )
@@ -102,42 +105,17 @@ class CertificateDetailView(generics.RetrieveAPIView):
         if not cert.is_verified:
             raise PermissionDenied('Certificate is not verified yet.')
 
+        # If files missing, generate them using the presentation certificate util
         if not cert.file_en or not cert.file_fa:
-            cert = self._generate_certificate(enrollment)
+            # Import inside method to avoid potential circular imports
+            from .utils import generate_presentation_certificate
+            generate_presentation_certificate(cert, self.request)
+
+            # Refresh instance so serializer sees new file names/urls
+            cert.refresh_from_db()
 
         return cert
 
-    def _generate_certificate(self, enrollment):
-        cert = enrollment.certificate
-        name = cert.name_on_certificate or enrollment.user.get_full_name() or enrollment.user.username
-
-        ctx = {
-            'grade': cert.grade,
-            'presentation_type': enrollment.presentation.type,
-            'name': name,
-            'presentation_title': enrollment.presentation.title,
-            'event_title': enrollment.presentation.event.title,
-            'event_end_date': enrollment.presentation.event.end_date.strftime('%B %d, %Y'),
-            'verification_link_en': cert.file_en.url if cert.file_en else '',
-            'verification_link_fa': cert.file_fa.url if cert.file_fa else '',
-        }
-
-        svg_template1 = render_to_string('certificate-en.svg', ctx)
-        svg_template2 = render_to_string('certificate-fa.svg', ctx)
-
-        cert.file_en.save(
-            f"certificate-en_{enrollment.pk}_{timezone.now().strftime('%Y%m%d%H%M%S')}.svg",
-            ContentFile(svg_template1.encode('utf-8')),
-            save=False
-        )
-        cert.file_fa.save(
-            f"certificate-fa_{enrollment.pk}_{timezone.now().strftime('%Y%m%d%H%M%S')}.svg",
-            ContentFile(svg_template2.encode('utf-8')),
-            save=False
-        )
-        cert.save()
-
-        return cert
 
 
 @extend_schema(
@@ -165,8 +143,10 @@ class CompletedEnrollmentsView(generics.ListAPIView):
 @extend_schema(
     tags=['User - Competition Certificates'],
     summary="Request a Competition Certificate",
-    description="Allows a user (solo competitor or team leader) to request a certificate for a completed competition. "
-                "Files are generated later after admin enters ranking and verifies.",
+    description=(
+        "Allows a user (solo competitor or team leader) to request a certificate for a completed competition. "
+        "Files are generated later after admin enters ranking and verifies."
+    ),
     request=CompetitionCertificateRequestSerializer,
     responses={
         201: MessageResponseSerializer,
@@ -183,21 +163,28 @@ class CompetitionCertificateRequestView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
 
         registration_type = serializer.validated_data['registration_type']
+        registration_id = serializer.validated_data['registration_id']
         name = serializer.validated_data['name']
+        now = timezone.now()
 
         if registration_type == "solo":
             try:
                 registration = SoloCompetitionRegistration.objects.get(
-                    pk=serializer.validated_data['registration_id'],
+                    pk=registration_id,
                     user=request.user,
-                    status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
+                    status__in=[SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE]
                 )
             except SoloCompetitionRegistration.DoesNotExist:
-                return Response({'error': 'Completed solo competition registration not found.'},
-                                status=status.HTTP_404_NOT_FOUND)
+                return Response(
+                    {'error': 'Eligible solo competition registration not found.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
             if hasattr(registration, 'certificate'):
-                return Response({'error': 'Certificate already requested.'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {'error': 'Certificate already requested for this registration.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
             CompetitionCertificate.objects.create(
                 registration_type="solo",
@@ -209,16 +196,21 @@ class CompetitionCertificateRequestView(generics.GenericAPIView):
         elif registration_type == "group":
             try:
                 team = CompetitionTeam.objects.get(
-                    pk=serializer.validated_data['registration_id'],
-                    leader=request.user,  # only team leader can request
+                    pk=registration_id,
+                    leader=request.user,
                     status=CompetitionTeam.STATUS_ACTIVE
                 )
             except CompetitionTeam.DoesNotExist:
-                return Response({'error': 'Active team not found or you are not the leader.'},
-                                status=status.HTTP_404_NOT_FOUND)
+                return Response(
+                    {'error': 'Eligible team not found or you are not the leader.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
             if hasattr(team, 'certificate'):
-                return Response({'error': 'Certificate already requested.'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {'error': 'Certificate already requested for this team.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
             CompetitionCertificate.objects.create(
                 registration_type="group",
@@ -228,159 +220,97 @@ class CompetitionCertificateRequestView(generics.GenericAPIView):
             )
 
         else:
-            return Response({'error': 'Invalid registration type.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'error': 'Invalid registration type.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        return Response({'message': 'Competition certificate requested.'}, status=status.HTTP_201_CREATED)
-
-@extend_schema(
-    tags=['User - Competition Certificates'],
-    summary="Retrieve Competition Certificate Details",
-    description="Fetches a competition certificate. Generates the SVG with correct verification link if missing.",
-    responses={200: CompetitionCertificateSerializer, 403: CompetitionCertificateSerializer}
-)
-class CompetitionCertificateDetailView(generics.RetrieveAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = CompetitionCertificateSerializer
-    lookup_field = "id"
-    queryset = CompetitionCertificate.objects.all()
-
-    def get_object(self):
-        cert = super().get_object()
-
-        # Ownership check
-        if cert.registration_type == "solo" and cert.solo_registration.user != self.request.user:
-            raise PermissionDenied("You are not allowed to access this certificate.")
-        if cert.registration_type == "group" and cert.team.leader != self.request.user:
-            raise PermissionDenied("Only the team leader can view this certificate.")
-
-        if not cert.is_verified:
-            raise PermissionDenied("Certificate is not verified yet.")
-
-        # Generate SVG if missing
-        if not cert.file_en or not cert.file_fa:
-            self._generate_certificate(cert)
-
-        return cert
-
-    def _generate_certificate(self, cert: CompetitionCertificate):
-        """
-        Generates certificate SVG files with correct verification link.
-        Uses the upload_to path in the FileField to avoid duplicates.
-        """
-        timestamp = timezone.now().strftime('%Y%m%d%H%M%S')
-
-        # Only the filename; Django handles upload_to
-        en_filename = f"certificate-en_{cert.pk}_{timestamp}.svg"
-        fa_filename = f"certificate-fa_{cert.pk}_{timestamp}.svg"
-
-        ctx = {
-            'name': cert.name_on_certificate,
-            'registration_type': cert.registration_type,
-            'competition_title': cert.solo_registration.solo_competition.title
-                if cert.registration_type == "solo"
-                else cert.team.group_competition.title,
-            'ranking': cert.ranking,
-            'event_title': cert.solo_registration.solo_competition.event.title
-                if cert.registration_type == "solo"
-                else cert.team.group_competition.event.title,
-            'event_end_date': cert.solo_registration.solo_competition.event.end_date.strftime('%B %d, %Y')
-                if cert.registration_type == "solo"
-                else cert.team.group_competition.event.end_date.strftime('%B %d, %Y'),
-        }
-
-        # Render SVG without verification link first
-        svg_en = render_to_string('competition-certificate-en.svg', ctx)
-        svg_fa = render_to_string('competition-certificate-fa.svg', ctx)
-
-        cert.file_en.save(en_filename, ContentFile(svg_en.encode('utf-8')), save=False)
-        cert.file_fa.save(fa_filename, ContentFile(svg_fa.encode('utf-8')), save=False)
-        cert.save()  # now cert.file_en.url exists
-
-        # Add absolute verification link to context
-        ctx['verification_link_en'] = self.request.build_absolute_uri(cert.file_en.url)
-        ctx['verification_link_fa'] = self.request.build_absolute_uri(cert.file_fa.url)
-
-        # Re-render SVG with verification link embedded
-        svg_en = render_to_string('competition-certificate-en.svg', ctx)
-        svg_fa = render_to_string('competition-certificate-fa.svg', ctx)
-
-        cert.file_en.save(en_filename, ContentFile(svg_en.encode('utf-8')), save=False)
-        cert.file_fa.save(fa_filename, ContentFile(svg_fa.encode('utf-8')), save=False)
-        cert.save()
+        return Response(
+            {'message': 'Competition certificate requested successfully.'},
+            status=status.HTTP_201_CREATED
+        )
 
 
 @extend_schema(
     tags=['User - Competition Certificates'],
-    summary="List User's Competition Certificates",
-    description="Lists all competition certificates where the user is a solo participant or team leader. Verified certificates will generate SVG files if missing.",
+    summary="List User's Eligible Competition Certificates",
+    description=(
+        "Lists all competitions where the user is eligible for a certificate. "
+        "Indicates whether a certificate has already been requested. "
+        "For verified certificates, SVG files will be generated on the fly if missing."
+    ),
     responses={200: CompetitionCertificateSerializer(many=True)}
 )
-class CompetitionCertificateListView(generics.ListAPIView):
+class CompetitionCertificateListView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CompetitionCertificateSerializer
 
-    def get_queryset(self):
-        # Solo certificates
-        solo_qs = CompetitionCertificate.objects.filter(
-            registration_type="solo",
-            solo_registration__user=self.request.user
-        ).select_related(
-            'solo_registration', 'solo_registration__solo_competition', 'solo_registration__solo_competition__event'
-        )
+    def get(self, request, *args, **kwargs):
+        user = request.user
+        now = timezone.now()
 
-        # Group certificates
-        group_qs = CompetitionCertificate.objects.filter(
-            registration_type="group",
-            team__leader=self.request.user
-        ).select_related(
-            'team', 'team__group_competition', 'team__group_competition__event'
-        )
+        # Solo competitions completed by the user
+        solo_regs = SoloCompetitionRegistration.objects.filter(
+            user=user,
+            status__in=[SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE],
+            solo_competition__event__end_date__lt=now
+        ).select_related('solo_competition', 'solo_competition__event')
 
-        queryset = (solo_qs | group_qs).order_by('-id')
+        # Group competitions where the user is team leader
+        group_teams = CompetitionTeam.objects.filter(
+            leader=user,
+            status=CompetitionTeam.STATUS_ACTIVE,
+            group_competition__event__end_date__lt=now
+        ).select_related('group_competition', 'group_competition__event')
 
-        # Generate missing SVGs for verified certificates
-        for cert in queryset:
-            if cert.is_verified and (not cert.file_en or not cert.file_fa):
-                self._generate_certificate(cert)
+        results = []
 
-        return queryset
+        # Handle solo registrations
+        for reg in solo_regs:
+            cert = getattr(reg, 'certificate', None)
+            if cert and cert.is_verified and (not cert.file_en or not cert.file_fa):
+                from .utils import generate_certificate
+                generate_certificate(cert, request)
 
-    def _generate_certificate(self, cert: CompetitionCertificate):
-        # Same as detail view to avoid duplication
-        timestamp = timezone.now().strftime('%Y%m%d%H%M%S')
-        en_filename = f"certificate-en_{cert.pk}_{timestamp}.svg"
-        fa_filename = f"certificate-fa_{cert.pk}_{timestamp}.svg"
+            results.append({
+                "registration_type": "solo",
+                "registration_id": str(reg.pk),  # For POST requests
+                "certificate_id": str(cert.id) if cert else None,
+                "name_on_certificate": cert.name_on_certificate if cert else None,
+                "ranking": cert.ranking if cert else None,
+                "file_en": cert.file_en.url if cert and cert.file_en else None,
+                "file_fa": cert.file_fa.url if cert and cert.file_fa else None,
+                "is_verified": cert.is_verified if cert else False,
+                "requested_at": cert.requested_at if cert else None,  # FIXED: use requested_at
+                "competition_title": reg.solo_competition.title,
+                "event_title": reg.solo_competition.event.title
+            })
 
-        ctx = {
-            'name': cert.name_on_certificate,
-            'registration_type': cert.registration_type,
-            'competition_title': cert.solo_registration.solo_competition.title
-                if cert.registration_type == "solo"
-                else cert.team.group_competition.title,
-            'ranking': cert.ranking,
-            'event_title': cert.solo_registration.solo_competition.event.title
-                if cert.registration_type == "solo"
-                else cert.team.group_competition.event.title,
-            'event_end_date': cert.solo_registration.solo_competition.event.end_date.strftime('%B %d, %Y')
-                if cert.registration_type == "solo"
-                else cert.team.group_competition.event.end_date.strftime('%B %d, %Y'),
-        }
+        # Handle group teams
+        for team in group_teams:
+            cert = getattr(team, 'certificate', None)
+            if cert and cert.is_verified and (not cert.file_en or not cert.file_fa):
+                from .utils import generate_certificate
+                generate_certificate(cert, request)
 
-        # Render SVGs
-        svg_en = render_to_string('competition-certificate-en.svg', ctx)
-        svg_fa = render_to_string('competition-certificate-fa.svg', ctx)
+            results.append({
+                "registration_type": "group",
+                "registration_id": str(team.pk),  # For POST requests
+                "certificate_id": str(cert.id) if cert else None,
+                "name_on_certificate": cert.name_on_certificate if cert else None,
+                "ranking": cert.ranking if cert else None,
+                "file_en": cert.file_en.url if cert and cert.file_en else None,
+                "file_fa": cert.file_fa.url if cert and cert.file_fa else None,
+                "is_verified": cert.is_verified if cert else False,
+                "requested_at": cert.requested_at if cert else None,  # FIXED: use requested_at
+                "competition_title": team.group_competition.title,
+                "event_title": team.group_competition.event.title
+            })
 
-        cert.file_en.save(en_filename, ContentFile(svg_en.encode('utf-8')), save=False)
-        cert.file_fa.save(fa_filename, ContentFile(svg_fa.encode('utf-8')), save=False)
-        cert.save()
-
-        # Add verification link and re-render once more
-        ctx['verification_link_en'] = self.request.build_absolute_uri(cert.file_en.url)
-        ctx['verification_link_fa'] = self.request.build_absolute_uri(cert.file_fa.url)
-
-        svg_en = render_to_string('competition-certificate-en.svg', ctx)
-        svg_fa = render_to_string('competition-certificate-fa.svg', ctx)
-
-        cert.file_en.save(en_filename, ContentFile(svg_en.encode('utf-8')), save=False)
-        cert.file_fa.save(fa_filename, ContentFile(svg_fa.encode('utf-8')), save=False)
-        cert.save()
+        return Response({
+            "success": True,
+            "statusCode": 200,
+            "message": "Request was successful.",
+            "errors": {},
+            "data": results
+        })

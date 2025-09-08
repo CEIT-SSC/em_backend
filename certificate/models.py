@@ -21,7 +21,6 @@ class Certificate(models.Model):
     )
     is_verified = models.BooleanField(default=False)
     requested_at = models.DateTimeField(auto_now_add=True)
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     grade = models.PositiveIntegerField(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
@@ -45,7 +44,6 @@ class CompetitionCertificate(models.Model):
         ("group", "Group Competition Team"),
     ]
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     registration_type = models.CharField(
         max_length=10, choices=REGISTRATION_TYPES, verbose_name="Registration Type"
     )
