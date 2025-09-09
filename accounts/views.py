@@ -16,7 +16,6 @@ from rest_framework import generics, status, views
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
 from rest_framework.viewsets import ReadOnlyModelViewSet
-
 from em_backend import settings
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Staff, CustomUser

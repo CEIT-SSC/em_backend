@@ -36,6 +36,7 @@ MEDIA_URL = 'media/'
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
 DOMAIN = os.getenv("DOMAIN", default="domain.ir")
+LOGIN_URL = FRONTEND_URL + '/login/'
 
 CORS_ORIGIN_ALLOW_ALL = DEBUG
 USE_X_FORWARDED_HOST = True
@@ -143,7 +144,7 @@ REST_FRAMEWORK = {
     'DATETIME_FORMAT': "%Y-%m-%dT%H:%M:%S.%f%z",
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 10,
+    'PAGE_SIZE': 20,
 }
 
 AUTHENTICATION_BACKENDS = [
