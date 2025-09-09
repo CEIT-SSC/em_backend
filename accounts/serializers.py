@@ -8,6 +8,10 @@ from dj_rest_auth.registration.serializers import SocialLoginSerializer as BaseS
 CustomUser = get_user_model()
 
 @ts_interface()
+class RefreshTokenSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField(required=True)
+
+@ts_interface()
 class HandshakeTokenSerializer(serializers.Serializer):
     handshake_token = serializers.CharField()
 

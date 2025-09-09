@@ -6,7 +6,8 @@ from drf_spectacular.utils import OpenApiParameter
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
-from oauth2_provider.models import get_application_model
+from oauth2_provider.models import get_application_model, RefreshToken
+from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views import (
     TokenView,
     RevokeTokenView,
@@ -34,7 +35,7 @@ from .serializers import (
     TokenRequestSerializer,
     RevokeTokenRequestSerializer,
     HandshakeTokenSerializer,
-    AuthorizationFormSerializer
+    AuthorizationFormSerializer, RefreshTokenSerializer
 )
 from .email_utils import send_email_async_task
 from .utils import generate_numeric_code
@@ -262,6 +263,48 @@ class CustomAuthorizationView(views.APIView):
                                 status=status.HTTP_401_UNAUTHORIZED)
 
         return self.authorization_view_class.as_view()(django_request, *args, **kwargs)
+
+
+@extend_schema(
+    summary="Authorize via Refresh Token",
+    description="Exchanges a valid refresh_token for a short-lived handshake_token to complete an SSO flow.",
+    request=RefreshTokenSerializer,
+    responses={
+        200: get_api_response_serializer(HandshakeTokenSerializer),
+        400: ApiErrorResponseSerializer,
+        401: ApiErrorResponseSerializer,
+    },
+    tags=['Authentication']
+)
+class AuthorizeWithTokenView(views.APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = RefreshTokenSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        token_str = serializer.validated_data['refresh_token']
+        try:
+            rt = RefreshToken.objects.get(token=token_str)
+            if rt.revoked:
+                return Response({"error": "Refresh token has been revoked."}, status=status.HTTP_401_UNAUTHORIZED)
+
+            expires_at = rt.created + timedelta(seconds=oauth2_settings.REFRESH_TOKEN_EXPIRE_SECONDS)
+            if timezone.now() > expires_at:
+                rt.revoke()
+                return Response({"error": "Refresh token has expired."}, status=status.HTTP_401_UNAUTHORIZED)
+
+            user = rt.user
+            payload = {
+                "user_pk": user.pk,
+                "ts": int(timezone.now().timestamp())
+            }
+            handshake_token = signing.dumps(payload)
+            return Response({"handshake_token": handshake_token}, status=status.HTTP_200_OK)
+
+        except RefreshToken.DoesNotExist:
+            return Response({"detail": "Refresh token is invalid."}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 @extend_schema(
