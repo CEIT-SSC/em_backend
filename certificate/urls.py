@@ -3,25 +3,24 @@ from .views import (
     CompletedEnrollmentsView,
     CertificateRequestView,
     CertificateDetailView,
-    CompetitionCertificateRequestView,
     CompetitionCertificateListView,
-    CompetitionCertificateDetailView,
-    GroupCompetitionCertificateRequestView,
     GroupCompetitionCertificateListView,
+    UnifiedCompetitionCertificateRequestView,
+    CompetitionCertificateDetailView,
+    PublicCertificateVerifyView,
+    PublicCompetitionCertificateVerifyView,
 )
 
 urlpatterns = [
-    path('enrollments/completed/', CompletedEnrollmentsView.as_view(), name='completed-enrollments'),
-    path('presentation/<int:enrollment_pk>/request/', CertificateRequestView.as_view(),
-         name='presentation-cert-request'),
-    path('presentation/<int:pk>/', CertificateDetailView.as_view(), name='presentation-cert-detail'),
+    path('presentations/eligible/', CompletedEnrollmentsView.as_view(), name='eligible-presentations'),
+    path('presentations/<int:enrollment_pk>/request/', CertificateRequestView.as_view(), name='presentation-cert-request'),
+    path('presentations/<int:pk>/', CertificateDetailView.as_view(), name='presentation-cert-detail'),
 
-    path('competition/solo/', CompetitionCertificateListView.as_view(), name='solo-competition-cert-list'),
-    path('competition/solo/request/', CompetitionCertificateRequestView.as_view(),
-         name='solo-competition-cert-request'),
+    path('competitions/solo/eligible/', CompetitionCertificateListView.as_view(), name='eligible-solo-competitions'),
+    path('competitions/group/eligible/', GroupCompetitionCertificateListView.as_view(), name='eligible-group-competitions'),
+    path('competitions/request/', UnifiedCompetitionCertificateRequestView.as_view(), name='competition-cert-request'),
+    path('competitions/<int:pk>/', CompetitionCertificateDetailView.as_view(), name='competition-cert-detail'),
 
-    path('competition/group/', GroupCompetitionCertificateListView.as_view(), name='group-competition-cert-list'),
-    path('competition/group/<int:registration_id>/request/', GroupCompetitionCertificateRequestView.as_view(),
-         name='group-competition-cert-request'),
-    path('competition/<int:pk>/', CompetitionCertificateDetailView.as_view(), name='competition-cert-detail'),
+    path('verify/presentation/<uuid:verification_id>/', PublicCertificateVerifyView.as_view(), name='public-presentation-cert-verify'),
+    path('verify/competition/<uuid:verification_id>/', PublicCompetitionCertificateVerifyView.as_view(), name='public-competition-cert-verify'),
 ]

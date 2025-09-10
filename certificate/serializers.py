@@ -14,46 +14,37 @@ class CertificateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Certificate
         fields = [
-            'id',
-            'enrollment',
-            'name_on_certificate',
-            'file_en',
-            'file_fa',
-            'is_verified',
-            'requested_at',
-            'grade'
+            'id', 'verification_id', 'enrollment', 'name_on_certificate',
+            'file_en', 'file_fa', 'is_verified', 'requested_at', 'grade'
         ]
-        read_only_fields = [
-            'id',
-            'enrollment',
-            'file_en',
-            'file_fa',
-            'is_verified',
-            'requested_at',
-            'grade'
-        ]
+        read_only_fields = fields
 
 
 @ts_interface()
 class CompletedEnrollmentSerializer(serializers.ModelSerializer):
     presentation_title = serializers.CharField(source='presentation.title', read_only=True)
     certificate_id = serializers.IntegerField(source='certificate.id', read_only=True)
+    certificate_verification_id = serializers.UUIDField(source='certificate.verification_id', read_only=True)
     is_certificate_verified = serializers.BooleanField(source='certificate.is_verified', read_only=True)
 
     class Meta:
         model = PresentationEnrollment
         fields = [
-            'id',
-            'presentation_title',
-            'certificate_id',
-            'is_certificate_verified',
+            'id', 'presentation_title', 'certificate_id',
+            'certificate_verification_id', 'is_certificate_verified',
         ]
 
 
 @ts_interface()
-class CompetitionCertificateRequestSerializer(serializers.Serializer):
-    registration_id = serializers.IntegerField(help_text="The ID of the solo competition registration.")
-    name = serializers.CharField(max_length=255, help_text="The full name to be printed on the certificate.")
+class UnifiedCompetitionCertificateRequestSerializer(serializers.Serializer):
+    registration_type = serializers.ChoiceField(choices=["solo", "group"])
+    registration_id = serializers.IntegerField()
+    name = serializers.CharField(max_length=255, required=False, help_text="Required for 'solo' type.")
+
+    def validate(self, attrs):
+        if attrs['registration_type'] == 'solo' and not attrs.get('name'):
+            raise serializers.ValidationError({"name": "This field is required for solo certificates."})
+        return attrs
 
 
 @ts_interface()
@@ -64,7 +55,7 @@ class CompetitionCertificateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompetitionCertificate
         fields = [
-            'id', 'registration_type', 'name_on_certificate', 'ranking',
+            'id', 'verification_id', 'registration_type', 'name_on_certificate', 'ranking',
             'file_en', 'file_fa', 'is_verified', 'requested_at',
             'competition_title', 'event_title'
         ]
@@ -93,12 +84,7 @@ class EligibleSoloCompetitionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SoloCompetitionRegistration
-        fields = [
-            'id',
-            'competition_title',
-            'event_title',
-            'certificate',
-        ]
+        fields = [ 'id', 'competition_title', 'event_title', 'certificate' ]
 
 
 @ts_interface()
@@ -109,10 +95,4 @@ class EligibleGroupCompetitionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CompetitionTeam
-        fields = [
-            'id',
-            'name',
-            'competition_title',
-            'event_title',
-            'certificate',
-        ]
+        fields = [ 'id', 'name', 'competition_title', 'event_title', 'certificate' ]
