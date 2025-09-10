@@ -43,7 +43,8 @@ class Presentation(models.Model):
     WORKSHOP = "workshop"
     PRESENTATION_TYPE_CHOICES = [(COURSE, "course"), (TALK, "Talk"), (WORKSHOP, "Workshop")]
 
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="presentations", verbose_name="Parent Event", blank=True, null=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="presentations",
+                              verbose_name="Parent Event", blank=True, null=True)
     title = models.CharField(max_length=255, verbose_name="Presentation Title")
     description = models.TextField(verbose_name="Presentation Description")
     presenters = models.ManyToManyField(Presenter, blank=True, related_name="presentations", verbose_name="Presenters")

@@ -91,15 +91,12 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
     filterset_fields = ['event', 'type', 'is_online', 'is_paid']
 
     def get_queryset(self):
+        queryset = Presentation.objects.select_related('event').prefetch_related('presenters')
         event_id = self.request.query_params.get('event')
         if event_id:
-            return Presentation.objects.select_related('event').prefetch_related('presenters').filter(
-                event_id=event_id, event__is_active=True, is_active=True
-            ).order_by('start_time')
+            return queryset.filter(event_id=event_id).order_by('start_time')
         else:
-            return Presentation.objects.select_related('event').prefetch_related('presenters').filter(
-                (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
-            ).order_by('start_time')
+            return queryset.order_by('start_time')
 
     @extend_schema(
         summary="Enroll in a presentation",
@@ -157,16 +154,12 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         event_id = self.request.query_params.get('event')
-        base_query = SoloCompetition.objects.select_related('event')
+        queryset = SoloCompetition.objects.select_related('event')
 
         if event_id:
-            return base_query.filter(
-                event_id=event_id, event__is_active=True, is_active=True
-            ).order_by('start_datetime')
+            return queryset.filter(event_id=event_id).order_by('start_datetime')
         else:
-            return base_query.filter(
-                (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
-            ).order_by('start_datetime')
+            return queryset.order_by('start_datetime')
 
     @extend_schema(
         summary="Register for a solo competition",
@@ -221,16 +214,12 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         event_id = self.request.query_params.get('event')
-        base_query = GroupCompetition.objects.select_related('event')
+        queryset = GroupCompetition.objects.select_related('event')
 
         if event_id:
-            return base_query.filter(
-                event_id=event_id, event__is_active=True, is_active=True
-            ).order_by('start_datetime')
+            return queryset.filter(event_id=event_id).order_by('start_datetime')
         else:
-            return base_query.filter(
-                (models.Q(event__is_active=True) | models.Q(event__isnull=True)) & models.Q(is_active=True)
-            ).order_by('start_datetime')
+            return queryset.order_by('start_datetime')
 
     @extend_schema(
         summary="Register/Submit a team",
