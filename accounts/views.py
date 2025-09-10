@@ -1,6 +1,8 @@
 import json
+from urllib.parse import urlencode
 from django.contrib.auth import authenticate, login
 from django.core import signing
+from django.http import HttpResponseRedirect
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
@@ -198,7 +200,7 @@ class CustomAuthorizationView(views.APIView):
         ],
         responses={
             302: "Redirects back to the client's `redirect_uri` with a `code` or an `error`.",
-            401: ApiErrorResponseSerializer,
+            401: "Redirects back to the main login page with 'error' and 'message'.",
         },
         tags=['Authentication']
     )
@@ -208,15 +210,28 @@ class CustomAuthorizationView(views.APIView):
 
         if handshake_token:
             try:
-                payload = signing.loads(handshake_token, max_age=60)
+                payload = signing.loads(handshake_token, max_age=120)
                 user_pk = payload.get("user_pk")
                 user = CustomUser.objects.get(pk=user_pk)
-            except SignatureExpired:
-                return Response({"detail": "Handshake token expired."}, status=status.HTTP_401_UNAUTHORIZED)
-            except BadSignature:
-                return Response({"detail": "Invalid handshake token."}, status=status.HTTP_401_UNAUTHORIZED)
-            except CustomUser.DoesNotExist:
-                return Response({"detail": "User not found."}, status=status.HTTP_401_UNAUTHORIZED)
+
+            except (SignatureExpired, BadSignature, CustomUser.DoesNotExist) as e:
+                error_code = "unknown_error"
+                error_message = "An unexpected error occurred during login."
+
+                if isinstance(e, SignatureExpired):
+                    error_code = "handshake_expired"
+                    error_message = "Your secure login link has expired. Please try logging in again."
+                elif isinstance(e, BadSignature):
+                    error_code = "invalid_handshake"
+                    error_message = "Your secure login link is invalid or has been tampered with."
+                elif isinstance(e, CustomUser.DoesNotExist):
+                    error_code = "user_not_found"
+                    error_message = "The user associated with this login link no longer exists."
+
+                error_params = urlencode({'error': error_code, 'message': error_message})
+                redirect_url = f"{settings.LOGIN_URL}?{error_params}"
+
+                return HttpResponseRedirect(redirect_url)
 
             django_request.user = user
 
