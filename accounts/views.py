@@ -207,6 +207,7 @@ class CustomAuthorizationView(views.APIView):
     def get(self, request, *args, **kwargs):
         django_request = request._request
         handshake_token = django_request.GET.get('handshake_token')
+        redirect_url = request.query_params.get('redirect_uri')
 
         if handshake_token:
             try:
@@ -229,9 +230,7 @@ class CustomAuthorizationView(views.APIView):
                     error_message = "The user associated with this login link no longer exists."
 
                 error_params = urlencode({'error': error_code, 'message': error_message})
-                redirect_url = f"{settings.LOGIN_URL}?{error_params}"
-
-                return HttpResponseRedirect(redirect_url)
+                return HttpResponseRedirect(f"{redirect_url}?{error_params}")
 
             django_request.user = user
 
