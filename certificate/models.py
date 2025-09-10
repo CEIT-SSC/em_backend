@@ -1,5 +1,4 @@
 from django.db import models
-import uuid
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 class Certificate(models.Model):

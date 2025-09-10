@@ -8,22 +8,20 @@ from .views import (
     CompetitionCertificateDetailView,
     GroupCompetitionCertificateRequestView,
     GroupCompetitionCertificateListView,
-    GroupCompetitionCertificateDetailView,
 )
 
 urlpatterns = [
-    # Presentation certificates
-    path('<int:enrollment_pk>/request/', CertificateRequestView.as_view(), name='cert-request'),
-    path('<int:enrollment_pk>/verify/<str:lang>/', CertificateDetailView.as_view(), name='cert-detail'),
     path('enrollments/completed/', CompletedEnrollmentsView.as_view(), name='completed-enrollments'),
+    path('presentation/<int:enrollment_pk>/request/', CertificateRequestView.as_view(),
+         name='presentation-cert-request'),
+    path('presentation/<int:pk>/', CertificateDetailView.as_view(), name='presentation-cert-detail'),
 
-    # Solo competition certificates
-    path('competition/<int:id>/request/', CompetitionCertificateRequestView.as_view(), name='competition-cert-request'),
-    path('competition/', CompetitionCertificateListView.as_view(), name='competition-cert-list'),
-    path('competition/<int:pk>/verify/<str:lang>/', CompetitionCertificateDetailView.as_view(), name='competition-cert-detail'),
+    path('competition/solo/', CompetitionCertificateListView.as_view(), name='solo-competition-cert-list'),
+    path('competition/solo/request/', CompetitionCertificateRequestView.as_view(),
+         name='solo-competition-cert-request'),
 
-    # Group competition certificates
-    path('group-competition/<int:registration_id>/request/', GroupCompetitionCertificateRequestView.as_view(), name='group-competition-cert-request'),
-    path('group-competition/', GroupCompetitionCertificateListView.as_view(), name='group-competition-cert-list'),
-    path('group-competition/<int:registration_id>/verify/<str:lang>/', GroupCompetitionCertificateDetailView.as_view(), name='group-competition-cert-detail'),
+    path('competition/group/', GroupCompetitionCertificateListView.as_view(), name='group-competition-cert-list'),
+    path('competition/group/<int:registration_id>/request/', GroupCompetitionCertificateRequestView.as_view(),
+         name='group-competition-cert-request'),
+    path('competition/<int:pk>/', CompetitionCertificateDetailView.as_view(), name='competition-cert-detail'),
 ]
