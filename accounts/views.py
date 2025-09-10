@@ -1,6 +1,8 @@
 import json
+from urllib.parse import urlencode
 from django.contrib.auth import authenticate, login
 from django.core import signing
+from django.http import HttpResponseRedirect
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
@@ -198,25 +200,32 @@ class CustomAuthorizationView(views.APIView):
         ],
         responses={
             302: "Redirects back to the client's `redirect_uri` with a `code` or an `error`.",
-            401: ApiErrorResponseSerializer,
         },
         tags=['Authentication']
     )
     def get(self, request, *args, **kwargs):
         django_request = request._request
         handshake_token = django_request.GET.get('handshake_token')
+        redirect_url = request.query_params.get('redirect_uri')
 
         if handshake_token:
             try:
-                payload = signing.loads(handshake_token, max_age=60)
+                payload = signing.loads(handshake_token, max_age=120)
                 user_pk = payload.get("user_pk")
                 user = CustomUser.objects.get(pk=user_pk)
-            except SignatureExpired:
-                return Response({"detail": "Handshake token expired."}, status=status.HTTP_401_UNAUTHORIZED)
-            except BadSignature:
-                return Response({"detail": "Invalid handshake token."}, status=status.HTTP_401_UNAUTHORIZED)
-            except CustomUser.DoesNotExist:
-                return Response({"detail": "User not found."}, status=status.HTTP_401_UNAUTHORIZED)
+
+            except (SignatureExpired, BadSignature, CustomUser.DoesNotExist) as e:
+                error_code = "unknown_error"
+
+                if isinstance(e, SignatureExpired):
+                    error_code = "handshake_expired"
+                elif isinstance(e, BadSignature):
+                    error_code = "invalid_handshake"
+                elif isinstance(e, CustomUser.DoesNotExist):
+                    error_code = "user_not_found"
+
+                error_params = urlencode({'error': error_code,})
+                return HttpResponseRedirect(f"{redirect_url}?{error_params}")
 
             django_request.user = user
 
