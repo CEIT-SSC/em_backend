@@ -100,7 +100,8 @@ class CertificateDetailView(generics.RetrieveAPIView):
 
         return cert
 
-    def _generate_certificate(self, enrollment):
+    @staticmethod
+    def _generate_certificate(enrollment):
         cert = enrollment.certificate
         name = cert.name_on_certificate or enrollment.user.get_full_name() or enrollment.user.username
 
