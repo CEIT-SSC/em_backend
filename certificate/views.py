@@ -17,9 +17,7 @@ from events.models import SoloCompetitionRegistration, CompetitionTeam
 from .serializers import (
     CertificateRequestSerializer,
     CertificateSerializer,
-    ErrorResponseSerializer,
     CompletedEnrollmentSerializer,
-    MessageResponseSerializer,
     CompetitionCertificateRequestSerializer,
     CompetitionCertificateSerializer
 )

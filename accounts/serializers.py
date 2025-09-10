@@ -8,6 +8,10 @@ from dj_rest_auth.registration.serializers import SocialLoginSerializer as BaseS
 CustomUser = get_user_model()
 
 @ts_interface()
+class RefreshTokenSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField(required=True)
+
+@ts_interface()
 class HandshakeTokenSerializer(serializers.Serializer):
     handshake_token = serializers.CharField()
 
@@ -59,17 +63,11 @@ class TokenSerializer(serializers.Serializer):
     scope = serializers.CharField()
     refresh_token = serializers.CharField()
 
-@ts_interface()
-class MessageResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-
-@ts_interface()
-class ErrorResponseSerializer(serializers.Serializer):
-    error = serializers.CharField()
 
 @ts_interface()
 class UserRegistrationSuccessSerializer(serializers.Serializer):
     email   = serializers.EmailField()
+
 
 @ts_interface()
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -107,14 +105,17 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
         return user
 
+
 @ts_interface()
 class EmailVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
     code = serializers.CharField(required=True, max_length=6, min_length=6)
 
+
 @ts_interface()
 class ResendVerificationEmailSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
+
 
 @ts_interface()
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -122,6 +123,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = ('email', 'first_name', 'last_name', 'phone_number', 'profile_picture', 'date_joined')
         read_only_fields = ('email', 'date_joined')
+
 
 @ts_interface()
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
@@ -159,6 +161,7 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
 
         return super().update(instance, validated_data)
 
+
 @ts_interface()
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True, write_only=True, style={'input_type': 'password'})
@@ -177,9 +180,11 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.save()
         return user
 
+
 @ts_interface()
 class SimpleForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
+
 
 @ts_interface()
 class StaffSerializer(serializers.ModelSerializer):

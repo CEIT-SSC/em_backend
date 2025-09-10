@@ -58,7 +58,7 @@ def _add_item_to_user_cart(user, item_instance, item_type_str):
 class EventViewSet(viewsets.ReadOnlyModelViewSet):
     schema = NoPaginationAutoSchema()
 
-    queryset = Event.objects.filter(is_active=True).prefetch_related(
+    queryset = Event.objects.prefetch_related(
         models.Prefetch('presentations', queryset=Presentation.objects.filter(event__is_active=True)),
         models.Prefetch('solocompetition_set',
                         queryset=SoloCompetition.objects.filter(is_active=True, event__is_active=True)),

@@ -36,20 +36,14 @@ MEDIA_URL = 'media/'
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
 DOMAIN = os.getenv("DOMAIN", default="domain.ir")
+LOGIN_URL = FRONTEND_URL + '/login/'
 
 CORS_ORIGIN_ALLOW_ALL = DEBUG
 USE_X_FORWARDED_HOST = True
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost', DOMAIN]
 CSRF_TRUSTED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "https://" + DOMAIN]
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:8001",
-    "http://localhost:8002",
-    "https://" + DOMAIN,
-    "https://gamecraft.ir",
-    "https://aut-ssc.ir",
-    "https://ceit-ssc.ir",
-]
+CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "http://localhost:8002", "https://" + DOMAIN,
+                        "https://gamecraft.ir", "https://aut-ssc.ir", "https://ceit-ssc.ir"]
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -66,7 +60,7 @@ SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
 ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", default=False)
 
-if ZARINPAL_SANDBOX:
+if ZARINPAL_SANDBOX == 'True':
     PAYMENT_API_KEY = os.getenv("ZARINPAL_MERCHANT_ID", "11111111-1111-1111-1111-111111111111")
 else:
     PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
@@ -85,8 +79,9 @@ ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_UNIQUE_EMAIL = True
 SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomAdapter'
-GOOGLE_CALLBACK_URL = os.getenv('GOOGLE_CALLBACK_URL', 'http://localhost:3000')
+GOOGLE_CALLBACK_URL=os.getenv('GOOGLE_CALLBACK_URL', 'http://localhost:3000')
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
@@ -106,44 +101,20 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
-# -------------------
-# OAuth2 Provider config (DOT 2.x compatible)
-# -------------------
-# Use the lowercase underscore keys inside OAUTH2_PROVIDER that django-oauth-toolkit expects.
 OAUTH2_PROVIDER = {
-    # core options
-    'ACCESS_TOKEN_EXPIRE_SECONDS': 300,
-    'REFRESH_TOKEN_EXPIRE_SECONDS': 60 * 60 * 24 * 7,
-    'SCOPES': {'read': 'Read scope', 'write': 'Write scope'},
-    'PKCE_REQUIRED': True,
-    'ROTATE_REFRESH_TOKEN': True,
     'OAUTH2_VALIDATOR_CLASS': 'oauth2_provider.oauth2_validators.OAuth2Validator',
-
-    # model names (DOT expects these keys in lowercase form)
-    'application_model': 'oauth2_provider.Application',
-    'access_token_model': 'oauth2_provider.AccessToken',
-    'refresh_token_model': 'oauth2_provider.RefreshToken',
-    'grant_model': 'oauth2_provider.Grant',
-    # 'id_token_model': 'oauth2_provider.IDToken',  # uncomment if using OIDC
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 300,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 7,
+    "SCOPES": {"read": "Read scope", "write": "Write scope"},
+    "PKCE_REQUIRED": True,
+    "ROTATE_REFRESH_TOKEN": True,
 }
 
 if DEBUG:
     OAUTH2_PROVIDER |= {
-        'ALLOWED_REDIRECT_URI_SCHEMES': ['http', 'https'],
-        'ALLOWED_SCHEMES': ['http', 'https'],
+        "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
+        "ALLOWED_SCHEMES": ["http", "https"],
     }
-
-# Compatibility aliases (always defined to avoid AttributeError)
-OAUTH2_PROVIDER_APPLICATION_MODEL = OAUTH2_PROVIDER.get('application_model')
-OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = OAUTH2_PROVIDER.get('access_token_model')
-OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = OAUTH2_PROVIDER.get('refresh_token_model')
-OAUTH2_PROVIDER_GRANT_MODEL = OAUTH2_PROVIDER.get('grant_model')
-
-# Ensure ID_TOKEN alias always exists as a valid model path.
-# If you actually use OIDC and set 'id_token_model' in OAUTH2_PROVIDER, that will be used.
-# Otherwise default to oauth2_provider.IDToken so imports that expect the setting won't crash.
-OAUTH2_PROVIDER_ID_TOKEN_MODEL = OAUTH2_PROVIDER.get('id_token_model') or 'oauth2_provider.IDToken'
-
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Event Manager',
@@ -174,7 +145,7 @@ REST_FRAMEWORK = {
     'DATETIME_FORMAT': "%Y-%m-%dT%H:%M:%S.%f%z",
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 10,
+    'PAGE_SIZE': 20,
 }
 
 AUTHENTICATION_BACKENDS = [
@@ -183,7 +154,6 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 # Application definition
-# NOTE: oauth2_provider is placed earlier so it's imported before apps that may import it at module load time.
 INSTALLED_APPS = [
     # Custom
     'jobs',
@@ -191,9 +161,6 @@ INSTALLED_APPS = [
     'accounts',
     'shop',
     'events',
-
-    # Third-party (oauth2_provider early)
-    'oauth2_provider',
     'rest_framework',
     'rest_framework.authtoken',
     'allauth',
@@ -206,8 +173,10 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'django.contrib.sites',
+    "oauth2_provider",
+    "django_typomatic",
 
-    # Default Django apps
+    # Default
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -235,7 +204,8 @@ ROOT_URLCONF = 'em_backend.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
+        'DIRS': [BASE_DIR / 'templates']
+        ,
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -249,8 +219,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'em_backend.wsgi.application'
 
+
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -265,8 +237,10 @@ DATABASES = {
     }
 }
 
+
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -282,14 +256,21 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
+
 LANGUAGE_CODE = 'en-us'
+
 TIME_ZONE = 'UTC'
+
 USE_I18N = True
+
 USE_TZ = True
 
 # Default primary key field type
+# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 STATICFILES_DIRS = [

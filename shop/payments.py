@@ -1,34 +1,57 @@
-from em_backend import settings
+from json import JSONDecodeError
+from django.conf import settings
 import requests
 
 
+def _to_bool(v):
+    if isinstance(v, bool): return v
+    if isinstance(v, str):  return v.strip().lower() in {"1","true","yes","on"}
+    if isinstance(v, (int, float)): return bool(v)
+    return False
+
+
 class ZarrinPal:
-    merchant_id = settings.PAYMENT_API_KEY
-    PAYMENT_DESCRIPTION = 'Register workshops or talks'
-    CALLBACK_URL = settings.PAYMENT_CALLBACK_URL
-
-    BASE = "https://sandbox.zarinpal.com" if getattr(settings, "ZARINPAL_SANDBOX", False) else "https://payment.zarinpal.com"
-    PAY_URL = f"{BASE}/pg/v4/payment/request.json"
-    VERIFY_URL = f"{BASE}/pg/v4/payment/verify.json"
-    START_PAY_URL = f"{BASE}/pg/StartPay/{{authority}}"
-    UNVERIFIED_URL = f"{BASE}/pg/v4/payment/unVerified.json"
-
-    STATUS_SUCCESS = 100
+    STATUS_SUCCESS  = 100
     STATUS_VERIFIED = 101
+
+    def __init__(self):
+        self.merchant_id = getattr(settings, "PAYMENT_API_KEY", "")
+        self.PAYMENT_DESCRIPTION = getattr(settings, "PAYMENT_DESCRIPTION", "Register workshops or talks")
+        self.CALLBACK_URL = getattr(settings, "PAYMENT_CALLBACK_URL", "")
+
+        sandbox = _to_bool(getattr(settings, "ZARINPAL_SANDBOX", False))
+        self.BASE = "https://sandbox.zarinpal.com" if sandbox else "https://payment.zarinpal.com"
+
+        self.PAY_URL         = f"{self.BASE}/pg/v4/payment/request.json"
+        self.VERIFY_URL      = f"{self.BASE}/pg/v4/payment/verify.json"
+        self.START_PAY_URL   = f"{self.BASE}/pg/StartPay/{{authority}}"
+        self.UNVERIFIED_URL  = f"{self.BASE}/pg/v4/payment/unVerified.json"
 
     def generate_link(self, authority):
         return self.START_PAY_URL.format(authority=authority)
-    
 
     def list_unverified(self):
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        body = {"merchant_id": self.merchant_id}
-        resp = requests.post(self.UNVERIFIED_URL, json=body, headers=headers)
-        payload = resp.json() if resp.content else {}
-        data = payload.get("data") or {}
-        if data.get("code") == 100:
-            return data.get("authorities") or []
-        return []
+        payload = {"merchant_id": self.merchant_id}
+
+        try:
+            resp = requests.post(self.UNVERIFIED_URL, json=payload, headers=headers)
+        except requests.RequestException:
+            return []
+
+        if resp.status_code < 200 or resp.status_code >= 300:
+            return []
+
+        try:
+            data = resp.json()
+        except (ValueError, JSONDecodeError):
+            return []
+
+        authorities = (
+                data.get("data", {}) or {}
+        ).get("authorities") if data.get("data", {}).get("code") == 100 else []
+
+        return authorities or []
 
     def create_payment(self, amount, mobile, email, order_id=None):
         data = {
@@ -44,6 +67,7 @@ class ZarrinPal:
             data["metadata"]["email"] = email
         if order_id is not None:
             data["metadata"]["order_id"] = str(order_id)
+        
 
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
 

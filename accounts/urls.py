@@ -11,7 +11,7 @@ from .views import (
     GoogleLoginView,
     CustomTokenView,
     CustomAuthorizationView,
-    CustomRevokeTokenView,
+    CustomRevokeTokenView, AuthorizeWithTokenView,
 )
 
 app_name = 'accounts'
@@ -21,6 +21,7 @@ router.register(r'staff', StaffViewSet, basename='staff')
 
 oauth2_urlpatterns = [
     path('authorize/', CustomAuthorizationView.as_view(), name='authorize'),
+    path('authorize/refresh', AuthorizeWithTokenView.as_view(), name='authorize_with_token'),
     path('token/', CustomTokenView.as_view(), name='token'),
     path('revoke-token/', CustomRevokeTokenView.as_view(), name='revoke-token'),
 ]

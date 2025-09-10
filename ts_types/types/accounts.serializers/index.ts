@@ -1,3 +1,39 @@
+export enum GrantTypeChoiceEnum {
+    PASSWORD = 'password',
+    REFRESH_TOKEN = 'refresh_token',
+}
+
+export enum GrantTypeChoiceEnumValues {
+    password = 'password',
+    refresh_token = 'refresh_token',
+}
+
+export enum TokenTypeHintChoiceEnum {
+    ACCESS_TOKEN = 'access_token',
+    REFRESH_TOKEN = 'refresh_token',
+}
+
+export enum TokenTypeHintChoiceEnumValues {
+    access_token = 'access_token',
+    refresh_token = 'refresh_token',
+}
+
+
+export interface AuthorizationForm {
+    username: string;
+    password: string;
+    clientId: string;
+    /**
+    * @format url
+    */
+    redirectUri: string;
+    responseType: string;
+    scope?: string;
+    codeChallenge?: string;
+    codeChallengeMethod?: string;
+    allow: string;
+}
+
 export interface ChangePassword {
     oldPassword: string;
     newPassword: string;
@@ -15,25 +51,8 @@ export interface EmailVerification {
     code: string;
 }
 
-export interface ErrorResponse {
-    error: string;
-}
-
-export interface JSTokenBlacklist {
-    refresh: string;
-}
-
-export interface JSTokenObtainPair {
-
-}
-
-export interface JSTokenRefresh {
-    refresh: string;
-    access?: string;
-}
-
-export interface MessageResponse {
-    message: string;
+export interface HandshakeToken {
+    handshakeToken: string;
 }
 
 export interface ResendVerificationEmail {
@@ -43,11 +62,24 @@ export interface ResendVerificationEmail {
     email: string;
 }
 
+export interface RevokeTokenRequest {
+    token: string;
+    clientId: string;
+    clientSecret?: string;
+    tokenTypeHint?: TokenTypeHintChoiceEnum;
+}
+
 export interface SimpleForgotPassword {
     /**
     * @format email
     */
     email: string;
+}
+
+export interface SocialLogin {
+    accessToken?: string;
+    code?: string;
+    idToken?: string;
 }
 
 export interface Staff {
@@ -60,6 +92,10 @@ export interface Staff {
     */
     name: string;
     /**
+    * @maxLength 200
+    */
+    team?: string | null;
+    /**
     * @maxLength 100
     */
     role: string;
@@ -70,6 +106,28 @@ export interface Staff {
     * @format url
     */
     socialAccountLink?: string | null;
+    /**
+    * @maxLength 300
+    * @format url
+    */
+    GithubLink?: string | null;
+}
+
+export interface TokenRequest {
+    grantType: GrantTypeChoiceEnum;
+    username?: string;
+    password?: string;
+    refreshToken?: string;
+    clientId: string;
+    clientSecret?: string;
+}
+
+export interface Token {
+    accessToken: string;
+    expiresIn: number;
+    tokenType: string;
+    scope: string;
+    refreshToken: string;
 }
 
 export interface UserProfile {
@@ -156,6 +214,5 @@ export interface UserRegistrationSuccess {
     * @format email
     */
     email: string;
-    message: string;
 }
 

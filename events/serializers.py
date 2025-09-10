@@ -10,13 +10,6 @@ from .models import (
 
 CustomUser = get_user_model()
 
-@ts_interface()
-class MessageResponseSerializer(serializers.Serializer):
-    message = serializers.CharField()
-
-@ts_interface()
-class ErrorResponseSerializer(serializers.Serializer):
-    error = serializers.CharField()
 
 @ts_interface()
 class PresenterSerializer(serializers.ModelSerializer):
