@@ -35,11 +35,16 @@
   <text x="400" y="322" text-anchor="middle" font-size="16" font-family="Arial, sans-serif">
     at {{ event_title }} on {{ event_end_date }}
   </text>
-  <a href="{{ verification_link_en }}" target="_blank">
-    <text x="400" y="350" text-anchor="middle" font-size="14" font-family="Arial, sans-serif" fill="blue">
-    Verification Link
-    </text>
-  </a>
+  <text
+    x="400"
+    y="350"
+    text-anchor="middle"
+    font-size="12"
+    font-family="Arial, sans-serif"
+    fill="blue"
+  >
+    {{ verification_link_en }}
+  </text>
   <image
     xlink:href="{% static 'certificates/AUT-logo.png' %}"
     x="260"

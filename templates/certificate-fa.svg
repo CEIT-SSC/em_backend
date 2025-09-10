@@ -1,7 +1,7 @@
 {% load static %}
 <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" dir="rtl" style="font-family: 'Tahoma', 'Vazir', Arial, sans-serif;">
-    <rect width="100%" height="100%" fill="#ffffff" />
-    <image
+  <rect width="100%" height="100%" fill="#ffffff" />
+  <image
     xlink:href="{% static 'certificates/certificate-background2.png' %}"
     x="0"
     y="0"
@@ -9,84 +9,48 @@
     height="600"
     preserveAspectRatio="xMidYMid meet"
   />
-    <text x="400" y="150" text-anchor="middle" font-size="36" fill="black" >
+  <text x="400" y="150" text-anchor="middle" font-size="36" fill="black">
     گواهی حضور
   </text>
-    <text x="400" y="200" text-anchor="middle" font-size="28" fill="black" >
+  <text x="400" y="200" text-anchor="middle" font-size="28" fill="black">
     {{ name }}
   </text>
-{% load static %}
-    <svg width="800" height="600" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" dir="rtl" style="font-family: 'Tahoma', 'Vazir', Arial, sans-serif;">
-        <rect width="100%" height="100%" fill="#ffffff" />
-        <image
-      xlink:href="{% static 'certificates/certificate-background2.png' %}"
-      x="0"
-      y="0"
-      width="800"
-      height="600"
-      preserveAspectRatio="xMidYMid meet"
-    />
-        <text x="400" y="150" text-anchor="middle" font-size="36" fill="black">
-        گواهی حضور
-    </text>
-        <text x="400" y="200" text-anchor="middle" font-size="28" fill="black">
-        {{ name }}
-    </text>
 
-    {% if presentation_type == "course" %}
-        <text x="400" y="237" text-anchor="middle" font-size="20" fill="black">
-        دورهٔ
-    </text>
-        <text x="400" y="275" text-anchor="middle" font-size="24" fill="black">
-        {{ presentation_title }} با نمرهٔ {{ grade }}
-    </text>
-    {% else %}
-        <text x="400" y="237" text-anchor="middle" font-size="20" fill="black">
-        ارائهٔ
-    </text>
-        <text x="400" y="275" text-anchor="middle" font-size="24" fill="black">
-        {{ presentation_title }}
-    </text>
-    {% endif %}
-        <text x="400" y="322" text-anchor="middle" font-size="16" fill="black">
-        در رویداد {{ event_title }} در تاریخ {{ event_end_date }}
-    </text>
-        <a href="{{ verification_link_fa }}" target="_blank">
-            <text x="400" y="350" text-anchor="middle" font-size="14" fill="blue" style="cursor:pointer;">
-            لینک تأیید
-        </text>
-        </a>
-        <image
-      xlink:href="{% static 'certificates/AUT-logo.png' %}"
-      x="260"
-      y="400"
-      width="90"
-      preserveAspectRatio="xMidYMid meet"
-    />
-        <image
-      xlink:href="{% static 'certificates/AUT-CESSC-logo.png' %}"
-      x="440"
-      y="410"
-      width="90"
-      preserveAspectRatio="xMidYMid meet"
-    />
-    </svg>
-    <text x="400" y="322" text-anchor="middle" font-size="16" fill="black" >
+  {% if presentation_type == "course" %}
+  <text x="400" y="237" text-anchor="middle" font-size="20" fill="black">
+    دورهٔ
+  </text>
+  <text x="400" y="275" text-anchor="middle" font-size="24" fill="black">
+    {{ presentation_title }} با نمرهٔ {{ grade }}
+  </text>
+  {% else %}
+  <text x="400" y="237" text-anchor="middle" font-size="20" fill="black">
+    ارائهٔ
+  </text>
+  <text x="400" y="275" text-anchor="middle" font-size="24" fill="black">
+    {{ presentation_title }}
+  </text>
+  {% endif %}
+  <text x="400" y="322" text-anchor="middle" font-size="16" fill="black">
     در رویداد {{ event_title }} در تاریخ {{ event_end_date }}
   </text>
-    <a href="{{ verification_link_fa }}" target="_blank">
-        <text x="400" y="350" text-anchor="middle" font-size="14" fill="blue" style="cursor:pointer;">
-      لینک تأیید
-    </text>
-    </a>
-    <image
+  <text
+    x="400"
+    y="350"
+    text-anchor="middle"
+    font-size="12"
+    fill="blue"
+  >
+    {{ verification_link_fa }}
+  </text>
+  <image
     xlink:href="{% static 'certificates/AUT-logo.png' %}"
     x="260"
     y="400"
     width="90"
     preserveAspectRatio="xMidYMid meet"
   />
-    <image
+  <image
     xlink:href="{% static 'certificates/AUT-CESSC-logo.png' %}"
     x="440"
     y="410"
