@@ -200,7 +200,6 @@ class CustomAuthorizationView(views.APIView):
         ],
         responses={
             302: "Redirects back to the client's `redirect_uri` with a `code` or an `error`.",
-            401: "Redirects back to the main login page with 'error' and 'message'.",
         },
         tags=['Authentication']
     )
@@ -217,19 +216,15 @@ class CustomAuthorizationView(views.APIView):
 
             except (SignatureExpired, BadSignature, CustomUser.DoesNotExist) as e:
                 error_code = "unknown_error"
-                error_message = "An unexpected error occurred during login."
 
                 if isinstance(e, SignatureExpired):
                     error_code = "handshake_expired"
-                    error_message = "Your secure login link has expired. Please try logging in again."
                 elif isinstance(e, BadSignature):
                     error_code = "invalid_handshake"
-                    error_message = "Your secure login link is invalid or has been tampered with."
                 elif isinstance(e, CustomUser.DoesNotExist):
                     error_code = "user_not_found"
-                    error_message = "The user associated with this login link no longer exists."
 
-                error_params = urlencode({'error': error_code, 'message': error_message})
+                error_params = urlencode({'error': error_code,})
                 return HttpResponseRedirect(f"{redirect_url}?{error_params}")
 
             django_request.user = user
