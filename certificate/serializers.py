@@ -50,10 +50,12 @@ class CompletedEnrollmentSerializer(serializers.ModelSerializer):
             return obj.certificate.is_verified
         return False
 
+
+# ✅ FIXED serializer
 @ts_interface()
 class CompetitionCertificateRequestSerializer(serializers.Serializer):
     registration_type = serializers.ChoiceField(choices=["solo", "group"])
-    registration_id = serializers.UUIDField()
+    registration_id = serializers.IntegerField()  # <-- use IntegerField instead of UUIDField
     name = serializers.CharField(max_length=255)
 
 

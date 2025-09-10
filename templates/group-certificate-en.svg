@@ -1,0 +1,47 @@
+{% load static %}
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <rect width="100%" height="100%" fill="#ffffff" />
+    <image
+        xlink:href="{% static 'certificates/certificate-background1.png' %}"
+        x="0" y="0" width="800" height="600" preserveAspectRatio="xMidYMid meet"
+    />
+    <!-- Title -->
+    <text x="400" y="150" text-anchor="middle" font-size="36" font-family="Arial, sans-serif">
+        Certificate of Achievement
+    </text>
+    <!-- Team Name + Members -->
+    <text x="400" y="200" text-anchor="middle" font-size="28" font-family="Arial, sans-serif">
+        {{ name }}
+    </text>
+    <!-- Competition Type Description -->
+    <text x="400" y="237" text-anchor="middle" font-size="20" font-family="Arial, sans-serif">
+        as a team in the group competition:
+    </text>
+    <!-- Competition Title -->
+    <text x="400" y="275" text-anchor="middle" font-size="24" font-family="Arial, sans-serif">
+        {{ competition_title }}
+    </text>
+    <!-- Ranking (if provided) -->
+    {% if ranking %}
+    <text x="400" y="310" text-anchor="middle" font-size="20" font-family="Arial, sans-serif">
+        Achieved Rank: {{ ranking }}
+    </text>
+    {% endif %}
+    <!-- Event Details -->
+    <text x="400" y="350" text-anchor="middle" font-size="16" font-family="Arial, sans-serif">
+        at {{ event_title }} on {{ event_end_date }}
+    </text>
+    <!-- Verification Link -->
+    <text x="400" y="380" text-anchor="middle" font-size="14" font-family="Arial, sans-serif" fill="blue">
+        {{ verification_link_en }}
+    </text>
+    <!-- Logos -->
+    <image
+        xlink:href="{% static 'certificates/AUT-logo.png' %}"
+        x="260" y="420" width="90" preserveAspectRatio="xMidYMid meet"
+    />
+    <image
+        xlink:href="{% static 'certificates/AUT-CESSC-logo.png' %}"
+        x="440" y="420" width="90" preserveAspectRatio="xMidYMid meet"
+    />
+</svg>
