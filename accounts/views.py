@@ -5,7 +5,6 @@ from django.core import signing
 from django.http import HttpResponseRedirect
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 from oauth2_provider.models import get_application_model, RefreshToken
@@ -21,6 +20,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework.viewsets import ReadOnlyModelViewSet
 from em_backend import settings
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
+from .adapters import ProxiedGoogleOAuth2Adapter
 from .models import Staff, CustomUser
 from .serializers import (
     UserRegistrationSerializer,
@@ -70,7 +70,7 @@ def _format_datetime(dt):
 )
 class GoogleLoginView(SocialLoginView):
     permission_classes = [AllowAny]
-    adapter_class = GoogleOAuth2Adapter
+    adapter_class = ProxiedGoogleOAuth2Adapter
     client_class = OAuth2Client
     serializer_class = SocialLoginSerializer
     callback_url = settings.GOOGLE_CALLBACK_URL

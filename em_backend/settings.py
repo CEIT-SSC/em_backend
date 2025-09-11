@@ -82,6 +82,8 @@ ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_UNIQUE_EMAIL = True
 SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomAdapter'
 GOOGLE_CALLBACK_URL=os.getenv('GOOGLE_CALLBACK_URL', 'http://localhost:3000')
+GOOGLE_ACCESS_TOKEN_URL=os.getenv('GOOGLE_ACCESS_TOKEN_URL', 'https://oauth2.googleapis.com/token')
+GOOGLE_Profile_URL=os.getenv('GOOGLE_PROFILE_URL', 'https://www.googleapis.com/oauth2/v3/userinfo')
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {

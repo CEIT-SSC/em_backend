@@ -3,8 +3,10 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from em_backend import settings
 from shop.models import Cart
 import requests
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 
 User = get_user_model()
 
@@ -65,3 +67,8 @@ class CustomAdapter(DefaultSocialAccountAdapter):
             pass
 
         return user
+
+
+class ProxiedGoogleOAuth2Adapter(GoogleOAuth2Adapter):
+    access_token_url = settings.GOOGLE_ACCESS_TOKEN_URL
+    profile_url = settings.GOOGLE_Profile_URL
