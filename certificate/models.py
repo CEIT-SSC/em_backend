@@ -1,8 +1,9 @@
 from django.db import models
-import uuid
 from django.core.validators import MinValueValidator, MaxValueValidator
+import uuid
 
 class Certificate(models.Model):
+    verification_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     enrollment = models.OneToOneField(
         'events.PresentationEnrollment',
         on_delete=models.CASCADE,
@@ -19,7 +20,7 @@ class Certificate(models.Model):
         blank=True,
         null=True
     )
-    is_verified = models.BooleanField(default=False)
+    is_verified = models.BooleanField(default=None, blank=True, null=True)
     requested_at = models.DateTimeField(auto_now_add=True)
 
     grade = models.PositiveIntegerField(
@@ -39,6 +40,7 @@ class Certificate(models.Model):
 
 
 class CompetitionCertificate(models.Model):
+    verification_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     REGISTRATION_TYPES = [
         ("solo", "Solo Competition"),
         ("group", "Group Competition Team"),

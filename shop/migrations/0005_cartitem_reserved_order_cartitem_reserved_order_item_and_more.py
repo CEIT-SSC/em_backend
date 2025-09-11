@@ -8,7 +8,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('contenttypes', '0002_remove_content_type_name'),
-        ('events', '0007_alter_presentation_options_presentation_is_active'),
         ('shop', '0004_paymentbatch'),
     ]
 

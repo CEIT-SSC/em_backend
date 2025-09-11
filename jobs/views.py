@@ -6,8 +6,7 @@ from drf_spectacular.utils import (
     OpenApiParameter, OpenApiTypes,
 )
 from django.db.models import Q
-from em_backend.schemas import get_paginated_response_serializer, get_api_response_serializer, \
-    ApiErrorResponseSerializer, NoPaginationAutoSchema
+from em_backend.schemas import get_paginated_response_serializer, get_api_response_serializer, ApiErrorResponseSerializer
 from .models import Job
 from .serializers import JobListSerializer, JobDetailSerializer
 from .pagination import JobPagination
@@ -52,7 +51,6 @@ list_params = [
     ),
 )
 class JobViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
     permission_classes = [AllowAny]
     pagination_class = JobPagination
     serializer_class = JobListSerializer

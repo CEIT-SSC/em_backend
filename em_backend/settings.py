@@ -82,6 +82,8 @@ ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_UNIQUE_EMAIL = True
 SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomAdapter'
 GOOGLE_CALLBACK_URL=os.getenv('GOOGLE_CALLBACK_URL', 'http://localhost:3000')
+GOOGLE_ACCESS_TOKEN_URL=os.getenv('GOOGLE_ACCESS_TOKEN_URL', 'https://oauth2.googleapis.com/token')
+GOOGLE_Profile_URL=os.getenv('GOOGLE_PROFILE_URL', 'https://www.googleapis.com/oauth2/v3/userinfo')
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
@@ -103,8 +105,8 @@ SOCIALACCOUNT_PROVIDERS = {
 
 OAUTH2_PROVIDER = {
     'OAUTH2_VALIDATOR_CLASS': 'oauth2_provider.oauth2_validators.OAuth2Validator',
-    "ACCESS_TOKEN_EXPIRE_SECONDS": 300,
-    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 7,
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 15,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
     "SCOPES": {"read": "Read scope", "write": "Write scope"},
     "PKCE_REQUIRED": True,
     "ROTATE_REFRESH_TOKEN": True,
@@ -124,6 +126,17 @@ SPECTACULAR_SETTINGS = {
     'SWAGGER_UI_DIST': 'SIDECAR',
     'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
     'REDOC_DIST': 'SIDECAR',
+
+    'OAUTH2_FLOWS': [
+        'password',
+    ],
+    'OAUTH2_AUTHORIZATION_URL': '/api/o/authorize/',
+    'OAUTH2_TOKEN_URL': '/api/o/token/',
+    'OAUTH2_REFRESH_URL': '/api/o/token/',
+    'OAUTH2_SCOPES': {
+        "read": "Read scope",
+        "write": "Write scope"
+    },
 }
 
 REST_FRAMEWORK = {
@@ -141,7 +154,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'em_backend.renderers.CustomJSONRenderer',
     ),
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_SCHEMA_CLASS': 'em_backend.schemas.EnvelopePaginationAutoSchema',
     'DATETIME_FORMAT': "%Y-%m-%dT%H:%M:%S.%f%z",
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
@@ -163,17 +176,17 @@ INSTALLED_APPS = [
     'events',
     'rest_framework',
     'rest_framework.authtoken',
+    'django.contrib.sites',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
     'dj_rest_auth',
     'dj_rest_auth.registration',
-    'allauth.socialaccount.providers.google',
+    "oauth2_provider",
     'drf_spectacular',
     'drf_spectacular_sidecar',
     'corsheaders',
-    'django.contrib.sites',
-    "oauth2_provider",
     "django_typomatic",
 
     # Default

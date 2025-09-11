@@ -7,7 +7,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('events', '0007_alter_presentation_options_presentation_is_active'),
         ('shop', '0005_cartitem_reserved_order_cartitem_reserved_order_item_and_more'),
     ]
 
