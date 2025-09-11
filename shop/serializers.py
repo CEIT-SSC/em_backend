@@ -347,3 +347,11 @@ class PartialCheckoutSerializer(serializers.Serializer):
 @ts_interface()
 class BatchPaymentInitiateSerializer(serializers.Serializer):
     order_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False)
+
+
+@ts_interface()
+class RegisteredThingSerializer(serializers.Serializer):
+    item_type   = serializers.CharField()
+    status      = serializers.CharField(allow_null=True)
+    role        = serializers.CharField(allow_null=True, required=False)
+    item_details = ItemDetailSerializer(read_only=True)

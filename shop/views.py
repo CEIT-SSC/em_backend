@@ -15,7 +15,7 @@ from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSeri
 from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountRedemption
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
-    OrderSerializer, OrderListSerializer, CartItemSerializer, PaymentInitiateResponseSerializer, PartialCheckoutSerializer, BatchPaymentInitiateSerializer
+    OrderSerializer, OrderListSerializer, CartItemSerializer, PaymentInitiateResponseSerializer, PartialCheckoutSerializer, BatchPaymentInitiateSerializer, RegisteredThingSerializer
 )
 from .payments import ZarrinPal
 
@@ -953,3 +953,65 @@ class BatchPaymentInitiateView(views.APIView):
         qs.update(status=Order.STATUS_PAYMENT_FAILED)
         _release_reservations_for_orders(qs)
         return Response({"error": f"Payment gateway error: {msg}"}, status=400)
+    
+
+@extend_schema(
+    tags=['Shop - Registrations'],
+    summary="List all registrations of the current user (presentations, solo competitions, teams).",
+    responses={200: RegisteredThingSerializer(many=True)},
+)
+class UserRegistrationsView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        user = request.user
+        items = []
+
+        pres_enrolls = PresentationEnrollment.objects.filter(user=user).select_related('presentation')
+        for en in pres_enrolls:
+            obj = getattr(en, 'presentation', None)
+            if obj:
+                items.append({
+                    "item_type": "presentation",
+                    "status": getattr(en, 'status', None),
+                    "role": None,
+                    "item_details": obj,
+                })
+
+        solo_regs = SoloCompetitionRegistration.objects.filter(user=user).select_related('solo_competition')
+        for reg in solo_regs:
+            obj = getattr(reg, 'solo_competition', None)
+            if obj:
+                items.append({
+                    "item_type": "solo_competition",
+                    "status": getattr(reg, 'status', None),
+                    "role": None,
+                    "item_details": obj,
+                })
+
+        team_ids = set()
+
+        lead_qs = CompetitionTeam.objects.filter(leader=user)
+        for team in lead_qs:
+            team_ids.add(team.id)
+            items.append({
+                "item_type": "competition_team",
+                "status": getattr(team, 'status', None),
+                "role": "leader",
+                "item_details": team,
+            })
+
+        memberships = TeamMembership.objects.filter(user=user).select_related('team')
+        for m in memberships:
+            team = getattr(m, 'team', None)
+            if team and team.id not in team_ids:
+                team_ids.add(team.id)
+                items.append({
+                    "item_type": "competition_team",
+                    "status": getattr(team, 'status', None),
+                    "role": "member",
+                    "item_details": team,
+                })
+
+        ser = RegisteredThingSerializer(items, many=True, context={"request": request})
+        return Response(ser.data, status=status.HTTP_200_OK)

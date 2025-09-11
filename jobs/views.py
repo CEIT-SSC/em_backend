@@ -85,7 +85,7 @@ class JobViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(
                 Q(title__icontains=search) |
                 Q(description__icontains=search) |
-                Q(excerpt__icontains=search) |
+                # Q(excerpt__icontains=search) |
                 Q(tags__name__icontains=search)
             ).distinct()
 

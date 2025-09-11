@@ -55,6 +55,7 @@ class Presentation(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, blank=True, null=True, verbose_name="Price (e.g., Toman)")
     capacity = models.PositiveIntegerField(blank=True, null=True, verbose_name="Capacity")
     is_active = models.BooleanField(default=True, verbose_name="Is Active for Registration?")
+    poster = models.ImageField(upload_to='presentation_posters/%Y/%m/', blank=True, null=True, verbose_name="Presentation Poster")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

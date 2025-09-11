@@ -1,5 +1,6 @@
 import pytz
 from django.contrib import admin, messages
+from django.utils.html import format_html
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -84,22 +85,65 @@ def send_group_competition_reminder(modeladmin, request, queryset):
     messages.success(request, f'{total} emails sent.')
 
 
-@admin.register(Presenter)
-class PresenterAdmin(admin.ModelAdmin):
-    list_display = ('name', 'email', 'created_at')
-    search_fields = ('name', 'email')
-    list_filter = ('created_at',)
-
-
 @admin.register(Presentation)
 class PresentationAdmin(admin.ModelAdmin):
-    list_display = ('title', 'event', 'type', 'start_time', 'end_time', 'is_paid', 'price', 'capacity')
-    search_fields = ('title', 'description', 'event__title')
-    list_filter = ('type', 'is_online', 'is_paid', 'event')
-    autocomplete_fields = ['presenters', 'event']
-    readonly_fields = ('created_at',)
-    actions = [send_presentation_reminder]
+    list_display = ("id", "title", "event", "is_active", "is_paid", "price", "poster_thumb", "created_at")
+    list_filter = ("is_active", "is_paid", "event")
+    search_fields = ("title", "description", "event__title")
 
+    readonly_fields = ("poster_preview", "created_at")
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                "event", "title", "description",
+                "type", "is_online", "location", "online_link",
+                "start_time", "end_time", "is_active",
+            )
+        }),
+        ("Payment", {"fields": ("is_paid", "price", "capacity")}),
+        ("Media",   {"fields": ("poster", "poster_preview")}),
+        ("Meta",    {"fields": ("created_at",)}),
+    )
+
+    @admin.display(description="Poster")
+    def poster_thumb(self, obj):
+        if obj.poster and hasattr(obj.poster, "url"):
+            return format_html('<img src="{}" style="height:48px;border-radius:4px;" />', obj.poster.url)
+        return "—"
+
+    @admin.display(description="Poster preview")
+    def poster_preview(self, obj):
+        if obj.poster and hasattr(obj.poster, "url"):
+            return format_html(
+                '<img src="{}" style="max-width:320px;height:auto;border:1px solid #eee;border-radius:6px;" />',
+                obj.poster.url
+            )
+        return "No poster uploaded"
+
+
+@admin.register(Presenter)
+class PresenterAdmin(admin.ModelAdmin):
+    list_display = ("id", "display_name", "display_title")
+    search_fields = ("id",)
+
+    @admin.display(description="Name")
+    def display_name(self, obj):
+        return (
+            getattr(obj, "full_name", None)
+            or getattr(obj, "name", None)
+            or getattr(obj, "first_name", None)
+            or str(obj)
+        )
+
+    @admin.display(description="Title")
+    def display_title(self, obj):
+        return (
+            getattr(obj, "title", None)
+            or getattr(obj, "job_title", None)
+            or getattr(obj, "role", None)
+            or ""
+        )
 
 @admin.register(SoloCompetition)
 class SoloCompetitionAdmin(admin.ModelAdmin):

@@ -40,9 +40,9 @@ class PresentationSerializer(serializers.ModelSerializer):
             'presenters_details', 'presenter_ids',
             'type', 'is_online', 'location', 'online_link',
             'start_time', 'end_time', 'is_paid', 'price', 'capacity',
-            'created_at', 'is_active'
+            'is_active', 'poster'
         ]
-        read_only_fields = ['event_title', 'created_at', ]
+        read_only_fields = ['event_title', ]
 
 @ts_interface()
 class SoloCompetitionSerializer(serializers.ModelSerializer):
