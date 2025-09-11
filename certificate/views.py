@@ -250,6 +250,15 @@ class PublicCertificateVerifyView(generics.RetrieveAPIView):
     lookup_field = 'verification_id'
     lookup_url_kwarg = 'verification_id'
 
+    def get_object(self):
+        cert = super().get_object()
+
+        if cert.is_verified and (not cert.file_en or not cert.file_fa):
+            generate_presentation_certificate(cert)
+            cert.refresh_from_db()
+
+        return cert
+
 
 @extend_schema(
     tags=['Certificates - Public Verification'],
@@ -269,3 +278,16 @@ class PublicCompetitionCertificateVerifyView(generics.RetrieveAPIView):
     queryset = CompetitionCertificate.objects.filter(is_verified=True)
     lookup_field = 'verification_id'
     lookup_url_kwarg = 'verification_id'
+
+    def get_object(self):
+        cert = super().get_object()
+
+        if cert.is_verified and (not cert.file_en or not cert.file_fa):
+            if cert.registration_type == "solo":
+                generate_solo_certificate(cert)
+            elif cert.registration_type == "group":
+                generate_group_certificate(cert)
+
+            cert.refresh_from_db()
+
+        return cert
