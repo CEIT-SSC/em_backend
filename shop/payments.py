@@ -23,6 +23,7 @@ class ZarrinPal:
         self.VERIFY_URL      = f"{self.BASE}/pg/v4/payment/verify.json"
         self.START_PAY_URL   = f"{self.BASE}/pg/StartPay/{{authority}}"
         self.UNVERIFIED_URL  = f"{self.BASE}/pg/v4/payment/unVerified.json"
+        self.INQUIRY_URL   = f"{self.BASE}/pg/v4/payment/inquiry.json"
 
     def generate_link(self, authority):
         return self.START_PAY_URL.format(authority=authority)
@@ -44,7 +45,7 @@ class ZarrinPal:
             "amount": int(amount) * 10,
             "callback_url": self.CALLBACK_URL,
             "description": self.PAYMENT_DESCRIPTION,
-            "metadata": {}
+            "metadata": {},
         }
         if mobile:
             data["metadata"]["mobile"] = mobile
@@ -142,3 +143,35 @@ class ZarrinPal:
 
         except requests.RequestException as e:
             return {"status": "unexpected", "ref_id": None, "error": str(e), "card_pan": None}
+
+
+    def inquiry(self, *, authority: str):
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        payload = {"merchant_id": self.merchant_id, "authority": authority}
+
+        try:
+            resp = requests.post(self.INQUIRY_URL, json=payload, headers=headers, timeout=10)
+        except requests.RequestException as e:
+            return {"status": "unexpected", "error": str(e)}
+
+        if not resp.content:
+            return {"status": "unexpected", "error": "Empty response from inquiry"}
+
+        try:
+            data = resp.json()
+        except ValueError:
+            return {"status": "unexpected", "error": "Invalid JSON from inquiry"}
+
+        data_block   = (data or {}).get("data") or {}
+        errors_block = (data or {}).get("errors") or {}
+
+        status_txt = (data_block.get("status") or "").upper()
+        if status_txt == "FAILED":
+            return {"status": "failed", "error": None}
+        if status_txt == "IN_BANK":
+            return {"status": "in_bank", "error": None}
+
+        err_msg = None
+        if isinstance(errors_block, dict):
+            err_msg = errors_block.get("message") or errors_block.get("code")
+        return {"status": "not_found", "error": err_msg}
