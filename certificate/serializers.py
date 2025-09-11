@@ -23,9 +23,9 @@ class CertificateSerializer(serializers.ModelSerializer):
 @ts_interface()
 class CompletedEnrollmentSerializer(serializers.ModelSerializer):
     presentation_title = serializers.CharField(source='presentation.title', read_only=True)
-    certificate_id = serializers.IntegerField(source='certificate.id', read_only=True)
+    certificate_id = serializers.IntegerField(source='certificate.id', read_only=True, allow_null=True)
     certificate_verification_id = serializers.UUIDField(source='certificate.verification_id', read_only=True)
-    is_certificate_verified = serializers.BooleanField(source='certificate.is_verified', read_only=True)
+    is_certificate_verified = serializers.BooleanField(source='certificate.is_verified', read_only=True, default=False)
 
     class Meta:
         model = PresentationEnrollment
@@ -69,9 +69,9 @@ class CompetitionCertificateSerializer(serializers.ModelSerializer):
         return None
 
     def get_event_title(self, obj: CompetitionCertificate) -> str | None:
-        if obj.solo_registration:
+        if obj.solo_registration and obj.solo_registration.solo_competition.event:
             return obj.solo_registration.solo_competition.event.title
-        if obj.team:
+        if obj.team and obj.team.group_competition.event:
             return obj.team.group_competition.event.title
         return None
 
@@ -79,20 +79,30 @@ class CompetitionCertificateSerializer(serializers.ModelSerializer):
 @ts_interface()
 class EligibleSoloCompetitionSerializer(serializers.ModelSerializer):
     competition_title = serializers.CharField(source='solo_competition.title', read_only=True)
-    event_title = serializers.CharField(source='solo_competition.event.title', read_only=True)
+    event_title = serializers.SerializerMethodField()
     certificate = CompetitionCertificateSerializer(read_only=True)
 
     class Meta:
         model = SoloCompetitionRegistration
         fields = [ 'id', 'competition_title', 'event_title', 'certificate' ]
 
+    def get_event_title(self, obj: SoloCompetitionRegistration) -> str | None:
+        if obj.solo_competition and obj.solo_competition.event:
+            return obj.solo_competition.event.title
+        return None
+
 
 @ts_interface()
 class EligibleGroupCompetitionSerializer(serializers.ModelSerializer):
     competition_title = serializers.CharField(source='group_competition.title', read_only=True)
-    event_title = serializers.CharField(source='group_competition.event.title', read_only=True)
+    event_title = serializers.SerializerMethodField()
     certificate = CompetitionCertificateSerializer(read_only=True)
 
     class Meta:
         model = CompetitionTeam
         fields = [ 'id', 'name', 'competition_title', 'event_title', 'certificate' ]
+
+    def get_event_title(self, obj: CompetitionTeam) -> str | None:
+        if obj.group_competition and obj.group_competition.event:
+            return obj.group_competition.event.title
+        return None

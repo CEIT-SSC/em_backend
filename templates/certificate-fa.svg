@@ -1,60 +1,69 @@
 {% load static %}
-<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" dir="rtl" style="font-family: 'Tahoma', 'Vazir', Arial, sans-serif;">
-  <rect width="100%" height="100%" fill="#ffffff" />
-  <image
-    xlink:href="{% static 'certificates/certificate-background2.png' %}"
-    x="0"
-    y="0"
-    width="800"
-    height="600"
-    preserveAspectRatio="xMidYMid meet"
-  />
-  <text x="400" y="150" text-anchor="middle" font-size="36" fill="black">
-    گواهی حضور
-  </text>
-  <text x="400" y="200" text-anchor="middle" font-size="28" fill="black">
-    {{ name }}
-  </text>
+<svg width="1200" height="800" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs>
+    <style type="text/css">
+      .bg { fill: #fdfdfd; }
+      .border-outer { fill: url(#luxuryGoldGradient); }
+      .border-inner-1 { fill: none; stroke: #c5a47e; stroke-width: 2.5; stroke-opacity: 0.9; }
+      .border-inner-2 { fill: none; stroke: #a3825a; stroke-width: 1; stroke-opacity: 0.7; }
 
-  {% if presentation_type == "course" %}
-  <text x="400" y="237" text-anchor="middle" font-size="20" fill="black">
-    دورهٔ
-  </text>
-  <text x="400" y="275" text-anchor="middle" font-size="24" fill="black">
-    {{ presentation_title }} با نمرهٔ {{ grade }}
-  </text>
-  {% else %}
-  <text x="400" y="237" text-anchor="middle" font-size="20" fill="black">
-    ارائهٔ
-  </text>
-  <text x="400" y="275" text-anchor="middle" font-size="24" fill="black">
-    {{ presentation_title }}
-  </text>
-  {% endif %}
-  <text x="400" y="322" text-anchor="middle" font-size="16" fill="black">
-    در رویداد {{ event_title }} در تاریخ {{ event_end_date }}
-  </text>
-  <text
-    x="400"
-    y="350"
-    text-anchor="middle"
-    font-size="12"
-    fill="blue"
-  >
-    {{ verification_link_fa }}
-  </text>
-  <image
-    xlink:href="{% static 'certificates/AUT-logo.png' %}"
-    x="260"
-    y="400"
-    width="90"
-    preserveAspectRatio="xMidYMid meet"
-  />
-  <image
-    xlink:href="{% static 'certificates/AUT-CESSC-logo.png' %}"
-    x="440"
-    y="410"
-    width="90"
-    preserveAspectRatio="xMidYMid meet"
-  />
+      .header-title { font-family: 'Vazirmatn', sans-serif; font-size: 52px; fill: #1a3a6d; font-weight: 700; text-anchor: middle; letter-spacing: 1px; text-shadow: 1px 1px 3px rgba(0,0,0,0.15); }
+      .issuing-body { font-family: 'Vazirmatn', sans-serif; font-size: 20px; fill: #777; text-anchor: middle; letter-spacing: 0.5px;}
+      .subtitle { font-family: 'Vazirmatn', sans-serif; font-size: 20px; fill: #666; text-anchor: middle; letter-spacing: 1px; }
+      .recipient-name { font-family: 'Vazirmatn', sans-serif; font-size: 68px; fill: #b9955b; font-weight: 700; text-anchor: middle; text-shadow: 1.5px 1.5px 3px rgba(0,0,0,0.1); }
+      .body-text { font-family: 'Vazirmatn', sans-serif; font-size: 20px; line-height: 1.7; fill: #444; text-anchor: middle; }
+      .presentation-title { font-family: 'Vazirmatn', sans-serif; font-size: 24px; font-weight: 700; fill: #1a3a6d; text-anchor: middle; text-shadow: 0.5px 0.5px 1px rgba(0,0,0,0.1); }
+      .footer-text { font-family: 'Vazirmatn', sans-serif; font-size: 15px; fill: #888; text-anchor: middle; }
+
+      .seal-bg { fill: url(#sealGradient); stroke: #a3825a; stroke-width: 2; }
+      .decorative-element { fill: url(#goldGradientElement); opacity: 0.8; }
+      .flourish-stroke { stroke: url(#goldGradientElement); stroke-width: 1.8; fill: none; opacity: 0.8; }
+
+      .signature-line { stroke: #888; stroke-width: 1.5; }
+      .signature-name { font-family: 'Vazirmatn', sans-serif; font-size: 18px; font-weight: 600; fill: #333; text-anchor: middle; }
+      .signature-title { font-family: 'Vazirmatn', sans-serif; font-size: 16px; fill: #777; text-anchor: middle; }
+    </style>
+
+    <linearGradient id="luxuryGoldGradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#d4af37;stop-opacity:1" /><stop offset="30%" style="stop-color:#f8e28f;stop-opacity:1" /><stop offset="70%" style="stop-color:#f8e28f;stop-opacity:1" /><stop offset="100%" style="stop-color:#d4af37;stop-opacity:1" /></linearGradient>
+    <linearGradient id="sealGradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#f0e6d2;stop-opacity:1" /><stop offset="50%" style="stop-color:#ffffff;stop-opacity:1" /><stop offset="100%" style="stop-color:#f0e6d2;stop-opacity:1" /></linearGradient>
+    <linearGradient id="goldGradientElement" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#e0c17a;stop-opacity:1" /><stop offset="50%" style="stop-color:#f5e5b3;stop-opacity:1" /><stop offset="100%" style="stop-color:#e0c17a;stop-opacity:1" /></linearGradient>
+    <pattern id="guilloche" patternUnits="userSpaceOnUse" width="100" height="100"><path d="M50 0 C77.6 0 100 22.4 100 50 S77.6 100 50 100 0 77.6 0 50 22.4 0 50 0 Z" fill="none" stroke="#eef2f7" stroke-width="0.6"/><path d="M0 0 L100 100 M100 0 L0 100" stroke="#eef2f7" stroke-width="0.3"/><circle cx="50" cy="50" r="30" fill="none" stroke="#eef2f7" stroke-width="0.4"/></pattern>
+    <g id="cornerFlourish" class="decorative-element"><path d="M0,0 C30,0 50,20 50,50 C50,80 30,100 0,100 Z" transform="scale(0.5)"/><path d="M10,10 L40,10 L10,40 Z" transform="scale(0.5)"/></g>
+    <g id="centerFlourish"><path class="flourish-stroke" d="M0,0 C50,-15 100,-15 150,0 M150,0 C200,15 250,15 300,0"/><circle cx="150" cy="0" r="5" fill="#e0c17a" stroke="#a3825a" stroke-width="1"/></g>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="800" class="bg"/>
+  <rect x="0" y="0" width="1200" height="800" fill="url(#guilloche)" opacity="0.6"/>
+  <image x="450" y="250" width="300" height="300" xlink:href="{% static 'certificates/AUT-CESSC-logo.png' %}" opacity="0.04" />
+  <rect x="25" y="25" width="1150" height="750" fill="url(#luxuryGoldGradient)"/>
+  <rect x="30" y="30" width="1140" height="740" class="bg"/>
+  <rect x="50" y="50" width="1100" height="700" class="border-inner-1"/>
+  <rect x="55" y="55" width="1090" height="690" class="border-inner-2"/>
+  <use xlink:href="#cornerFlourish" x="50" y="50" /><use xlink:href="#cornerFlourish" x="1150" y="50" transform="rotate(90, 1150, 50)" /><use xlink:href="#cornerFlourish" x="1150" y="750" transform="rotate(180, 1150, 750)" /><use xlink:href="#cornerFlourish" x="50" y="750" transform="rotate(270, 50, 750)" />
+
+  <g transform="translate(0, 0)">
+    <circle cx="600" cy="150" r="85" class="seal-bg"/>
+    <image x="525" y="75" width="150" height="150" xlink:href="{% static 'certificates/AUT-CESSC-logo.png' %}" />
+
+    <text x="600" y="270" class="header-title">گواهی حضور</text>
+    <text x="600" y="305" class="issuing-body">انجمن علمی مهندسی کامپیوتر امیرکبیر</text>
+    <text x="600" y="345" class="subtitle">این گواهی تقدیم می‌گردد به</text>
+
+    <text x="600" y="420" class="recipient-name">{{ name }}</text>
+
+    <use xlink:href="#centerFlourish" x="450" y="485" />
+
+    <text x="600" y="525" class="body-text">برای حضور ارزشمند در ارائه با عنوان</text>
+    <text x="600" y="565" class="presentation-title">«{{ presentation_title }}»</text>
+
+    <g class="signature-group">
+      <image x="500" y="570" width="200" height="70" xlink:href="{% static 'certificates/signature.png' %}" />
+      <line x1="475" y1="640" x2="725" y2="640" class="signature-line"/>
+      <text x="600" y="665" class="signature-name">محمدجواد اکبری</text>
+      <text x="600" y="690" class="signature-title">دبیر انجمن علمی</text>
+    </g>
+
+    <text x="600" y="720" class="footer-text">صادر شده در تاریخ {{ event_end_date }}</text>
+    <text x="600" y="740" class="footer-text">{{ verification_link }} :بررسی اعتبار</text>
+  </g>
 </svg>
