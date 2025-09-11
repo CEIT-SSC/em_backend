@@ -31,6 +31,29 @@ logger = logging.getLogger(__name__)
 
 CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
 
+def _release_reservations_for_orders(order_qs_or_list):
+    CartItem = apps.get_model('shop', 'CartItem')
+    CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
+
+    orders = order_qs_or_list if hasattr(order_qs_or_list, '__iter__') else [order_qs_or_list]
+    with transaction.atomic():
+        for order in orders:
+            for ci in CartItem.objects.select_related('content_type').filter(reserved_order=order):
+                obj = ci.content_object
+                if isinstance(obj, CompetitionTeam) and \
+                   obj.status == CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION:
+                    if obj.group_competition.requires_admin_approval:
+                        obj.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+                    else:
+                        obj.status = CompetitionTeam.STATUS_CANCELLED
+                    obj.save(update_fields=["status"])
+
+                ci.status = CartItem.STATUS_OWNED
+                ci.reserved_order = None
+                ci.reserved_order_item = None
+                ci.save(update_fields=['status', 'reserved_order', 'reserved_order_item'])
+
+
 @extend_schema(
     tags=['Shop - Orders & Payment'],
     summary="Cancel a pending order (by order_id)",
@@ -46,24 +69,33 @@ class OrderCancelView(views.APIView):
     def post(self, request, order_pk, *args, **kwargs):
         order = get_object_or_404(Order, pk=order_pk, user=request.user)
 
-        if order.status != Order.STATUS_PENDING_PAYMENT:
+        cancellable_statuses = {
+            Order.STATUS_PENDING_PAYMENT,
+            Order.STATUS_PAYMENT_FAILED,
+        }
+        if order.status not in cancellable_statuses:
             return Response(
-                {"error": f"Order cannot be cancelled in status: {order.get_status_display()}"},
+                {"error": f"Order cannot be cancelled in status '{order.get_status_display()}'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if order.batches.filter(
+            status__in=[
+                PaymentBatch.STATUS_AWAITING_GATEWAY_REDIRECT,
+                PaymentBatch.STATUS_VERIFIED,
+                PaymentBatch.STATUS_COMPLETED,
+            ]
+        ).exists():
+            return Response(
+                {"error": "This order is attached to a batch that is in progress or paid. "
+                          "Please wait or request a refund/cancellation through the batch flow."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         with transaction.atomic():
-            for oi in order.items.select_related().all():
-                obj = oi.content_object
-                if isinstance(obj, CompetitionTeam) and obj.status == CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION:
-                    if obj.group_competition.requires_admin_approval:
-                        obj.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
-                    else:
-                        obj.status = CompetitionTeam.STATUS_CANCELLED
-                    obj.save(update_fields=["status"])
-
             order.status = Order.STATUS_CANCELLED
             order.save(update_fields=["status"])
+            _release_reservations_for_orders(order)
 
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
 
@@ -762,11 +794,13 @@ class PaymentCallbackView(views.APIView):
                     batch.status = PaymentBatch.STATUS_PAYMENT_FAILED
                     batch.save(update_fields=["status"])
                     batch.orders.update(status=Order.STATUS_PAYMENT_FAILED)
+                    _release_reservations_for_orders(batch.orders.all())
                     return redirect(f"{failure_url}&reason=verify_failed&code={err}")
             else:
                 batch.status = PaymentBatch.STATUS_PAYMENT_FAILED
                 batch.save(update_fields=["status"])
                 batch.orders.update(status=Order.STATUS_PAYMENT_FAILED)
+                _release_reservations_for_orders(batch.orders.all())
                 return redirect(f"{failure_url}&reason=user_cancelled_or_gateway_nok")
 
         order = order_qs.first()
@@ -791,10 +825,12 @@ class PaymentCallbackView(views.APIView):
             else:
                 order.status = Order.STATUS_PAYMENT_FAILED
                 order.save()
+                _release_reservations_for_orders(order)
                 return redirect(f"{failure_url}&reason=verify_failed")
         else:
             order.status = Order.STATUS_PAYMENT_FAILED
             order.save()
+            _release_reservations_for_orders(order)
             return redirect(f"{failure_url}&reason=user_cancelled_or_gateway_nok")
 
 
@@ -915,4 +951,5 @@ class BatchPaymentInitiateView(views.APIView):
         batch.status = PaymentBatch.STATUS_PAYMENT_FAILED
         batch.save(update_fields=["status"])
         qs.update(status=Order.STATUS_PAYMENT_FAILED)
+        _release_reservations_for_orders(qs)
         return Response({"error": f"Payment gateway error: {msg}"}, status=400)
