@@ -314,22 +314,120 @@ class OrderPartialCheckoutView(views.APIView):
 class RemoveCartItemView(views.APIView):
     permission_classes = [IsAuthenticated]
 
+    def _batch_locked_statuses(self):
+        return [
+            PaymentBatch.STATUS_PENDING,
+            PaymentBatch.STATUS_AWAITING_GATEWAY_REDIRECT,
+        ]
+
+    def _batch_is_potentially_paid(self, batch: PaymentBatch) -> bool:
+        if not batch.payment_gateway_authority:
+            return False
+        try:
+            zp = ZarrinPal()
+            unverified = set(zp.get_unverified_authorities())
+            return batch.payment_gateway_authority in unverified
+        except Exception:
+            return True
+
+    def _detach_order_from_unpaid_batch(self, batch: PaymentBatch, order: Order):
+        with transaction.atomic():
+            batch.orders.remove(order)
+            remaining = batch.orders.all().only('total_amount')
+            new_total = sum((o.total_amount for o in remaining), start=Decimal('0.00'))
+
+            if remaining.exists():
+                batch.total_amount = new_total
+                batch.payment_gateway_authority = None
+                batch.payment_gateway_txn_id = None
+                # batch.status = PaymentBatch.STATUS_PAYMENT_FAILED
+                batch.status = PaymentBatch.STATUS_PENDING
+                batch.save(update_fields=[
+                    'total_amount', 'payment_gateway_authority',
+                    'payment_gateway_txn_id', 'status'
+                ])
+            else:
+                batch.delete()
+
+    def _terminal_batch_statuses(self):
+        return [
+            PaymentBatch.STATUS_PAYMENT_FAILED,
+            PaymentBatch.STATUS_VERIFIED,
+            PaymentBatch.STATUS_COMPLETED,
+        ]
+
     def delete(self, request, cart_item_pk, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
         try:
-            cart_item = CartItem.objects.get(pk=cart_item_pk, cart=cart)
-            content_object = cart_item.content_object
-            cart_item.delete()
-
-            if isinstance(content_object, CompetitionTeam) and content_object.status == CompetitionTeam.STATUS_IN_CART:
-                if content_object.group_competition.requires_admin_approval:
-                    content_object.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
-                else:
-                    content_object.status = CompetitionTeam.STATUS_CANCELLED
-                content_object.save()
-            return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
+            cart_item = (
+                CartItem.objects
+                .select_related('reserved_order', 'reserved_order_item', 'content_type')
+                .get(pk=cart_item_pk, cart=cart)
+            )
         except CartItem.DoesNotExist:
             return Response({"error": "Cart item not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        content_object = cart_item.content_object
+        reserved_order = cart_item.reserved_order
+
+        if reserved_order:
+            batches = list(reserved_order.batches.select_for_update())
+
+            if any(b.status in self._terminal_batch_statuses() for b in batches):
+                cart_item.delete()
+
+                if isinstance(content_object, CompetitionTeam) and content_object.status == CompetitionTeam.STATUS_IN_CART:
+                    if content_object.group_competition.requires_admin_approval:
+                        content_object.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+                    else:
+                        content_object.status = CompetitionTeam.STATUS_CANCELLED
+                    content_object.save(update_fields=["status"])
+
+                if cart.applied_discount_code and not cart._eligible_items_for_code(cart.applied_discount_code):
+                    cart.applied_discount_code = None
+                    cart.save(update_fields=['applied_discount_code'])
+
+                return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
+
+            for batch in batches:
+                if batch.status in self._batch_locked_statuses():
+                    if self._batch_is_potentially_paid(batch):
+                        return Response(
+                            {"error": "This batch payment looks submitted but not confirmed yet. "
+                                    "Please try again after verification (or cancel the batch)."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    self._detach_order_from_unpaid_batch(batch, reserved_order)
+
+            with transaction.atomic():
+                if reserved_order.items.exists():
+                    for oi in reserved_order.items.select_related().all():
+                        obj = oi.content_object
+                        if isinstance(obj, CompetitionTeam) and \
+                        obj.status == CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION:
+                            if obj.group_competition.requires_admin_approval:
+                                obj.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+                            else:
+                                obj.status = CompetitionTeam.STATUS_CANCELLED
+                            obj.save(update_fields=["status"])
+                reserved_order.delete()
+
+        if cart_item.pk:
+            cart_item.delete()
+
+        if isinstance(content_object, CompetitionTeam) and \
+        content_object.status == CompetitionTeam.STATUS_IN_CART:
+            if content_object.group_competition.requires_admin_approval:
+                content_object.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+            else:
+                content_object.status = CompetitionTeam.STATUS_CANCELLED
+            content_object.save(update_fields=["status"])
+
+        if cart.applied_discount_code and not cart._eligible_items_for_code(cart.applied_discount_code):
+            cart.applied_discount_code = None
+            cart.save(update_fields=['applied_discount_code'])
+
+        return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
 
 
 @extend_schema(
