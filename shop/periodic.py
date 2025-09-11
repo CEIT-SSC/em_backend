@@ -3,14 +3,14 @@ import threading
 from django.core.management import call_command
 from django.core.cache import cache
 
-_INTERVAL_SECONDS = 30 * 60  # 30 minutes
+_INTERVAL_SECONDS = 15 * 60  # 15 minutes
 _THREAD_NAME = "zp-unverified-scheduler"
 _started = False
 _stop = threading.Event()
 
 def _run_once():
     lock_key = "zp_unverified_lock"
-    if not cache.add(lock_key, "1", timeout=25 * 60):  # 25min TTL
+    if not cache.add(lock_key, "1", timeout=12 * 60):  # 12min TTL
         return
     try:
         call_command("zp_verify_unverified")
@@ -27,7 +27,7 @@ def start():
     if _started:
         return
     if os.environ.get("RUN_MAIN") != "true" and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-        pass
+        return
     t = threading.Thread(target=_loop, name=_THREAD_NAME, daemon=True)
     t.start()
     _started = True
