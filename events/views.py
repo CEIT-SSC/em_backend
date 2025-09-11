@@ -5,8 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
-from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
-    get_paginated_response_serializer, NoPaginationAutoSchema
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, get_paginated_response_serializer
 from .models import (
     Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
@@ -56,8 +55,6 @@ def _add_item_to_user_cart(user, item_instance, item_type_str):
     )
 )
 class EventViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
-
     queryset = Event.objects.prefetch_related(
         models.Prefetch('presentations', queryset=Presentation.objects.filter(event__is_active=True)),
         models.Prefetch('solocompetition_set',
@@ -86,7 +83,6 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
     retrieve=extend_schema(responses={200: get_api_response_serializer(PresentationSerializer), 404: ApiErrorResponseSerializer})
 )
 class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
     serializer_class = PresentationSerializer
     filterset_fields = ['event', 'type', 'is_online', 'is_paid']
 
@@ -148,7 +144,6 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
     retrieve=extend_schema(responses={200: get_api_response_serializer(SoloCompetitionSerializer), 404: ApiErrorResponseSerializer})
 )
 class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
     serializer_class = SoloCompetitionSerializer
     filterset_fields = ['event', 'is_paid']
 
@@ -208,7 +203,6 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
     retrieve=extend_schema(responses={200: get_api_response_serializer(GroupCompetitionSerializer), 404: ApiErrorResponseSerializer})
 )
 class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
     serializer_class = GroupCompetitionSerializer
     filterset_fields = ['event', 'is_paid']
 
@@ -331,7 +325,6 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 )
 class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.DestroyModelMixin,
                      viewsets.GenericViewSet):
-    schema = NoPaginationAutoSchema()
     serializer_class = CompetitionTeamDetailSerializer
     permission_classes = [IsAuthenticated]
 
@@ -445,7 +438,6 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
     responses={200: get_paginated_response_serializer(PresentationEnrollmentSerializer)}
 )
 class MyPresentationEnrollmentsView(generics.ListAPIView):
-    schema = NoPaginationAutoSchema()
     serializer_class = PresentationEnrollmentSerializer
     permission_classes = [IsAuthenticated]
 
@@ -460,7 +452,6 @@ class MyPresentationEnrollmentsView(generics.ListAPIView):
     responses={200: get_paginated_response_serializer(SoloCompetitionRegistrationSerializer)}
 )
 class MySoloCompetitionRegistrationsView(generics.ListAPIView):
-    schema = NoPaginationAutoSchema()
     serializer_class = SoloCompetitionRegistrationSerializer
     permission_classes = [IsAuthenticated]
 
@@ -475,7 +466,6 @@ class MySoloCompetitionRegistrationsView(generics.ListAPIView):
     retrieve=extend_schema(responses={200: get_api_response_serializer(TeamContentSerializer), 404: ApiErrorResponseSerializer})
 )
 class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
     queryset = TeamContent.objects.filter(team__status=CompetitionTeam.STATUS_ACTIVE).select_related('team__leader',
                                                                                                      'team__group_competition').prefetch_related(
         'images', 'likes', 'comments')
@@ -598,7 +588,6 @@ class ContentCommentViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin, v
     retrieve=extend_schema(responses={200: get_api_response_serializer(PostDetailSerializer), 404: ApiErrorResponseSerializer})
 )
 class PostViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
     queryset = Post.objects.filter(is_active=True)
     permission_classes = [AllowAny]
 

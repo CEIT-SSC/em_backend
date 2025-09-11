@@ -10,8 +10,7 @@ from rest_framework import viewsets, status, generics, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, NoPaginationAutoSchema, \
-    get_paginated_response_serializer
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, get_paginated_response_serializer
 from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountRedemption
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
@@ -715,7 +714,6 @@ class PaymentCallbackView(views.APIView):
     )
 )
 class OrderHistoryViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):

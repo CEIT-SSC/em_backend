@@ -20,7 +20,7 @@ class Certificate(models.Model):
         blank=True,
         null=True
     )
-    is_verified = models.BooleanField(default=False)
+    is_verified = models.BooleanField(default=None, blank=True, null=True)
     requested_at = models.DateTimeField(auto_now_add=True)
 
     grade = models.PositiveIntegerField(

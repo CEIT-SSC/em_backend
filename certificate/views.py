@@ -131,7 +131,6 @@ class CompetitionCertificateListView(generics.ListAPIView):
     serializer_class = EligibleSoloCompetitionSerializer
 
     def get_queryset(self):
-        # CORRECT: Filters on solo_competition's own end_datetime
         return SoloCompetitionRegistration.objects.filter(
             user=self.request.user, status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
             solo_competition__end_datetime__lt=timezone.now()
