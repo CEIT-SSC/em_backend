@@ -301,6 +301,7 @@ class Order(models.Model):
     payment_gateway_txn_id = models.CharField(max_length=100, blank=True, null=True, verbose_name="Payment Gateway Transaction ID (Zarinpal ref_id)")
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(blank=True, null=True, verbose_name="Paid At")
+    redirect_app = models.CharField(max_length=50, null=True, blank=True, db_index=True)
 
     def __str__(self):
         return f"Order {self.order_id} by {self.user.email if self.user else 'Anonymous'}"
@@ -351,6 +352,7 @@ class PaymentBatch(models.Model):
     payment_gateway_txn_id = models.CharField(max_length=100, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(blank=True, null=True)
+    redirect_app = models.CharField(max_length=50, null=True, blank=True, db_index=True)
 
     def __str__(self):
         return f"Batch {self.batch_id} for {self.user_id} — {self.status}"
@@ -365,3 +367,16 @@ class DiscountRedemption(models.Model):
     class Meta:
         unique_together = ('code', 'user', 'order')
         indexes = [models.Index(fields=['code', 'user'])]
+
+
+class PaymentApp(models.Model):
+    slug = models.SlugField(max_length=50, unique=True)
+    name = models.CharField(max_length=100, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Payment App"
+        verbose_name_plural = "Payment Apps"
+
+    def __str__(self):
+        return self.name or self.slug

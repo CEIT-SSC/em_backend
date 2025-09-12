@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django import forms
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountCode
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountCode, PaymentApp
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 from django.core.exceptions import ValidationError
@@ -196,3 +196,9 @@ class PaymentBatchAdmin(admin.ModelAdmin):
     list_display = ('batch_id', 'user', 'total_amount', 'status', 'payment_gateway_authority', 'created_at', 'paid_at')
     search_fields = ('batch_id', 'payment_gateway_authority', 'user__email')
     list_filter = ('status', 'created_at', 'paid_at')
+
+@admin.register(PaymentApp)
+class PaymentAppAdmin(admin.ModelAdmin):
+    list_display = ("slug", "name", "is_active")
+    list_filter  = ("is_active",)
+    search_fields = ("slug", "name")
