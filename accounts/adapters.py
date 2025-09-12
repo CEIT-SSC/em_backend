@@ -68,7 +68,3 @@ class CustomAdapter(DefaultSocialAccountAdapter):
 
         return user
 
-
-class ProxiedGoogleOAuth2Adapter(GoogleOAuth2Adapter):
-    access_token_url = settings.GOOGLE_ACCESS_TOKEN_URL
-    profile_url = settings.GOOGLE_Profile_URL

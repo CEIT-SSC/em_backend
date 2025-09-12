@@ -5,7 +5,7 @@ from events.models import Presentation, SoloCompetition, CompetitionTeam
 from events.serializers import PresentationSerializer, SoloCompetitionSerializer, CompetitionTeamDetailSerializer
 from .models import Cart, CartItem, Order, OrderItem, DiscountCode
 from events.serializers import CompetitionTeamDetailSerializer
-
+from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 
 @ts_interface()
 class ItemDetailSerializer(serializers.Serializer):
@@ -13,7 +13,7 @@ class ItemDetailSerializer(serializers.Serializer):
     presentation = PresentationSerializer(read_only=True)
     solo_competition = SoloCompetitionSerializer(read_only=True)
     competition_team = CompetitionTeamDetailSerializer(read_only=True)
-
+    @extend_schema_field(OpenApiTypes.STR)
     def get_item_type(self, obj):
         if isinstance(obj, Presentation):
             return 'presentation'
@@ -85,6 +85,7 @@ class CartItemSerializer(serializers.ModelSerializer):
             order__status=Order.STATUS_COMPLETED,
         ).exists()
 
+    @extend_schema_field(OpenApiTypes.INT)
     def get_event_id(self, obj):
         if getattr(obj, 'event_id', None):
             return obj.event_id
@@ -97,22 +98,26 @@ class CartItemSerializer(serializers.ModelSerializer):
             return ev_id
         parent = getattr(co, 'group_competition', None)
         return getattr(parent, 'event_id', None) if parent else None
-
+    
+    @extend_schema_field(OpenApiTypes.STR)
     def get_status(self, obj):
         if self._already_owned(obj):
             return 'owned'
         if self._find_unpaid_reservation(obj):
             return 'reserved'
         return 'free'
-
+    
+    @extend_schema_field(OpenApiTypes.INT)
     def get_reserved_order_id(self, obj):
         oi = self._find_unpaid_reservation(obj)
         return oi.order.id if oi else None
 
+    @extend_schema_field(OpenApiTypes.INT)
     def get_reserved_order_item_id(self, obj):
         oi = self._find_unpaid_reservation(obj)
         return oi.id if oi else None
 
+    @extend_schema_field(OpenApiTypes.NUMBER)
     def get_price(self, obj):
         content_object = obj.content_object
         if not content_object:
@@ -153,6 +158,7 @@ class OrderItemWithEventSerializer(serializers.ModelSerializer):
             "item_title",
         ]
 
+    @extend_schema_field(OpenApiTypes.INT)
     def get_event_id(self, obj):
         try:
             co = obj.content_object
@@ -168,6 +174,7 @@ class OrderItemWithEventSerializer(serializers.ModelSerializer):
             pass
         return None
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_item_type(self, obj):
         try:
             co = obj.content_object
@@ -184,6 +191,7 @@ class OrderItemWithEventSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_item_title(self, obj):
         try:
             co = obj.content_object
@@ -212,7 +220,7 @@ class DiscountCodeTinySerializer(serializers.ModelSerializer):
 
 @ts_interface()
 class CartSerializer(serializers.ModelSerializer):
-    items = CartItemSerializer(many=True, read_only=True)
+    items = serializers.SerializerMethodField()
     discount_code = serializers.CharField(
         source='applied_discount_code.code', read_only=True, allow_null=True
     )
@@ -234,14 +242,49 @@ class CartSerializer(serializers.ModelSerializer):
             'created_at',
         )
 
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        data.pop('id', None)
+        data.pop('user', None)
+        return data
+
+    def _filtered_items_qs(self, obj):
+        return getattr(obj, "_filtered_items", None) or obj.items.all()
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_items(self, obj):
+        qs = self._filtered_items_qs(obj)
+        return CartItemSerializer(qs, many=True, context=self.context).data
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_subtotal_amount(self, obj):
-        return obj.get_subtotal()
+        qs = self._filtered_items_qs(obj)
+        return obj._subtotal_for_items(qs)
 
+    @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_discount_amount(self, obj):
-        return obj.get_discount_amount()
+        qs = list(self._filtered_items_qs(obj))
+        subtotal = obj._subtotal_for_items(qs)
+        code = obj.applied_discount_code
+        if not code or not code.is_valid(subtotal):
+            return 0
 
+        eligible = obj._eligible_items_for_code(code)
+        eligible_ids = {(ci.content_type_id, ci.object_id) for ci in eligible}
+        filtered_eligible = [ci for ci in qs if (ci.content_type_id, ci.object_id) in eligible_ids]
+        eligible_subtotal = obj._subtotal_for_items(filtered_eligible)
+
+        if eligible_subtotal <= 0:
+            return 0
+
+        discount_value = code.calculate_discount(eligible_subtotal)
+        return min(discount_value, subtotal)
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_total_amount(self, obj):
-        return obj.get_total()
+        subtotal = self.get_subtotal_amount(obj)
+        discount = self.get_discount_amount(obj)
+        return subtotal - discount
 
 @ts_interface()
 class AddToCartSerializer(serializers.Serializer):
@@ -337,3 +380,11 @@ class PartialCheckoutSerializer(serializers.Serializer):
 @ts_interface()
 class BatchPaymentInitiateSerializer(serializers.Serializer):
     order_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False)
+
+
+@ts_interface()
+class RegisteredThingSerializer(serializers.Serializer):
+    item_type   = serializers.CharField()
+    status      = serializers.CharField(allow_null=True)
+    role        = serializers.CharField(allow_null=True, required=False)
+    item_details = ItemDetailSerializer(read_only=True)

@@ -9,18 +9,21 @@ class Tag(models.Model):
 
 
 class Job(models.Model):
-    title        = models.CharField(max_length=255)
-    excerpt     = models.CharField(max_length=400, blank=True)
-    description  = models.TextField()
+    title       = models.CharField(max_length=255)
+    # excerpt    = models.CharField(max_length=400, blank=True)
+    description = models.TextField()
 
+    company         = models.CharField(max_length=255, blank=True, default="")
     company_image   = models.ImageField(upload_to='job_logos/', null=True, blank=True)
     company_url     = models.URLField(null=True, blank=True)
     resume_url      = models.URLField(null=True, blank=True)
 
-    tags         = models.ManyToManyField(Tag, related_name='jobs')
+    button_link = models.CharField(max_length=1024, blank=True, default="")
+    button_text = models.CharField(max_length=255,  blank=True, default="")
 
-    is_active    = models.BooleanField(default=True)
-    created_at   = models.DateTimeField(auto_now_add=True)
+    tags       = models.ManyToManyField(Tag, related_name='jobs')
+    is_active  = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
