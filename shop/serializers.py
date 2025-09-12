@@ -230,7 +230,7 @@ class DiscountCodeTinySerializer(serializers.ModelSerializer):
 
 @ts_interface()
 class CartSerializer(serializers.ModelSerializer):
-    items = CartItemSerializer(many=True, read_only=True)
+    items = serializers.SerializerMethodField()
     discount_code = serializers.CharField(
         source='applied_discount_code.code', read_only=True, allow_null=True
     )
@@ -252,17 +252,49 @@ class CartSerializer(serializers.ModelSerializer):
             'created_at',
         )
 
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        data.pop('id', None)
+        data.pop('user', None)
+        return data
+
+    def _filtered_items_qs(self, obj):
+        return getattr(obj, "_filtered_items", None) or obj.items.all()
+
+    @extend_schema_field(OpenApiTypes.OBJECT)
+    def get_items(self, obj):
+        qs = self._filtered_items_qs(obj)
+        return CartItemSerializer(qs, many=True, context=self.context).data
+
     @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_subtotal_amount(self, obj):
-        return obj.get_subtotal()
+        qs = self._filtered_items_qs(obj)
+        return obj._subtotal_for_items(qs)
 
     @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_discount_amount(self, obj):
-        return obj.get_discount_amount()
+        qs = list(self._filtered_items_qs(obj))
+        subtotal = obj._subtotal_for_items(qs)
+        code = obj.applied_discount_code
+        if not code or not code.is_valid(subtotal):
+            return 0
+
+        eligible = obj._eligible_items_for_code(code)
+        eligible_ids = {(ci.content_type_id, ci.object_id) for ci in eligible}
+        filtered_eligible = [ci for ci in qs if (ci.content_type_id, ci.object_id) in eligible_ids]
+        eligible_subtotal = obj._subtotal_for_items(filtered_eligible)
+
+        if eligible_subtotal <= 0:
+            return 0
+
+        discount_value = code.calculate_discount(eligible_subtotal)
+        return min(discount_value, subtotal)
 
     @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_total_amount(self, obj):
-        return obj.get_total()
+        subtotal = self.get_subtotal_amount(obj)
+        discount = self.get_discount_amount(obj)
+        return subtotal - discount
 
 @ts_interface()
 class AddToCartSerializer(serializers.Serializer):
