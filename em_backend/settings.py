@@ -130,6 +130,20 @@ SPECTACULAR_SETTINGS = {
         "read": "Read scope",
         "write": "Write scope"
     },
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'BearerAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'Opaque',
+            }
+        }
+    },
+
+    'SECURITY': [
+        {'BearerAuth': []},
+        {'oauth2': ['read', 'write']},
+    ],
 }
 
 REST_FRAMEWORK = {

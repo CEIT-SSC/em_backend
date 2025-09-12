@@ -374,12 +374,17 @@ class PaymentInitiateResponseSerializer(serializers.Serializer):
     authority = serializers.CharField()
 
 @ts_interface()
+class OrderPaymentInitiateSerializer(serializers.Serializer):
+    app = serializers.SlugField(required=False, allow_blank=True, allow_null=True)
+
+@ts_interface()
 class PartialCheckoutSerializer(serializers.Serializer):
     cart_item_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False)
 
 @ts_interface()
 class BatchPaymentInitiateSerializer(serializers.Serializer):
     order_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False)
+    app = serializers.SlugField(required=False, allow_blank=True, allow_null=True)
 
 
 @ts_interface()

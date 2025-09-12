@@ -1,5 +1,6 @@
 from drf_spectacular.openapi import AutoSchema
 from rest_framework import serializers
+from rest_framework import mixins
 
 
 class BaseApiResponseSerializer(serializers.Serializer):
@@ -55,6 +56,13 @@ def get_paginated_response_serializer(item_serializer):
 class EnvelopePaginationAutoSchema(AutoSchema):
     def _get_paginator(self):
         return None
+    
+    def _is_list_view(self, *args, **kwargs):
+        if getattr(self.view, 'action', None) == 'list':
+            return False
+        if isinstance(self.view, mixins.ListModelMixin) and self.method == 'GET':
+            return False
+        return super()._is_list_view(*args, **kwargs)
 
 
 ApiErrorResponseSerializer = get_api_response_serializer(None)
