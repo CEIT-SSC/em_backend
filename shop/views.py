@@ -1,8 +1,8 @@
+from django.db.models import Sum
 from django.shortcuts import redirect, get_object_or_404
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction, models
-from django.db.models import Q
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 import logging
@@ -12,14 +12,14 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from decimal import Decimal
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
-from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, NoPaginationAutoSchema, \
-    get_paginated_response_serializer
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, get_paginated_response_serializer
 from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountRedemption
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
     OrderSerializer, OrderListSerializer, CartItemSerializer, PaymentInitiateResponseSerializer, PartialCheckoutSerializer, BatchPaymentInitiateSerializer, RegisteredThingSerializer
 )
 from .payments import ZarrinPal
+
 
 Presentation = apps.get_model('events', 'Presentation')
 SoloCompetition = apps.get_model('events', 'SoloCompetition')
@@ -28,10 +28,9 @@ PresentationEnrollment = apps.get_model('events', 'PresentationEnrollment')
 SoloCompetitionRegistration = apps.get_model('events', 'SoloCompetitionRegistration')
 TeamMembership = apps.get_model('events', 'TeamMembership')
 CustomUser = apps.get_model(settings.AUTH_USER_MODEL)
+CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
 logger = logging.getLogger(__name__)
 
-
-CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
 
 def _release_reservations_for_orders(order_qs_or_list):
     CartItem = apps.get_model('shop', 'CartItem')
@@ -961,7 +960,6 @@ class PaymentCallbackView(views.APIView):
     )
 )
 class OrderHistoryViewSet(viewsets.ReadOnlyModelViewSet):
-    schema = NoPaginationAutoSchema()
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):

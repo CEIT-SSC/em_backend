@@ -25,7 +25,7 @@ from django.contrib.auth import get_user_model
 CustomUser = get_user_model()
 
 
-def _add_item_to_user_cart(user, item_instance, item_type_str):
+def _add_item_to_user_cart(user, item_instance):
     Cart = apps.get_model('shop', 'Cart')
     CartItem = apps.get_model('shop', 'CartItem')
     ContentType = apps.get_model('contenttypes', 'ContentType')
@@ -127,7 +127,7 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
             return Response(PresentationEnrollmentSerializer(enrollment).data,
                             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
         else:
-            success, message = _add_item_to_user_cart(user, presentation, 'presentation')
+            success, message = _add_item_to_user_cart(user, presentation)
             return Response({"message": message}, status=status.HTTP_200_OK) if success else Response(
                 {"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -186,7 +186,7 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
             return Response(SoloCompetitionRegistrationSerializer(registration).data,
                             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
         else:
-            success, message = _add_item_to_user_cart(user, competition, 'solocompetition')
+            success, message = _add_item_to_user_cart(user, competition)
             return Response({"message": message}, status=status.HTTP_200_OK) if success else Response(
                 {"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -271,7 +271,7 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
                                      "team_details": CompetitionTeamDetailSerializer(team, context={
                                          'request': request}).data}, status=status.HTTP_201_CREATED)
                 else:
-                    success, message = _add_item_to_user_cart(user, team, 'competitionteam')
+                    success, message = _add_item_to_user_cart(user, team)
                     if success:
                         team.refresh_from_db()
                         return Response({"message": message, "team_details": CompetitionTeamDetailSerializer(team,
@@ -359,7 +359,7 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
         if not (
                 team.group_competition.requires_admin_approval and team.is_approved_by_admin and is_paid_comp and team.status == CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT):
             return Response({"error": "Team not eligible to be added to cart."}, status=status.HTTP_400_BAD_REQUEST)
-        success, message = _add_item_to_user_cart(user, team, 'competitionteam')
+        success, message = _add_item_to_user_cart(user, team)
         if success:
             team.refresh_from_db()
             return Response({"message": message, "team_id": team.id, "new_team_status": team.get_status_display()},
