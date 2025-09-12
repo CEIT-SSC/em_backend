@@ -1,4 +1,4 @@
-import type { SoloCompetition, CompetitionTeamDetail, Presentation, ItemDetail } from '../default';
+import type { ItemDetail, Presentation, SoloCompetition, CompetitionTeamDetail } from '../default';
 
 export enum ItemTypeChoiceEnum {
     PRESENTATION = 'presentation',
@@ -49,6 +49,7 @@ export interface ApplyDiscount {
 
 export interface BatchPaymentInitiate {
     orderIds: number[];
+    app?: string | null;
 }
 
 export interface CartItem {
@@ -88,7 +89,7 @@ export interface Cart {
     */
     appliedDiscountCode?: number | null;
     discountCode?: string | null;
-    items?: CartItem[];
+    items?: null;
     subtotalAmount?: null;
     discountAmount?: null;
     totalAmount?: null;
@@ -191,6 +192,10 @@ export interface OrderList {
     items?: OrderItemWithEvent[];
 }
 
+export interface OrderPaymentInitiate {
+    app?: string | null;
+}
+
 export interface Order {
     /**
     * @label Order ID
@@ -253,5 +258,12 @@ export interface PaymentInitiateResponse {
     */
     paymentUrl: string;
     authority: string;
+}
+
+export interface RegisteredThing {
+    itemType: string;
+    status: string | null;
+    role?: string | null;
+    itemDetails?: ItemDetail;
 }
 

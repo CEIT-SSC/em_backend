@@ -1,4 +1,4 @@
-import type { GroupCompetition, TeamContent, SoloCompetition, Presentation, ContentComment, TeamMembershipUserDetail, MemberDetailSubmit, Presenter, TeamMembership } from '../default';
+import type { TeamMembership, GroupCompetition, SoloCompetition, Presenter, TeamMembershipUserDetail, Presentation, MemberDetailSubmit, ContentComment, TeamContent } from '../default';
 
 export enum StatusChoiceEnum {
     PENDING_ADMIN_VERIFICATION = 'pending_admin_verification',
@@ -461,13 +461,13 @@ export interface Presentation {
     */
     capacity?: number | null;
     /**
-    * @format date-time
-    */
-    createdAt?: string;
-    /**
     * @label Is Active for Registration?
     */
     isActive?: boolean;
+    /**
+    * @label Presentation Poster
+    */
+    poster?: File | null;
 }
 
 export interface Presenter {
