@@ -1,6 +1,7 @@
 from django_typomatic import ts_interface
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from .models import (
     Presenter, Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
@@ -116,12 +117,15 @@ class TeamContentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['team', 'team_name', 'created_at', 'likes_count', 'comments_count', 'is_liked_by_requester']
 
+    @extend_schema_field(OpenApiTypes.INT)
     def get_likes_count(self, obj):
         return obj.likes.count()
 
+    @extend_schema_field(OpenApiTypes.INT)
     def get_comments_count(self, obj):
         return obj.comments.count()
 
+    @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_liked_by_requester(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:

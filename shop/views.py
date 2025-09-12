@@ -9,7 +9,9 @@ import logging
 from rest_framework import viewsets, status, generics, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from decimal import Decimal
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, NoPaginationAutoSchema, \
     get_paginated_response_serializer
 from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountRedemption
@@ -957,58 +959,91 @@ class BatchPaymentInitiateView(views.APIView):
 
 @extend_schema(
     tags=['Shop - Registrations'],
-    summary="List all registrations of the current user (presentations, solo competitions, teams).",
-    responses={200: RegisteredThingSerializer(many=True)},
+    summary="List all registrations of the current user (presentations, solo competitions, teams). Optionally filter by event.",
+    parameters=[
+        OpenApiParameter(
+            name="event",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Event ID to filter registrations by. If omitted, returns all registrations."
+        ),
+    ],
+    responses={200: RegisteredThingSerializer(many=True)} 
 )
 class UserRegistrationsView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         user = request.user
+
+        raw_event = request.query_params.get("event")
+        try:
+            event_id = int(raw_event) if raw_event not in (None, "", "null") else None
+        except (TypeError, ValueError):
+            event_id = None
+
         items = []
 
-        pres_enrolls = PresentationEnrollment.objects.filter(user=user).select_related('presentation')
-        for en in pres_enrolls:
-            obj = getattr(en, 'presentation', None)
-            if obj:
+        pres_qs = PresentationEnrollment.objects.filter(user=user).select_related(
+            "presentation__event", "user"
+        )
+        if event_id:
+            pres_qs = pres_qs.filter(presentation__event_id=event_id)
+
+        for en in pres_qs:
+            if en.presentation:
                 items.append({
                     "item_type": "presentation",
-                    "status": getattr(en, 'status', None),
+                    "status": en.status,
                     "role": None,
-                    "item_details": obj,
+                    "item_details": en.presentation,
                 })
 
-        solo_regs = SoloCompetitionRegistration.objects.filter(user=user).select_related('solo_competition')
-        for reg in solo_regs:
-            obj = getattr(reg, 'solo_competition', None)
-            if obj:
+        solo_qs = SoloCompetitionRegistration.objects.filter(user=user).select_related(
+            "solo_competition__event", "user"
+        )
+        if event_id:
+            solo_qs = solo_qs.filter(solo_competition__event_id=event_id)
+
+        for reg in solo_qs:
+            if reg.solo_competition:
                 items.append({
                     "item_type": "solo_competition",
-                    "status": getattr(reg, 'status', None),
+                    "status": reg.status,
                     "role": None,
-                    "item_details": obj,
+                    "item_details": reg.solo_competition,
                 })
 
         team_ids = set()
+        lead_qs = CompetitionTeam.objects.filter(leader=user).select_related(
+            "group_competition__event", "leader"
+        )
+        if event_id:
+            lead_qs = lead_qs.filter(group_competition__event_id=event_id)
 
-        lead_qs = CompetitionTeam.objects.filter(leader=user)
         for team in lead_qs:
             team_ids.add(team.id)
             items.append({
                 "item_type": "competition_team",
-                "status": getattr(team, 'status', None),
+                "status": team.status,
                 "role": "leader",
                 "item_details": team,
             })
 
-        memberships = TeamMembership.objects.filter(user=user).select_related('team')
-        for m in memberships:
-            team = getattr(m, 'team', None)
+        mem_qs = TeamMembership.objects.filter(user=user).select_related(
+            "team__group_competition__event", "team__leader"
+        )
+        if event_id:
+            mem_qs = mem_qs.filter(team__group_competition__event_id=event_id)
+
+        for m in mem_qs:
+            team = m.team
             if team and team.id not in team_ids:
                 team_ids.add(team.id)
                 items.append({
                     "item_type": "competition_team",
-                    "status": getattr(team, 'status', None),
+                    "status": team.status,
                     "role": "member",
                     "item_details": team,
                 })
