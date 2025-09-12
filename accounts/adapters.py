@@ -3,12 +3,11 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
-from em_backend import settings
 from shop.models import Cart
 import requests
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 
 User = get_user_model()
+
 
 class CustomAdapter(DefaultSocialAccountAdapter):
     def is_open_for_signup(self, request, sociallogin):
@@ -17,7 +16,8 @@ class CustomAdapter(DefaultSocialAccountAdapter):
     def is_auto_signup_allowed(self, request, sociallogin):
         email = (sociallogin.user.email or "").strip()
         if not email:
-            raise ValidationError("Provider did not supply an email.")
+            raise ValidationError(
+                "GitHub did not provide an email address. Please ensure your primary GitHub email is public or verified.")
         return True
 
     def pre_social_login(self, request, sociallogin):
@@ -38,19 +38,31 @@ class CustomAdapter(DefaultSocialAccountAdapter):
     def populate_user(self, request, sociallogin, data):
         user = super().populate_user(request, sociallogin, data)
         extra_data = sociallogin.account.extra_data
-        user.first_name = extra_data.get('given_name', '')
-        user.last_name = extra_data.get('family_name', '')
+
+        full_name = extra_data.get('name', '')
+        if not full_name:
+            full_name = extra_data.get('login', '')
+
+        if full_name:
+            name_parts = full_name.split(' ', 1)
+            user.first_name = name_parts[0]
+            if len(name_parts) > 1:
+                user.last_name = name_parts[1]
+            else:
+                user.last_name = ''
+
         if not user.phone_number or len(user.phone_number) == 0:
             user.phone_number = None
 
-        picture_url = extra_data.get('picture')
+        picture_url = extra_data.get('avatar_url')
         if picture_url:
             try:
                 response = requests.get(picture_url, stream=True, timeout=5)
                 if response.status_code == 200:
                     filename = f"user_{uuid.uuid4().hex[:6]}_profile.jpg"
                     user.profile_picture.save(filename, ContentFile(response.content), save=False)
-            except Exception:
+            except Exception as e:
+                print(f"Could not download profile picture for {user.email}. Error: {e}")
                 pass
 
         return user
@@ -67,4 +79,3 @@ class CustomAdapter(DefaultSocialAccountAdapter):
             pass
 
         return user
-

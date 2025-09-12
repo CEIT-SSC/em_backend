@@ -8,10 +8,10 @@ from .views import (
     ChangePasswordView,
     SimpleForgotPasswordView,
     StaffViewSet,
-    GoogleLoginView,
     CustomTokenView,
     CustomAuthorizationView,
     CustomRevokeTokenView, AuthorizeWithTokenView,
+    GitHubLoginView,
 )
 
 app_name = 'accounts'
@@ -28,7 +28,7 @@ oauth2_urlpatterns = [
 
 urlpatterns = [
     path('o/', include(oauth2_urlpatterns)),
-    path('social/google/', GoogleLoginView.as_view(), name='google_login'),
+    path('social/github/', GitHubLoginView.as_view(), name='github_login'),
 
     path('register/', UserRegistrationView.as_view(), name='user_register'),
     path('verify-email/', EmailVerificationView.as_view(), name='email_verify'),

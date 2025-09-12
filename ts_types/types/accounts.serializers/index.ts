@@ -55,6 +55,10 @@ export interface HandshakeToken {
     handshakeToken: string;
 }
 
+export interface RefreshToken {
+    refreshToken: string;
+}
+
 export interface ResendVerificationEmail {
     /**
     * @format email

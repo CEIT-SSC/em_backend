@@ -6,8 +6,8 @@ export interface JobDetail {
     */
     id?: number;
     title?: string;
-    excerpt?: string;
     description?: string;
+    company?: string;
     companyImage?: File | null;
     /**
     * @format url
@@ -17,6 +17,8 @@ export interface JobDetail {
     * @format url
     */
     resumeUrl?: string | null;
+    buttonLink?: string;
+    buttonText?: string;
     /**
     * @format date-time
     */
@@ -30,8 +32,10 @@ export interface JobList {
     */
     id?: number;
     title?: string;
-    excerpt?: string;
+    company?: string;
     companyImage?: File | null;
+    buttonLink?: string;
+    buttonText?: string;
     /**
     * @format date-time
     */
