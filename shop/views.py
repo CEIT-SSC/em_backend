@@ -137,7 +137,6 @@ class OrderCancelView(views.APIView):
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
 
 @extend_schema(
-    auth=[{'BearerAuth': []}],
     tags=['Shop - Cart'],
     summary="View user's shopping cart",
     parameters=[

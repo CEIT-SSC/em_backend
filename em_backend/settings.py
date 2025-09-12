@@ -145,7 +145,10 @@ SPECTACULAR_SETTINGS = {
         }
     },
 
-    'SECURITY': [{'BearerAuth': []}],
+    'SECURITY': [
+        {'BearerAuth': []},
+        {'oauth2': ['read', 'write']},
+    ],
 }
 
 REST_FRAMEWORK = {
