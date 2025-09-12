@@ -89,7 +89,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         max_length=20,
         blank=True,
         null=True,
-        unique=True,
+        unique=False,
         verbose_name="Phone Number",
         validators=[validate_phone_number,],
         error_messages={'unique': "A user with this phone number already exists.",},

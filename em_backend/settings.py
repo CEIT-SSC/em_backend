@@ -81,23 +81,18 @@ ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_UNIQUE_EMAIL = True
 SOCIALACCOUNT_ADAPTER = 'accounts.adapters.CustomAdapter'
-GOOGLE_CALLBACK_URL=os.getenv('GOOGLE_CALLBACK_URL', 'http://localhost:3000')
+GITHUB_CALLBACK_URL=os.getenv('GITHUB_CALLBACK_URL', 'http://localhost:3000')
 
 SOCIALACCOUNT_PROVIDERS = {
-    'google': {
+    'github': {
         'APP': {
-            'client_id': os.getenv('GOOGLE_CLIENT_ID', 'id'),
-            'secret': os.getenv('GOOGLE_SECRET', 'key'),
+            'client_id': os.getenv('GITHUB_CLIENT_ID', 'github_client_id'),
+            'secret': os.getenv('GITHUB_SECRET', 'github_secret'),
             'key': ''
         },
         'SCOPE': [
-            'profile',
-            'email',
-            'openid',
+            'user:email',
         ],
-        'AUTH_PARAMS': {
-            'access_type': 'offline',
-        },
     }
 }
 
@@ -178,7 +173,7 @@ INSTALLED_APPS = [
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
-    'allauth.socialaccount.providers.google',
+    'allauth.socialaccount.providers.github',
     'dj_rest_auth',
     'dj_rest_auth.registration',
     "oauth2_provider",

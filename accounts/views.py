@@ -1,6 +1,6 @@
 import json
 from urllib.parse import urlencode
-from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.github.views import GitHubOAuth2Adapter
 from django.contrib.auth import authenticate, login
 from django.core import signing
 from django.http import HttpResponseRedirect
@@ -55,12 +55,8 @@ def _format_datetime(dt):
 
 
 @extend_schema(
-    summary="Start Google SSO Flow",
-    description="""
-        The frontend sends a Google `code`. (Manual Google Authorization URL, NO GIS initCodeClient, NO PKCE)
-        This endpoint validates it and returns a short-lived, single-use `handshake_token`.
-        The frontend must then immediately redirect the user to the `/o/authorize/` endpoint, passing this token.
-    """,
+    summary="Start GitHub SSO Flow",
+    description="The frontend sends a GitHub `code`. This endpoint validates it and returns a short-lived, single-use `handshake_token` for the OAuth2 flow.",
     request=SocialLoginSerializer,
     responses={
         200: get_api_response_serializer(HandshakeTokenSerializer),
@@ -68,12 +64,13 @@ def _format_datetime(dt):
     },
     tags=['Authentication']
 )
-class GoogleLoginView(SocialLoginView):
+class GitHubLoginView(SocialLoginView):
     permission_classes = [AllowAny]
-    adapter_class = GoogleOAuth2Adapter
+    adapter_class = GitHubOAuth2Adapter
     client_class = OAuth2Client
     serializer_class = SocialLoginSerializer
-    callback_url = settings.GOOGLE_CALLBACK_URL
+    callback_url = settings.GITHUB_CALLBACK_URL
+
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
