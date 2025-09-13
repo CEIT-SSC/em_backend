@@ -4,8 +4,8 @@ from django.apps import apps
 from events.models import Presentation, SoloCompetition, CompetitionTeam
 from events.serializers import PresentationSerializer, SoloCompetitionSerializer, CompetitionTeamDetailSerializer
 from .models import Cart, CartItem, Order, OrderItem, DiscountCode
-from events.serializers import CompetitionTeamDetailSerializer
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
+
 
 @ts_interface()
 class ItemDetailSerializer(serializers.Serializer):
