@@ -1,6 +1,5 @@
 from django.db import models
 from django.conf import settings
-import uuid
 
 class Presenter(models.Model):
     name = models.CharField(max_length=255, verbose_name="Full Name")
