@@ -43,14 +43,25 @@ def get_api_response_serializer(data_serializer=None):
     return DynamicApiResponseSerializer
 
 
-def get_paginated_response_serializer(item_serializer):
-    class PaginatedDataSerializer(serializers.Serializer):
-        count = serializers.IntegerField()
-        next = serializers.URLField(allow_null=True)
-        previous = serializers.URLField(allow_null=True)
-        results = item_serializer(many=True)
 
-    return get_api_response_serializer(PaginatedDataSerializer)
+def get_paginated_response_serializer(item_serializer):
+    if isinstance(item_serializer, serializers.BaseSerializer):
+        item_cls = item_serializer.__class__
+    else:
+        item_cls = item_serializer
+    item_name = getattr(item_cls, "__name__", item_cls.__class__.__name__)
+    wrapper_name = f"Paginated_{item_name}"
+
+    attrs = {
+        'count': serializers.IntegerField(),
+        'next': serializers.URLField(allow_null=True),
+        'previous': serializers.URLField(allow_null=True),
+        'results': item_cls(many=True),
+        '__module__': __name__,
+    }
+    PaginatedSerializer = type(wrapper_name, (serializers.Serializer,), attrs)
+
+    return get_api_response_serializer(PaginatedSerializer)
 
 
 class EnvelopePaginationAutoSchema(AutoSchema):
