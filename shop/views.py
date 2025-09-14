@@ -136,41 +136,28 @@ class OrderCancelView(views.APIView):
 
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
 
-@extend_schema(
-    tags=['Shop - Cart'],
-    summary="View user's shopping cart",
-    parameters=[
-        OpenApiParameter(
-            name="event",
-            type=OpenApiTypes.INT,
-            location=OpenApiParameter.QUERY,
-            description="Optional event id to filter cart items and totals."
-        )
-    ],
-    responses={200: get_api_response_serializer(CartSerializer)}
-)
+@extend_schema(tags=['Shop - Cart'])
 class CartView(generics.RetrieveAPIView):
+    serializer_class = CartSerializer
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, *args, **kwargs):
-        cart, _ = Cart.objects.get_or_create(user=request.user)
-        event_param = request.query_params.get("event")
-
+    def get_object(self):
+        cart, _ = Cart.objects.get_or_create(user=self.request.user)
+        event_param = self.request.query_params.get("event")
         if event_param:
             try:
-                event_id = int(event_param)
-            except ValueError:
-                return Response(
-                    {"success": False, "statusCode": 400, "message": "Invalid 'event' parameter.", "errors": {"event": "Must be an integer."}, "data": {}},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            cart._filtered_items = cart.items.filter(event_id=event_id)
+                cart._filtered_items = cart.items.filter(event_id=int(event_param))
+            except (TypeError, ValueError):
+                pass
+        return cart
 
-        data = CartSerializer(cart, context={"request": request}).data
-        return Response(
-            {"success": True, "statusCode": 200, "message": "Request was successful.", "errors": {}, "data": data},
-            status=status.HTTP_200_OK
-        )
+    @extend_schema(
+        summary="View user's shopping cart",
+        request=None,
+        responses={200: get_api_response_serializer(CartSerializer)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 @extend_schema(
