@@ -17,7 +17,7 @@ from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
     OrderSerializer, OrderListSerializer, PaymentInitiateResponseSerializer,
     UserPurchasesSerializer, OrderPaymentInitiateSerializer, CartItemSerializer,
-    ProductSerializer
+    ProductSerializer, RemoveFromCartSerializer
 )
 from .payments import ZarrinPal
 
@@ -164,8 +164,8 @@ def _add_to_cart_and_update_status(user, item_object):
 class OrderCancelView(views.APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, order_pk, *args, **kwargs):
-        order = get_object_or_404(Order, pk=order_pk, user=request.user)
+    def post(self, request, order_id, *args, **kwargs):
+        order = get_object_or_404(Order, order_id=order_id, user=request.user)
 
         cancellable_statuses = {
             Order.STATUS_PENDING_PAYMENT,
@@ -320,24 +320,49 @@ class AddToCartView(views.APIView):
 
 @extend_schema(
     tags=['Shop - Cart'],
-    summary="Remove item from cart",
+    summary="Remove an item from the cart by its type and ID",
+    request=RemoveFromCartSerializer,
     responses={
         200: get_api_response_serializer(CartSerializer),
         404: ApiErrorResponseSerializer,
     },
 )
-class RemoveCartItemView(views.APIView):
+class RemoveFromCartView(views.APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = RemoveFromCartSerializer
 
-    def delete(self, request, cart_item_pk, *args, **kwargs):
-        cart, _ = Cart.objects.get_or_create(user=request.user)
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        item_type_str = serializer.validated_data['item_type']
+        item_id = serializer.validated_data['item_id']
+        user = request.user
+
+        cart, _ = Cart.objects.get_or_create(user=user)
+
+        item_model_map = {
+            'presentation': Presentation,
+            'solocompetition': SoloCompetition,
+            'competitionteam': CompetitionTeam,
+            'product': Product,
+        }
+        item_model = item_model_map.get(item_type_str)
+        if not item_model:
+            return Response({"error": "Invalid item type."}, status=status.HTTP_400_BAD_REQUEST)
+
+        content_type = ContentType.objects.get_for_model(item_model)
+
         try:
-            cart_item = CartItem.objects.get(pk=cart_item_pk, cart=cart)
+            cart_item = CartItem.objects.get(
+                cart=cart,
+                content_type=content_type,
+                object_id=item_id
+            )
         except CartItem.DoesNotExist:
-            return Response({"error": "Cart item not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Item not found in cart."}, status=status.HTTP_404_NOT_FOUND)
 
         content_object = cart_item.content_object
-
         cart_item.delete()
 
         if isinstance(content_object, CompetitionTeam) and content_object.status == CompetitionTeam.STATUS_IN_CART:
@@ -580,12 +605,12 @@ class OrderCheckoutView(views.APIView):
 class OrderPaymentInitiateView(views.APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, order_pk, *args, **kwargs):
+    def post(self, request, order_id, *args, **kwargs):
         ser = OrderPaymentInitiateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         app_slug = (ser.validated_data.get("app") or "").strip().lower() or None
 
-        order = get_object_or_404(Order, pk=order_pk, user=request.user)
+        order = get_object_or_404(Order, order_id=order_id, user=request.user)
 
         if order.status not in [Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED]:
             return Response({"error": f"Order not eligible for payment. Status: {order.get_status_display()}"},
@@ -756,7 +781,7 @@ class PaymentCallbackView(views.APIView):
         ]
     ),
     retrieve=extend_schema(
-        summary="Retrieve a single order",
+        summary="Retrieve a single order by its UUID",
         responses={
             200: get_api_response_serializer(OrderSerializer),
             404: ApiErrorResponseSerializer
@@ -765,6 +790,7 @@ class PaymentCallbackView(views.APIView):
 )
 class OrderHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
+    lookup_field = 'order_id'
 
     def get_queryset(self):
         queryset = Order.objects.filter(user=self.request.user)
@@ -786,7 +812,7 @@ class OrderHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 @extend_schema(
-    tags=['Shop - Purchases'],
+    tags=['Shop - Orders & Payment'],
     summary="List all purchases of the current user (presentations, solo competitions, teams, products). Optionally filter by event.",
     parameters=[
         OpenApiParameter(
@@ -874,7 +900,7 @@ class UserPurchasesView(views.APIView):
         return Response(ser.data, status=status.HTTP_200_OK)
 
 
-@extend_schema(tags=['Shop - Products'])
+@extend_schema(tags=['Shop - Orders & Payment'])
 class ProductListView(generics.ListAPIView):
     serializer_class = ProductSerializer
     permission_classes = [AllowAny]

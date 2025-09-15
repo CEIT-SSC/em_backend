@@ -112,7 +112,7 @@ class CartSerializer(serializers.ModelSerializer):
         return ProductSerializer(self._get_items_by_type(obj, Product), many=True, context=self.context).data
 
     def _filtered_items_qs(self, obj):
-        return getattr(obj, "_filtered_items", None) or obj.items.all()
+        return getattr(obj, "_filtered_items", obj.items.all())
 
     @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_subtotal_amount(self, obj):
@@ -150,6 +150,10 @@ class AddToCartSerializer(serializers.Serializer):
     item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'competition_team', 'product'])
     item_id = serializers.IntegerField()
 
+@ts_interface()
+class RemoveFromCartSerializer(serializers.Serializer):
+    item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'competition_team', 'product'])
+    item_id = serializers.IntegerField()
 
 @ts_interface()
 class ApplyDiscountSerializer(serializers.Serializer):
