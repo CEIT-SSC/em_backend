@@ -242,8 +242,8 @@ class AddToCartView(views.APIView):
         user = request.user
 
         item_model_map = {
-            'presentation': Presentation, 'solocompetition': SoloCompetition,
-            'competitionteam': CompetitionTeam, 'product': Product,
+            'presentation': Presentation, 'solo_competition': SoloCompetition,
+            'competition_team': CompetitionTeam, 'product': Product,
         }
         item_model = item_model_map.get(item_type_str)
         if not item_model:
@@ -343,8 +343,8 @@ class RemoveFromCartView(views.APIView):
 
         item_model_map = {
             'presentation': Presentation,
-            'solocompetition': SoloCompetition,
-            'competitionteam': CompetitionTeam,
+            'solo_competition': SoloCompetition,
+            'competition_team': CompetitionTeam,
             'product': Product,
         }
         item_model = item_model_map.get(item_type_str)

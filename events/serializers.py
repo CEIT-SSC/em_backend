@@ -26,6 +26,7 @@ class PresentationSerializer(serializers.ModelSerializer):
         many=True, queryset=Presenter.objects.all(), source='presenters', write_only=True, required=False
     )
     event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
+    remaining_capacity = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Presentation
@@ -34,26 +35,52 @@ class PresentationSerializer(serializers.ModelSerializer):
             'presenters_details', 'presenter_ids',
             'type', 'is_online', 'location', 'online_link',
             'start_time', 'end_time', 'is_paid', 'price', 'capacity',
-            'is_active', 'poster'
+            'is_active', 'poster', 'remaining_capacity',
         ]
         read_only_fields = ['event_title', ]
+    
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_remaining_capacity(self, obj):
+        if obj.capacity is None:
+            return None
+        taken = obj.enrollments.filter(
+            status__in=[
+                PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
+                PresentationEnrollment.STATUS_PENDING_PAYMENT,
+            ]
+        ).count()
+        return max(obj.capacity - taken, 0)
 
 @ts_interface()
 class SoloCompetitionSerializer(serializers.ModelSerializer):
     event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
+    remaining_capacity = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = SoloCompetition
         fields = [
             'id', 'event', 'event_title', 'title', 'description', 'start_datetime', 'end_datetime', 'poster',
             'rules', 'is_paid', 'price_per_participant', 'prize_details', 'is_active',
-            'max_participants', 'created_at',
+            'max_participants', 'created_at', 'remaining_capacity',
         ]
         read_only_fields = ['event_title', 'created_at', ]
+    
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_remaining_capacity(self, obj):
+        if obj.max_participants is None:
+            return None
+        taken = obj.registrations.filter(
+            status__in=[
+                SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
+                SoloCompetitionRegistration.STATUS_PENDING_PAYMENT,
+            ]
+        ).count()
+        return max(obj.max_participants - taken, 0)
 
 @ts_interface()
 class GroupCompetitionSerializer(serializers.ModelSerializer):
     event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
+    remaining_capacity = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = GroupCompetition
@@ -63,9 +90,24 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
             'min_group_size', 'max_group_size', 'max_teams',
             'requires_admin_approval', 'member_verification_instructions',
             'allow_content_submission',
-            'created_at',
+            'created_at', 'remaining_capacity',
         ]
         read_only_fields = ['event_title', 'created_at', ]
+    
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_remaining_capacity(self, obj):
+        if obj.max_teams is None:
+            return None
+        taken = obj.teams.filter(
+            status__in=[
+                CompetitionTeam.STATUS_ACTIVE,
+                CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
+                CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
+                # CompetitionTeam.STATUS_IN_CART,
+                CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
+            ]
+        ).count()
+        return max(obj.max_teams - taken, 0)
 
 @ts_interface()
 class TeamMembershipUserDetailSerializer(serializers.ModelSerializer):
