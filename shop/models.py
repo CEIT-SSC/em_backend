@@ -9,6 +9,21 @@ from django.core.exceptions import ValidationError
 import uuid
 
 
+class Product(models.Model):
+    name = models.CharField(max_length=255)
+    description = models.TextField()
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    image = models.ImageField(upload_to='products/')
+    features = models.JSONField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    event = models.ForeignKey('events.Event', on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
+    capacity = models.PositiveIntegerField(null=True, blank=True, help_text="Leave blank for unlimited stock.")
+
+    def __str__(self):
+        return self.name
+
+
 class DiscountCode(models.Model):
     code = models.CharField(max_length=50, unique=True)
     is_active = models.BooleanField(default=True)
@@ -19,7 +34,8 @@ class DiscountCode(models.Model):
     valid_to = models.DateTimeField(null=True, blank=True)
 
     min_order_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
-    max_uses = models.PositiveIntegerField(null=True, blank=True, help_text="Total times this code can be used across all users")
+    max_uses = models.PositiveIntegerField(null=True, blank=True,
+                                           help_text="Total times this code can be used across all users")
     times_used = models.PositiveIntegerField(default=0)
     max_uses_per_user = models.PositiveIntegerField(null=True, blank=True)
 
@@ -28,8 +44,8 @@ class DiscountCode(models.Model):
         if not per_user_limit:
             return True
 
-        DiscountRedemption = apps.get_model('shop', 'DiscountRedemption')
-        used = DiscountRedemption.objects.filter(code=self, user=user).count()
+        DiscountRedemptionModel = apps.get_model('shop', 'DiscountRedemption')
+        used = DiscountRedemptionModel.objects.filter(code=self, user=user).count()
         return used < per_user_limit
 
     content_type = models.ForeignKey(
@@ -37,9 +53,10 @@ class DiscountCode(models.Model):
         on_delete=models.SET_NULL,
         null=True, blank=True,
         limit_choices_to=(
-            models.Q(app_label='events', model='presentation') |
-            models.Q(app_label='events', model='solocompetition') |
-            models.Q(app_label='events', model='competitionteam')
+                models.Q(app_label='events', model='presentation') |
+                models.Q(app_label='events', model='solocompetition') |
+                models.Q(app_label='events', model='competitionteam') |
+                models.Q(app_label='shop', model='product')
         ),
         verbose_name="Discount target type"
     )
@@ -75,7 +92,7 @@ class DiscountCode(models.Model):
         if self.max_uses is not None and self.times_used >= self.max_uses:
             return False
         return True
-    
+
     def clean(self):
         pct = (self.percentage or Decimal('0'))
         amt = (self.amount or Decimal('0'))
@@ -105,6 +122,7 @@ class DiscountCode(models.Model):
         if self.is_fixed_amount():
             return min(self.amount, base_amount)
         return Decimal('0')
+
 
 class Cart(models.Model):
     user = models.OneToOneField(
@@ -139,6 +157,7 @@ class Cart(models.Model):
         PresentationModel = apps.get_model('events', 'Presentation')
         SoloCompetitionModel = apps.get_model('events', 'SoloCompetition')
         CompetitionTeamModel = apps.get_model('events', 'CompetitionTeam')
+        ProductModel = apps.get_model('shop', 'Product')
 
         for ci in items:
             obj = ci.content_object
@@ -158,6 +177,8 @@ class Cart(models.Model):
                     if parent.is_paid and parent.price_per_group is not None
                     else Decimal('0')
                 )
+            elif isinstance(obj, ProductModel):
+                price = obj.price
             else:
                 price = Decimal('0')
 
@@ -190,14 +211,8 @@ class Cart(models.Model):
         verbose_name = "Shopping Cart"
         verbose_name_plural = "Shopping Carts"
 
-class CartItem(models.Model):
-    STATUS_OWNED = "owned"
-    STATUS_RESERVED = "reserved"
-    STATUS_CHOICES = (
-        (STATUS_OWNED, "owned"),
-        (STATUS_RESERVED, "reserved"),
-    )
 
+class CartItem(models.Model):
     cart = models.ForeignKey('shop.Cart', on_delete=models.CASCADE, related_name='items')
 
     event = models.ForeignKey(
@@ -209,9 +224,10 @@ class CartItem(models.Model):
     )
 
     limit_to_models = (
-        models.Q(app_label='events', model='presentation')
-        | models.Q(app_label='events', model='solocompetition')
-        | models.Q(app_label='events', model='competitionteam')
+            models.Q(app_label='events', model='presentation')
+            | models.Q(app_label='events', model='solocompetition')
+            | models.Q(app_label='events', model='competitionteam')
+            | models.Q(app_label='shop', model='product')
     )
     content_type = models.ForeignKey(
         ContentType,
@@ -221,23 +237,6 @@ class CartItem(models.Model):
     )
     object_id = models.PositiveIntegerField(verbose_name="Item ID")
     content_object = GenericForeignKey('content_type', 'object_id')
-
-    status = models.CharField(
-        max_length=32,
-        choices=STATUS_CHOICES,
-        default=STATUS_OWNED
-    )
-
-    reserved_order = models.ForeignKey(
-        'shop.Order', null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='reserved_cart_items'
-    )
-    reserved_order_item = models.ForeignKey(
-        'shop.OrderItem', null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='reserved_cart_items'
-    )
 
     added_at = models.DateTimeField(auto_now_add=True)
 
@@ -269,10 +268,8 @@ class CartItem(models.Model):
             else:
                 print(f"[CartItem.save] WARNING: could not resolve event_id; leaving NULL.")
 
-        if not self.status:
-            self.status = self.STATUS_OWNED
-
         super().save(*args, **kwargs)
+
 
 class Order(models.Model):
     STATUS_PENDING_PAYMENT = "pending_payment"
@@ -290,15 +287,21 @@ class Order(models.Model):
         (STATUS_REFUND_PENDING, "Refund Pending"), (STATUS_REFUNDED, "Refunded"),
     ]
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders", verbose_name="User")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name="orders", verbose_name="User")
+    event = models.ForeignKey('events.Event', on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
     order_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True, verbose_name="Order ID")
     subtotal_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Subtotal Amount")
-    discount_code_applied = models.ForeignKey(DiscountCode, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders_applied_to", verbose_name="Applied Discount Code")
+    discount_code_applied = models.ForeignKey(DiscountCode, on_delete=models.SET_NULL, null=True, blank=True,
+                                              related_name="orders_applied_to", verbose_name="Applied Discount Code")
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, verbose_name="Discount Amount")
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Total Amount")
-    status = models.CharField(max_length=30, choices=ORDER_STATUS_CHOICES, default=STATUS_PENDING_PAYMENT, verbose_name="Order Status")
-    payment_gateway_authority = models.CharField(max_length=50, blank=True, null=True, db_index=True, verbose_name="Payment Gateway Authority (Zarinpal)")
-    payment_gateway_txn_id = models.CharField(max_length=100, blank=True, null=True, verbose_name="Payment Gateway Transaction ID (Zarinpal ref_id)")
+    status = models.CharField(max_length=30, choices=ORDER_STATUS_CHOICES, default=STATUS_PENDING_PAYMENT,
+                              verbose_name="Order Status")
+    payment_gateway_authority = models.CharField(max_length=50, blank=True, null=True, db_index=True,
+                                                 verbose_name="Payment Gateway Authority (Zarinpal)")
+    payment_gateway_txn_id = models.CharField(max_length=100, blank=True, null=True,
+                                              verbose_name="Payment Gateway Transaction ID (Zarinpal ref_id)")
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(blank=True, null=True, verbose_name="Paid At")
     redirect_app = models.CharField(max_length=50, null=True, blank=True, db_index=True)
@@ -311,10 +314,12 @@ class Order(models.Model):
         verbose_name_plural = "Orders"
         ordering = ['-created_at']
 
+
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items", verbose_name="Order")
     limit_to_models_for_order = CartItem.limit_to_models
-    content_type = models.ForeignKey(ContentType, on_delete=models.SET_NULL, null=True, limit_choices_to=limit_to_models_for_order, verbose_name="Item Type")
+    content_type = models.ForeignKey(ContentType, on_delete=models.SET_NULL, null=True,
+                                     limit_choices_to=limit_to_models_for_order, verbose_name="Item Type")
     object_id = models.PositiveIntegerField(verbose_name="Item ID", null=True, blank=True)
     content_object = GenericForeignKey('content_type', 'object_id')
     description = models.CharField(max_length=255, verbose_name="Item Description (at time of order)")
@@ -327,6 +332,7 @@ class OrderItem(models.Model):
         verbose_name = "Order Item"
         verbose_name_plural = "Order Items"
         ordering = ['order']
+        unique_together = ('order', 'content_type', 'object_id')
 
 
 class PaymentBatch(models.Model):
@@ -356,7 +362,7 @@ class PaymentBatch(models.Model):
 
     def __str__(self):
         return f"Batch {self.batch_id} for {self.user_id} — {self.status}"
-    
+
 
 class DiscountRedemption(models.Model):
     code = models.ForeignKey(DiscountCode, on_delete=models.CASCADE, related_name='redemptions')

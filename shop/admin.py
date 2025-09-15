@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django import forms
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountCode, PaymentApp
+from .models import Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountCode, PaymentApp, Product
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 from django.core.exceptions import ValidationError
@@ -9,6 +9,7 @@ ITEM_SOURCES = [
     ('Presentation', ('events', 'Presentation'), 'title'),
     ('Solo Competition', ('events', 'SoloCompetition'), 'title'),
     ('Competition Team', ('events', 'CompetitionTeam'), 'name'),
+    ('Product', ('shop', 'Product'), 'name'),
 ]
 
 def build_generic_item_choices(limit_per_type=500):
@@ -18,6 +19,7 @@ def build_generic_item_choices(limit_per_type=500):
         ('24:3', '[Presentation] Gamecraft Keynote'),
         ('16:1', '[Solo Competition] Speed Coding'),
         ('31:7', '[Competition Team] Team Phoenix'),
+        ('32:1', '[Product] T-Shirt'),
       ]
     """
     choices = [('', '---------')]
@@ -115,7 +117,7 @@ class DiscountCodeAdmin(admin.ModelAdmin):
         }),
         ('Target (optional)', {
             'fields': ('target_item',),
-            'description': "Pick a specific item (Presentation, Solo Competition, or Competition Team). Leave empty for a global discount."
+            'description': "Pick a specific item (Presentation, Solo Competition, Competition Team, or Product). Leave empty for a global discount."
         }),
     )
 
@@ -202,3 +204,9 @@ class PaymentAppAdmin(admin.ModelAdmin):
     list_display = ("slug", "name", "is_active")
     list_filter  = ("is_active",)
     search_fields = ("slug", "name")
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ('name', 'price', 'is_active', 'created_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('name',)

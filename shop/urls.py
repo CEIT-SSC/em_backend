@@ -1,9 +1,9 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    CartView, AddToCartView, RemoveCartItemView, ApplyDiscountView, RemoveDiscountView,
+    CartView, AddToCartView, RemoveFromCartView, ApplyDiscountView, RemoveDiscountView,
     OrderCheckoutView, OrderPaymentInitiateView, PaymentCallbackView,
-    OrderHistoryViewSet, OrderCancelView, OrderPartialCheckoutView, BatchPaymentInitiateView, UserRegistrationsView
+    OrderHistoryViewSet, OrderCancelView, UserPurchasesView, ProductListView
 )
 
 app_name = 'shop'
@@ -13,19 +13,18 @@ router.register(r'orders/history', OrderHistoryViewSet, basename='order-history'
 
 urlpatterns = [
     path('cart/', CartView.as_view(), name='cart-detail'),
-    path('cart/items/', AddToCartView.as_view(), name='cart-add-item'),
-    path('cart/items/<int:cart_item_pk>/remove/', RemoveCartItemView.as_view(), name='cart-remove-item'),
+    path('cart/items/add', AddToCartView.as_view(), name='cart-add-item'),
+    path('cart/items/remove/', RemoveFromCartView.as_view(), name='cart-remove-item'),
     path('cart/apply-discount/', ApplyDiscountView.as_view(), name='cart-apply-discount'),
     path('cart/remove-discount/', RemoveDiscountView.as_view(), name='cart-remove-discount'),
 
     path('orders/checkout/', OrderCheckoutView.as_view(), name='order-checkout'),
-    path('orders/<int:order_pk>/initiate-payment/', OrderPaymentInitiateView.as_view(), name='order-initiate-payment'),
+    path('orders/<uuid:order_id>/initiate-payment/', OrderPaymentInitiateView.as_view(), name='order-initiate-payment'),
 
     path('payment/callback/', PaymentCallbackView.as_view(), name='payment_callback'),
-    path("orders/<int:order_pk>/cancel/", OrderCancelView.as_view(), name="order-cancel-by-pk"),
-    path("orders/partial-checkout/", OrderPartialCheckoutView.as_view(), name="order-partial-checkout"),
-    path('orders/batch/initiate-payment/', BatchPaymentInitiateView.as_view(), name='orders-batch-initiate-payment'),
+    path("orders/<uuid:order_id>/cancel/", OrderCancelView.as_view(), name="order-cancel-by-pk"),
 
-    path('registrations/', UserRegistrationsView.as_view(), name='user-registrations'),
+    path('purchases/', UserPurchasesView.as_view(), name='user-purchases'),
+    path('products/', ProductListView.as_view(), name='product-list'),
     path('', include(router.urls)),
 ]
