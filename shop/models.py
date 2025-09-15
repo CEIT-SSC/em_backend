@@ -18,6 +18,7 @@ class Product(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     event = models.ForeignKey('events.Event', on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
+    capacity = models.PositiveIntegerField(null=True, blank=True, help_text="Leave blank for unlimited stock.")
 
     def __str__(self):
         return self.name

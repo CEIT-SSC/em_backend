@@ -1,5 +1,4 @@
 from django.db import transaction, models
-from django.apps import apps
 from rest_framework import viewsets, status, generics, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -23,21 +22,6 @@ from .serializers import (
 from django.contrib.auth import get_user_model
 
 CustomUser = get_user_model()
-
-
-def _add_item_to_user_cart(user, item_instance):
-    Cart = apps.get_model('shop', 'Cart')
-    CartItem = apps.get_model('shop', 'CartItem')
-    ContentType = apps.get_model('contenttypes', 'ContentType')
-    cart, _ = Cart.objects.get_or_create(user=user)
-    content_type = ContentType.objects.get_for_model(item_instance.__class__)
-    if CartItem.objects.filter(cart=cart, content_type=content_type, object_id=item_instance.pk).exists():
-        return False, "Item already in cart."
-    CartItem.objects.create(cart=cart, content_type=content_type, object_id=item_instance.pk)
-    if isinstance(item_instance, CompetitionTeam):
-        item_instance.status = CompetitionTeam.STATUS_IN_CART
-        item_instance.save()
-    return True, "Item added to your cart for payment."
 
 
 @extend_schema(tags=['Public - Events & Activities'])
@@ -94,43 +78,6 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
         else:
             return queryset.order_by('start_time')
 
-    @extend_schema(
-        summary="Enroll in a presentation",
-        description="Allows an authenticated user to enroll in a presentation or add it to cart if paid.",
-        request=None,
-        responses={
-            200: get_api_response_serializer(None),
-            201: get_api_response_serializer(PresentationEnrollmentSerializer),
-            400: ApiErrorResponseSerializer,
-        }
-    )
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='enroll')
-    def enroll(self, request, pk=None):
-        presentation = self.get_object()
-        user = request.user
-        if not presentation.is_active:
-            return Response({"error": "This presentation is not currently active for enrollment."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        if PresentationEnrollment.objects.filter(user=user, presentation=presentation,
-                                                 status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).exists():
-            return Response({"message": "Already actively enrolled."}, status=status.HTTP_200_OK)
-        if presentation.capacity is not None and presentation.enrollments.filter(
-                status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).count() >= presentation.capacity:
-            return Response({"error": "Full capacity."}, status=status.HTTP_400_BAD_REQUEST)
-        is_effectively_free = not presentation.is_paid or (presentation.price is not None and presentation.price <= 0)
-        if is_effectively_free:
-            enrollment, created = PresentationEnrollment.objects.update_or_create(
-                user=user, presentation=presentation,
-                defaults={'status': PresentationEnrollment.STATUS_COMPLETED_OR_FREE, 'order_item': None}
-            )
-            return Response(PresentationEnrollmentSerializer(enrollment).data,
-                            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-        else:
-            success, message = _add_item_to_user_cart(user, presentation)
-            return Response({"message": message}, status=status.HTTP_200_OK) if success else Response(
-                {"error": message}, status=status.HTTP_400_BAD_REQUEST)
-
 
 @extend_schema(tags=['Public - Events & Activities'])
 @extend_schema_view(
@@ -155,40 +102,6 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
             return queryset.filter(event_id=event_id).order_by('start_datetime')
         else:
             return queryset.order_by('start_datetime')
-
-    @extend_schema(
-        summary="Register for a solo competition",
-        description="Allows an authenticated user to register for a solo competition or add to cart if paid.",
-        request=None,
-        responses={
-            200: get_api_response_serializer(None),
-            201: get_api_response_serializer(SoloCompetitionRegistrationSerializer),
-            400: ApiErrorResponseSerializer,
-        }
-    )
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='register')
-    def register(self, request, pk=None):
-        competition = self.get_object()
-        user = request.user
-        if SoloCompetitionRegistration.objects.filter(user=user, solo_competition=competition,
-                                                      status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).exists():
-            return Response({"message": "Already actively registered."}, status=status.HTTP_200_OK)
-        if competition.max_participants is not None and competition.registrations.filter(
-                status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).count() >= competition.max_participants:
-            return Response({"error": "Max participant limit reached."}, status=status.HTTP_400_BAD_REQUEST)
-        is_effectively_free = not competition.is_paid or (
-                    competition.price_per_participant is not None and competition.price_per_participant <= 0)
-        if is_effectively_free:
-            registration, created = SoloCompetitionRegistration.objects.update_or_create(
-                user=user, solo_competition=competition,
-                defaults={'status': SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE, 'order_item': None}
-            )
-            return Response(SoloCompetitionRegistrationSerializer(registration).data,
-                            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-        else:
-            success, message = _add_item_to_user_cart(user, competition)
-            return Response({"message": message}, status=status.HTTP_200_OK) if success else Response(
-                {"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(tags=['Public - Events & Activities'])
@@ -238,22 +151,19 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
         team_name = serializer.validated_data['team_name']
         validated_member_users_data = serializer.validated_data['validated_member_users_data']
 
-        is_effectively_free = not group_competition.is_paid or (
-                    group_competition.price_per_group is not None and group_competition.price_per_group <= 0)
-
         try:
             with transaction.atomic():
-                initial_status = CompetitionTeam.STATUS_IN_CART
                 if group_competition.requires_admin_approval:
                     initial_status = CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION
-                elif is_effectively_free:
-                    initial_status = CompetitionTeam.STATUS_ACTIVE
+                else:
+                    initial_status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
 
                 team = CompetitionTeam.objects.create(
                     name=team_name, leader=user, group_competition=group_competition,
                     status=initial_status,
                     is_approved_by_admin=(not group_competition.requires_admin_approval)
                 )
+
                 TeamMembership.objects.create(user=user, team=team)
                 for member_data in validated_member_users_data:
                     TeamMembership.objects.create(
@@ -261,25 +171,10 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
                         government_id_picture=member_data.get('government_id_picture')
                     )
 
-                if group_competition.requires_admin_approval:
-                    return Response({"message": "Team submitted for admin approval.",
-                                     "team_details": CompetitionTeamDetailSerializer(team, context={
-                                         'request': request}).data}, status=status.HTTP_201_CREATED)
-
-                if is_effectively_free:
-                    return Response({"message": "Team successfully registered (free/zero-price).",
-                                     "team_details": CompetitionTeamDetailSerializer(team, context={
-                                         'request': request}).data}, status=status.HTTP_201_CREATED)
-                else:
-                    success, message = _add_item_to_user_cart(user, team)
-                    if success:
-                        team.refresh_from_db()
-                        return Response({"message": message, "team_details": CompetitionTeamDetailSerializer(team,
-                                                                                                             context={
-                                                                                                                 'request': request}).data},
-                                        status=status.HTTP_200_OK)
-                    else:
-                        raise Exception(message)
+                return Response({
+                    "message": "Team created successfully. Please proceed to payment if required.",
+                    "team_details": CompetitionTeamDetailSerializer(team, context={'request': request}).data
+                }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             return Response({"error": f"An error occurred: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
@@ -336,36 +231,8 @@ class MyTeamsViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, mixins.De
         ).distinct().select_related('group_competition', 'leader').prefetch_related('memberships__user',
                                                                                     'content_submission__images',
                                                                                     'content_submission__likes',
-                                                                                    'content_submission__comments').order_by(
-            '-created_at')
+                                                                                    'content_submission__comments').order_by('-created_at')
 
-    @extend_schema(
-        summary="Add an admin-approved paid team to cart",
-        description="Adds a team awaiting payment to the user's cart",
-        request=None,
-        responses={
-            200: get_api_response_serializer(None),
-            400: ApiErrorResponseSerializer,
-            403: ApiErrorResponseSerializer,
-        }
-    )
-    @action(detail=True, methods=['post'], url_path='add-to-cart')
-    def add_approved_team_to_cart(self, request, pk=None):
-        team = self.get_object()
-        user = request.user
-        if team.leader != user: return Response({"error": "Not team leader."}, status=status.HTTP_403_FORBIDDEN)
-        is_paid_comp = team.group_competition.is_paid and (
-                    team.group_competition.price_per_group is not None and team.group_competition.price_per_group > 0)
-        if not (
-                team.group_competition.requires_admin_approval and team.is_approved_by_admin and is_paid_comp and team.status == CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT):
-            return Response({"error": "Team not eligible to be added to cart."}, status=status.HTTP_400_BAD_REQUEST)
-        success, message = _add_item_to_user_cart(user, team)
-        if success:
-            team.refresh_from_db()
-            return Response({"message": message, "team_id": team.id, "new_team_status": team.get_status_display()},
-                            status=status.HTTP_200_OK)
-        else:
-            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
     @extend_schema(
         summary="Delete a team (leader only)",

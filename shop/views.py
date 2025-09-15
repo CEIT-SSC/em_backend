@@ -84,6 +84,74 @@ def _is_cart_item_active(ci) -> bool:
         return False
 
 
+def _is_already_owned_or_pending(user, item_object):
+    content_type = ContentType.objects.get_for_model(item_object)
+    user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
+
+    if isinstance(item_object, Presentation):
+        if PresentationEnrollment.objects.filter(user=user_to_check, presentation=item_object, status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).exists():
+            return True
+    if isinstance(item_object, SoloCompetition):
+        if SoloCompetitionRegistration.objects.filter(user=user_to_check, solo_competition=item_object, status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).exists():
+            return True
+
+    return OrderItem.objects.filter(
+        content_type=content_type,
+        object_id=item_object.pk,
+        order__user=user_to_check,
+        order__status__in=[
+            Order.STATUS_PENDING_PAYMENT,
+            Order.STATUS_AWAITING_GATEWAY_REDIRECT,
+            Order.STATUS_PROCESSING_ENROLLMENT,
+            Order.STATUS_COMPLETED,
+        ]
+    ).exists()
+
+
+def _has_capacity(item_object):
+    if isinstance(item_object, Presentation):
+        if item_object.capacity is None: return True
+        return item_object.enrollments.filter(
+            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).count() < item_object.capacity
+
+    if isinstance(item_object, SoloCompetition):
+        if item_object.max_participants is None: return True
+        return item_object.registrations.filter(
+            status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).count() < item_object.max_participants
+
+    if isinstance(item_object, CompetitionTeam):
+        group_comp = item_object.group_competition
+        if group_comp.max_teams is None: return True
+        return group_comp.teams.filter(status=CompetitionTeam.STATUS_ACTIVE).count() < group_comp.max_teams
+
+    if isinstance(item_object, Product):
+        if item_object.capacity is None: return True
+        content_type = ContentType.objects.get_for_model(Product)
+        sold_count = OrderItem.objects.filter(
+            content_type=content_type,
+            object_id=item_object.pk,
+            order__status=Order.STATUS_COMPLETED
+        ).count()
+        return sold_count < item_object.capacity
+
+    return True
+
+
+def _add_to_cart_and_update_status(user, item_object):
+    cart, _ = Cart.objects.get_or_create(user=user)
+    content_type = ContentType.objects.get_for_model(item_object)
+
+    if CartItem.objects.filter(cart=cart, content_type=content_type, object_id=item_object.pk).exists():
+        return False, "Item is already in your cart."
+
+    CartItem.objects.create(cart=cart, content_type=content_type, object_id=item_object.pk)
+    if isinstance(item_object, CompetitionTeam):
+        item_object.status = CompetitionTeam.STATUS_IN_CART
+        item_object.save(update_fields=['status'])
+
+    return True, "Item added to your cart."
+
+
 @extend_schema(
     tags=['Shop - Orders & Payment'],
     summary="Cancel a pending order (by order_id)",
@@ -150,117 +218,104 @@ class CartView(generics.RetrieveAPIView):
 
 @extend_schema(
     tags=['Shop - Cart'],
-    summary="Add item to cart",
+    summary="Acquire an item (Enroll/Register/Buy)",
+    description="The single endpoint to acquire any item. Handles free items directly or adds paid items to the cart.",
     request=AddToCartSerializer,
     responses={
-        200: get_api_response_serializer(CartSerializer),
-        201: get_api_response_serializer(CartSerializer),
-        400: ApiErrorResponseSerializer,
-        403: ApiErrorResponseSerializer,
-        404: ApiErrorResponseSerializer,
+        200: "Success (Item added to cart or already owned)",
+        201: "Success (Enrolled in free item)",
+        400: "Bad Request (Validation Error)",
+        403: "Permission Denied",
+        404: "Not Found",
     },
 )
 class AddToCartView(views.APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = AddToCartSerializer
 
-    def resolve_event_id(self, obj):
-        ev_id = getattr(obj, 'event_id', None)
-        if ev_id:
-            return ev_id
-        parent = getattr(obj, 'group_competition', None)
-        parent_ev = getattr(parent, 'event_id', None) if parent else None
-        return parent_ev
-
     def post(self, request, *args, **kwargs):
-        cart, _ = Cart.objects.get_or_create(user=request.user)
         serializer = self.serializer_class(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
 
         item_type_str = serializer.validated_data['item_type']
         item_id = serializer.validated_data['item_id']
+        user = request.user
 
         item_model_map = {
-            'presentation': Presentation,
-            'solocompetition': SoloCompetition,
-            'competitionteam': CompetitionTeam,
-            'product': Product,
+            'presentation': Presentation, 'solocompetition': SoloCompetition,
+            'competitionteam': CompetitionTeam, 'product': Product,
         }
         item_model = item_model_map.get(item_type_str)
         if not item_model:
             return Response({"error": "Invalid item type."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            content_object = item_model.objects.get(pk=item_id)
-            if not _is_content_available(content_object):
-                return Response({"error": "This item is not available anymore."}, status=400)
+            item_object = item_model.objects.get(pk=item_id)
         except item_model.DoesNotExist:
             return Response({"error": f"{item_type_str.capitalize()} not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        is_item_actually_paid = False
-        if hasattr(content_object, 'price') and content_object.price is not None and content_object.price > 0:
-            is_item_actually_paid = True
-        elif hasattr(content_object,
-                     'price_per_participant') and content_object.price_per_participant is not None and content_object.price_per_participant > 0:
-            is_item_actually_paid = True
-        elif isinstance(content_object, CompetitionTeam):
-            parent_comp = content_object.group_competition
-            if parent_comp.is_paid and parent_comp.price_per_group is not None and parent_comp.price_per_group > 0:
-                is_item_actually_paid = True
+        if not _is_content_available(item_object):
+            return Response({"error": "This item is no longer available."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not is_item_actually_paid:
-            return Response({"error": "This item is free or has no price. Use direct enrollment/registration."},
+        if _is_already_owned_or_pending(user, item_object):
+            return Response({"message": "You already own this item or have a pending order for it."},
+                            status=status.HTTP_200_OK)
+
+        if not _has_capacity(item_object):
+            return Response({"error": "This item is sold out or has reached full capacity."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        if isinstance(content_object, CompetitionTeam):
-            if content_object.leader != request.user:
-                return Response({"error": "You are not the leader of this team."}, status=status.HTTP_403_FORBIDDEN)
-            if content_object.group_competition.requires_admin_approval and \
-                    content_object.status != CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT:
-                return Response({"error": "This team must be admin-approved and awaiting payment."},
-                                status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            if isinstance(item_object, (Presentation, SoloCompetition)):
+                price = item_object.price if isinstance(item_object,
+                                                        Presentation) else item_object.price_per_participant
+                is_free = not item_object.is_paid or (price is not None and price <= 0)
 
-        content_type = ContentType.objects.get_for_model(content_object)
+                if is_free:
+                    if isinstance(item_object, Presentation):
+                        enrollment, _ = PresentationEnrollment.objects.update_or_create(
+                            user=user, presentation=item_object,
+                            defaults={'status': PresentationEnrollment.STATUS_COMPLETED_OR_FREE}
+                        )
+                    else:
+                        registration, _ = SoloCompetitionRegistration.objects.update_or_create(
+                            user=user, solo_competition=item_object,
+                            defaults={'status': SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE}
+                        )
+                    return Response({"message": "Successfully enrolled/registered."}, status=status.HTTP_201_CREATED)
+                else:
+                    success, message = _add_to_cart_and_update_status(user, item_object)
+                    status_code = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
+                    return Response({"message": message}, status=status_code)
 
-        if OrderItem.objects.filter(
-                content_type=content_type,
-                object_id=content_object.pk,
-                order__user=request.user,
-                order__status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_AWAITING_GATEWAY_REDIRECT,
-                                   Order.STATUS_COMPLETED]
-        ).exists():
-            return Response({"error": "You have already purchased or have a pending order for this item."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            elif isinstance(item_object, Product):
+                success, message = _add_to_cart_and_update_status(user, item_object)
+                status_code = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
+                return Response({"message": message}, status=status_code)
 
-        event_id = self.resolve_event_id(content_object)
+            elif isinstance(item_object, CompetitionTeam):
+                if item_object.leader != user:
+                    return Response({"error": "Only the team leader can pay for the team."},
+                                    status=status.HTTP_403_FORBIDDEN)
 
-        defaults = {}
-        if event_id:
-            defaults['event_id'] = event_id
+                if item_object.group_competition.requires_admin_approval and item_object.status != CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT:
+                    return Response({"error": "This team has not been approved by an administrator yet."},
+                                    status=status.HTTP_400_BAD_REQUEST)
 
-        cart_item, created = CartItem.objects.get_or_create(
-            cart=cart,
-            content_type=content_type,
-            object_id=content_object.pk,
-            defaults=defaults
-        )
+                is_free = not item_object.group_competition.is_paid or (
+                            item_object.group_competition.price_per_group is not None and item_object.group_competition.price_per_group <= 0)
 
-        if not created:
-            return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
+                if is_free:
+                    item_object.status = CompetitionTeam.STATUS_ACTIVE
+                    item_object.save(update_fields=['status'])
+                    return Response({"message": "Team registration is complete (free)."},
+                                    status=status.HTTP_201_CREATED)
+                else:
+                    success, message = _add_to_cart_and_update_status(user, item_object)
+                    status_code = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
+                    return Response({"message": message}, status=status_code)
 
-        if (cart_item.event_id is None and event_id) or (event_id and cart_item.event_id != event_id):
-            cart_item.event_id = event_id
-            cart_item.save(update_fields=['event'])
-
-        if created and isinstance(content_object, CompetitionTeam):
-            content_object.status = CompetitionTeam.STATUS_IN_CART
-            content_object.save(update_fields=['status'])
-
-        return Response(
-            CartSerializer(cart).data,
-            status=status.HTTP_201_CREATED
-        )
+        return Response({"error": "Unhandled item type."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -285,8 +340,7 @@ class RemoveCartItemView(views.APIView):
 
         cart_item.delete()
 
-        if isinstance(content_object, CompetitionTeam) and \
-                content_object.status == CompetitionTeam.STATUS_IN_CART:
+        if isinstance(content_object, CompetitionTeam) and content_object.status == CompetitionTeam.STATUS_IN_CART:
             if content_object.group_competition.requires_admin_approval:
                 content_object.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
             else:
@@ -539,6 +593,21 @@ class OrderPaymentInitiateView(views.APIView):
         if order.total_amount <= 0:
             return Response({"error": "Order total is zero or less. Payment not required via gateway."},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        unavailable_items = []
+        for order_item in order.items.all():
+            item_object = order_item.content_object
+            if item_object and not _has_capacity(item_object):
+                unavailable_items.append(order_item.description)
+
+        if unavailable_items:
+            order.status = Order.STATUS_CANCELLED
+            order.save()
+            _release_reservations_for_orders(order)
+            return Response(
+                {"error": f"Some items are no longer available due to capacity limits: {', '.join(unavailable_items)}. Your order has been cancelled."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         already_fulfilled = False
         for oi in order.items.select_related('content_type'):
