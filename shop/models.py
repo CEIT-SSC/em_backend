@@ -218,7 +218,7 @@ class CartItem(models.Model):
     event = models.ForeignKey(
         'events.Event',
         null=True, blank=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
         related_name='shop_cart_items',
         db_index=True
     )
@@ -318,7 +318,7 @@ class Order(models.Model):
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items", verbose_name="Order")
     limit_to_models_for_order = CartItem.limit_to_models
-    content_type = models.ForeignKey(ContentType, on_delete=models.SET_NULL, null=True,
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True,
                                      limit_choices_to=limit_to_models_for_order, verbose_name="Item Type")
     object_id = models.PositiveIntegerField(verbose_name="Item ID", null=True, blank=True)
     content_object = GenericForeignKey('content_type', 'object_id')
