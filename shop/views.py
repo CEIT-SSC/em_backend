@@ -1,24 +1,22 @@
-from django.db.models import Sum
 from django.shortcuts import redirect, get_object_or_404
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction, models
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
-from urllib.parse import quote
+from urllib.parse import urlencode
 import logging
 from rest_framework import viewsets, status, generics, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from decimal import Decimal
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, get_paginated_response_serializer
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountRedemption, PaymentApp, Product
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, DiscountRedemption, Product
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
     OrderSerializer, OrderListSerializer, PaymentInitiateResponseSerializer,
-    BatchPaymentInitiateSerializer, UserPurchasesSerializer, OrderPaymentInitiateSerializer, CartItemSerializer,
+    UserPurchasesSerializer, OrderPaymentInitiateSerializer, CartItemSerializer,
     ProductSerializer
 )
 from .payments import ZarrinPal
@@ -108,19 +106,6 @@ class OrderCancelView(views.APIView):
         if order.status not in cancellable_statuses:
             return Response(
                 {"error": f"Order cannot be cancelled in status '{order.get_status_display()}'."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if order.batches.filter(
-                status__in=[
-                    PaymentBatch.STATUS_AWAITING_GATEWAY_REDIRECT,
-                    PaymentBatch.STATUS_VERIFIED,
-                    PaymentBatch.STATUS_COMPLETED,
-                ]
-        ).exists():
-            return Response(
-                {"error": "This order is attached to a batch that is in progress or paid. "
-                          "Please wait or request a refund/cancellation through the batch flow."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -635,13 +620,6 @@ class OrderPaymentInitiateView(views.APIView):
             return Response({"error": f"Payment gateway error: {error_msg}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-def _append_app_if_valid(url: str, app_slug: str | None) -> str:
-    if app_slug and PaymentApp.objects.filter(slug=app_slug, is_active=True).exists():
-        sep = '&' if ('?' in url) else '?'
-        return f"{url}{sep}app={quote(app_slug)}"
-    return url
-
-
 @extend_schema(
     tags=['Shop - Orders & Payment'],
     summary="Handles Zarinpal callback after payment attempt",
@@ -655,20 +633,15 @@ class PaymentCallbackView(views.APIView):
         authority = request.GET.get('Authority')
         status_param = request.GET.get('Status')
 
-        frontend_base_url = getattr(settings, 'FRONTEND_BASE_URL', '')
-        default_failure_path = getattr(settings, 'FRONTEND_PAYMENT_FAILURE_PATH', '/payment-failed')
-        default_success_path = getattr(settings, 'FRONTEND_PAYMENT_SUCCESS_PATH', '/payment-success')
+        frontend_url = getattr(settings, 'FRONTEND_URL', '')
+        callback_path = "/payment/callback/"
 
         if not authority:
             logger.warning("Zarinpal callback: Authority missing.")
-            return redirect(f"{frontend_base_url}{default_failure_path}?error=invalid_callback_params")
+            params = urlencode({'success': 'false', 'message': 'Invalid callback parameters'})
+            return redirect(f"{frontend_url}{callback_path}?{params}")
 
-        order_qs = Order.objects.filter(payment_gateway_authority=authority)
-        batch = PaymentBatch.objects.filter(payment_gateway_authority=authority).first()
-
-        if not order_qs.exists() and not batch:
-            logger.error(f"Zarinpal callback: No order/batch found for authority {authority}.")
-            return redirect(f"{frontend_base_url}{default_failure_path}?error=order_not_found")
+        order = get_object_or_404(Order, payment_gateway_authority=authority)
 
         z = ZarrinPal()
 
@@ -678,60 +651,6 @@ class PaymentCallbackView(views.APIView):
                 order.save(update_fields=["status"])
                 OrderCheckoutView()._process_successful_order(order)
 
-        if batch:
-            success_url = f"{frontend_base_url}{default_success_path}?batch_id={batch.batch_id}"
-            failure_url = f"{frontend_base_url}{default_failure_path}?batch_id={batch.batch_id}"
-            batch_app = (batch.redirect_app or "").strip().lower() if batch else None
-
-            if batch.status == PaymentBatch.STATUS_COMPLETED:
-                return redirect(_append_app_if_valid(success_url, batch_app))
-            if batch.status not in [PaymentBatch.STATUS_AWAITING_GATEWAY_REDIRECT, PaymentBatch.STATUS_PAYMENT_FAILED]:
-                return redirect(_append_app_if_valid(f"{failure_url}&reason=invalid_batch_state", batch_app))
-
-            if status_param == "OK":
-                vr = z.verify_payment(authority=authority, amount=batch.total_amount)
-                if vr.get("status") == "success":
-                    with transaction.atomic():
-                        batch.status = PaymentBatch.STATUS_VERIFIED
-                        batch.payment_gateway_txn_id = vr.get("ref_id")
-                        batch.paid_at = timezone.now()
-                        batch.save(update_fields=["status", "payment_gateway_txn_id", "paid_at"])
-
-                        member_orders = list(batch.orders.select_related().all())
-                        for o in member_orders:
-                            o.payment_gateway_txn_id = vr.get("ref_id")
-                            o.paid_at = batch.paid_at
-                            o.save(update_fields=["payment_gateway_txn_id", "paid_at"])
-                            _finalize_single_order(o)
-
-                        batch.status = PaymentBatch.STATUS_COMPLETED
-                        batch.save(update_fields=["status"])
-                    return redirect(_append_app_if_valid(success_url, batch_app))
-                else:
-                    err = vr.get('error', 'verify_failed')
-                    batch.status = PaymentBatch.STATUS_PAYMENT_FAILED
-                    batch.save(update_fields=["status"])
-                    batch.orders.update(status=Order.STATUS_PAYMENT_FAILED)
-                    _release_reservations_for_orders(batch.orders.all())
-                    return redirect(_append_app_if_valid(f"{failure_url}&reason=verify_failed&code={err}", batch_app))
-            else:
-                batch.status = PaymentBatch.STATUS_PAYMENT_FAILED
-                batch.save(update_fields=["status"])
-                batch.orders.update(status=Order.STATUS_PAYMENT_FAILED)
-                _release_reservations_for_orders(batch.orders.all())
-                return redirect(_append_app_if_valid(f"{failure_url}&reason=user_cancelled_or_gateway_nok", batch_app))
-
-        order = order_qs.first()
-        success_url = f"{frontend_base_url}{default_success_path}?order_id={order.order_id}"
-        failure_url = f"{frontend_base_url}{default_failure_path}?order_id={order.order_id}"
-        order_app = (order.redirect_app or "").strip().lower()
-
-        if order.status == Order.STATUS_COMPLETED:
-            return redirect(_append_app_if_valid(success_url, order_app))
-        if order.status not in [Order.STATUS_AWAITING_GATEWAY_REDIRECT, Order.STATUS_PAYMENT_FAILED,
-                                Order.STATUS_PENDING_PAYMENT]:
-            return redirect(_append_app_if_valid(f"{failure_url}&reason=invalid_order_state", order_app))
-
         if status_param == "OK":
             vr = z.verify_payment(authority=authority, amount=order.total_amount)
             if vr.get('status') == 'success':
@@ -740,18 +659,22 @@ class PaymentCallbackView(views.APIView):
                     order.payment_gateway_txn_id = vr.get('ref_id')
                     order.paid_at = timezone.now()
                     order.save()
-                    OrderCheckoutView()._process_successful_order(order)
-                return redirect(_append_app_if_valid(success_url, order_app))
+                    _finalize_single_order(order)
+                params = urlencode({'success': 'true', 'message': 'Payment successful', 'order_id': order.order_id})
+                return redirect(f"{frontend_url}{callback_path}?{params}")
             else:
                 order.status = Order.STATUS_PAYMENT_FAILED
                 order.save()
                 _release_reservations_for_orders(order)
-                return redirect(_append_app_if_valid(f"{failure_url}&reason=verify_failed", order_app))
+                params = urlencode({'success': 'false', 'message': 'Payment verification failed', 'order_id': order.order_id})
+                return redirect(f"{frontend_url}{callback_path}?{params}")
         else:
             order.status = Order.STATUS_PAYMENT_FAILED
             order.save()
             _release_reservations_for_orders(order)
-            return redirect(_append_app_if_valid(f"{failure_url}&reason=user_cancelled_or_gateway_nok", order_app))
+            params = urlencode({'success': 'false', 'message': 'Payment cancelled or failed', 'order_id': order.order_id})
+            return redirect(f"{frontend_url}{callback_path}?{params}")
+
 
 
 @extend_schema(tags=['Shop - Orders & Payment'])
@@ -791,111 +714,6 @@ class OrderHistoryViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == 'list':
             return OrderListSerializer
         return OrderSerializer
-
-
-@extend_schema(
-    tags=['Shop - Orders & Payment'],
-    summary="Initiate ONE Zarinpal payment for MANY pending orders",
-    request=BatchPaymentInitiateSerializer,
-    responses={
-        200: get_api_response_serializer(PaymentInitiateResponseSerializer),
-        400: ApiErrorResponseSerializer,
-        404: ApiErrorResponseSerializer,
-        500: ApiErrorResponseSerializer,
-    },
-)
-class BatchPaymentInitiateView(views.APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        ser = BatchPaymentInitiateSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        app_slug = (ser.validated_data.get("app") or "").strip().lower() or None
-
-        ids = ser.validated_data['order_ids']
-        qs = Order.objects.filter(pk__in=ids, user=request.user)
-        if qs.count() != len(ids):
-            return Response({"error": "Some orders not found or not yours."}, status=404)
-
-        allowed_status = [Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED]
-        not_allowed = qs.exclude(status__in=allowed_status).values_list('id', flat=True)
-        if not_allowed:
-            return Response({"error": f"Orders not eligible for payment: {list(not_allowed)}"}, status=400)
-
-        inactive = []
-        for o in qs.prefetch_related('items__content_object'):
-            for oi in o.items.all():
-                if not _is_content_available(getattr(oi, "content_object", None)):
-                    inactive.append({"order_id": o.id, "order_item_id": oi.id, "object_id": oi.object_id})
-        if inactive:
-            return Response(
-                {"error": "Some orders contain items that are no longer available.", "inactive": inactive},
-                status=400,
-            )
-
-        for o in qs.prefetch_related('items__content_type'):
-            for oi in o.items.all():
-                obj = oi.content_object
-                owned = False
-                if isinstance(obj, Presentation):
-                    owned = PresentationEnrollment.objects.filter(
-                        user=o.user, presentation=obj,
-                        status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE
-                    ).exists()
-                elif isinstance(obj, SoloCompetition):
-                    owned = SoloCompetitionRegistration.objects.filter(
-                        user=o.user, solo_competition=obj,
-                        status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
-                    ).exists()
-                elif isinstance(obj, CompetitionTeam):
-                    owned = (obj.leader_id == o.user_id and obj.status == CompetitionTeam.STATUS_ACTIVE)
-                if owned:
-                    return Response(
-                        {"error": f"Order {o.id} contains item(s) already owned. Batch payment blocked."},
-                        status=400
-                    )
-
-        total = qs.aggregate(t=Sum('total_amount'))['t'] or Decimal('0.00')
-        if total <= 0:
-            return Response({"error": "Combined amount is zero or less."}, status=400)
-
-        batch = PaymentBatch.objects.create(
-            user=request.user,
-            total_amount=total,
-            status=PaymentBatch.STATUS_PENDING,
-            redirect_app=app_slug or None,
-        )
-        batch.orders.add(*list(qs))
-
-        z = ZarrinPal()
-        if not z.CALLBACK_URL:
-            logger.error("Zarinpal PAYMENT_CALLBACK_URL misconfigured.")
-            return Response({"error": "Payment callback URL misconfiguration."}, status=500)
-
-        res = z.create_payment(
-            amount=float(total),
-            mobile=request.user.phone_number or "",
-            email=request.user.email or "",
-            order_id=batch.batch_id,
-        )
-
-        if res.get("status") == "success":
-            batch.payment_gateway_authority = res.get("authority")
-            batch.status = PaymentBatch.STATUS_AWAITING_GATEWAY_REDIRECT
-            batch.save(update_fields=["payment_gateway_authority", "status"])
-
-            qs.update(status=Order.STATUS_AWAITING_GATEWAY_REDIRECT)
-            return Response(
-                {"payment_url": res.get("link"), "authority": res.get("authority")},
-                status=200
-            )
-
-        msg = res.get("error", "Payment gateway error")
-        batch.status = PaymentBatch.STATUS_PAYMENT_FAILED
-        batch.save(update_fields=["status"])
-        qs.update(status=Order.STATUS_PAYMENT_FAILED)
-        _release_reservations_for_orders(qs)
-        return Response({"error": f"Payment gateway error: {msg}"}, status=400)
 
 
 @extend_schema(

@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     CartView, AddToCartView, RemoveCartItemView, ApplyDiscountView, RemoveDiscountView,
     OrderCheckoutView, OrderPaymentInitiateView, PaymentCallbackView,
-    OrderHistoryViewSet, OrderCancelView, BatchPaymentInitiateView, UserPurchasesView, ProductListView
+    OrderHistoryViewSet, OrderCancelView, UserPurchasesView, ProductListView
 )
 
 app_name = 'shop'
@@ -23,7 +23,6 @@ urlpatterns = [
 
     path('payment/callback/', PaymentCallbackView.as_view(), name='payment_callback'),
     path("orders/<int:order_pk>/cancel/", OrderCancelView.as_view(), name="order-cancel-by-pk"),
-    path('orders/initiate-payment/', BatchPaymentInitiateView.as_view(), name='orders-batch-initiate-payment'),
 
     path('purchases/', UserPurchasesView.as_view(), name='user-purchases'),
     path('products/', ProductListView.as_view(), name='product-list'),

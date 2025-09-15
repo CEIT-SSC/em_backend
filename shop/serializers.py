@@ -232,12 +232,6 @@ class OrderPaymentInitiateSerializer(serializers.Serializer):
 
 
 @ts_interface()
-class BatchPaymentInitiateSerializer(serializers.Serializer):
-    order_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False)
-    app = serializers.SlugField(required=False, allow_blank=True, allow_null=True)
-
-
-@ts_interface()
 class UserPurchasesSerializer(serializers.Serializer):
     presentations = PresentationSerializer(many=True, read_only=True)
     solo_competitions = SoloCompetitionSerializer(many=True, read_only=True)
