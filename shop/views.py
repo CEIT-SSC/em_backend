@@ -13,16 +13,16 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from decimal import Decimal
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
-from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
-    get_paginated_response_serializer
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountRedemption, PaymentApp, \
-    Product
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, get_paginated_response_serializer
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountRedemption, PaymentApp, Product
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
     OrderSerializer, OrderListSerializer, PaymentInitiateResponseSerializer,
-    BatchPaymentInitiateSerializer, RegisteredThingSerializer, OrderPaymentInitiateSerializer, CartItemSerializer
+    BatchPaymentInitiateSerializer, UserPurchasesSerializer, OrderPaymentInitiateSerializer, CartItemSerializer,
+    ProductSerializer
 )
 from .payments import ZarrinPal
+
 
 Presentation = apps.get_model('events', 'Presentation')
 SoloCompetition = apps.get_model('events', 'SoloCompetition')
@@ -899,20 +899,20 @@ class BatchPaymentInitiateView(views.APIView):
 
 
 @extend_schema(
-    tags=['Shop - Registrations'],
-    summary="List all registrations of the current user (presentations, solo competitions, teams). Optionally filter by event.",
+    tags=['Shop - Purchases'],
+    summary="List all purchases of the current user (presentations, solo competitions, teams, products). Optionally filter by event.",
     parameters=[
         OpenApiParameter(
             name="event",
             type=OpenApiTypes.INT,
             location=OpenApiParameter.QUERY,
             required=False,
-            description="Event ID to filter registrations by. If omitted, returns all registrations."
+            description="Event ID to filter purchases by. If omitted, returns all purchases."
         ),
     ],
-    responses={200: RegisteredThingSerializer(many=True)}
+    responses={200: UserPurchasesSerializer(many=True)}
 )
-class UserRegistrationsView(views.APIView):
+class UserPurchasesView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
@@ -983,5 +983,33 @@ class UserRegistrationsView(views.APIView):
             for item in order.items.filter(content_type=ContentType.objects.get_for_model(Product)):
                 response_data['products'].append(item.content_object)
 
-        ser = RegisteredThingSerializer(response_data, context={"request": request})
+        ser = UserPurchasesSerializer(response_data, context={"request": request})
         return Response(ser.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(tags=['Shop - Products'])
+class ProductListView(generics.ListAPIView):
+    serializer_class = ProductSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        queryset = Product.objects.filter(is_active=True)
+        event_param = self.request.query_params.get("event")
+        if event_param:
+            try:
+                queryset = queryset.filter(event_id=int(event_param))
+            except (TypeError, ValueError):
+                queryset = queryset.filter(event_id__isnull=True)
+        else:
+            queryset = queryset.filter(event_id__isnull=True)
+        return queryset
+
+    @extend_schema(
+        summary="List all available products",
+        responses={200: get_paginated_response_serializer(ProductSerializer)},
+        parameters=[
+            OpenApiParameter(name='event', description='Filter products by event ID', required=False, type=int),
+        ]
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)

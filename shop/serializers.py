@@ -17,25 +17,15 @@ class ProductSerializer(serializers.ModelSerializer):
 class CartItemSerializer(serializers.ModelSerializer):
     price = serializers.SerializerMethodField()
     event_id = serializers.SerializerMethodField()
-    status = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
         fields = [
             'id', 'content_type', 'object_id',
             'price', 'added_at',
-            'event_id', 'status',
+            'event_id',
         ]
-        read_only_fields = ['added_at', 'price', 'event_id', 'status']
-
-    def _already_owned(self, obj):
-        from .models import Order, OrderItem
-        return OrderItem.objects.filter(
-            content_type=obj.content_type,
-            object_id=obj.object_id,
-            order__user=obj.cart.user,
-            order__status=Order.STATUS_COMPLETED,
-        ).exists()
+        read_only_fields = ['added_at', 'price', 'event_id']
 
     @extend_schema_field(OpenApiTypes.INT)
     def get_event_id(self, obj):
@@ -50,12 +40,6 @@ class CartItemSerializer(serializers.ModelSerializer):
             return ev_id
         parent = getattr(co, 'group_competition', None)
         return getattr(parent, 'event_id', None) if parent else None
-
-    @extend_schema_field(OpenApiTypes.STR)
-    def get_status(self, obj):
-        if self._already_owned(obj):
-            return 'owned'
-        return 'free'
 
     @extend_schema_field(OpenApiTypes.NUMBER)
     def get_price(self, obj):
@@ -232,7 +216,7 @@ class OrderListSerializer(serializers.ModelSerializer):
             'status',
             'created_at',
             'paid_at',
-            'event',
+            'event'
         ]
 
 
@@ -254,7 +238,7 @@ class BatchPaymentInitiateSerializer(serializers.Serializer):
 
 
 @ts_interface()
-class RegisteredThingSerializer(serializers.Serializer):
+class UserPurchasesSerializer(serializers.Serializer):
     presentations = PresentationSerializer(many=True, read_only=True)
     solo_competitions = SoloCompetitionSerializer(many=True, read_only=True)
     competition_teams = serializers.SerializerMethodField()

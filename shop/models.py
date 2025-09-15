@@ -17,6 +17,7 @@ class Product(models.Model):
     features = models.JSONField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    event = models.ForeignKey('events.Event', on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
 
     def __str__(self):
         return self.name
@@ -211,13 +212,6 @@ class Cart(models.Model):
 
 
 class CartItem(models.Model):
-    STATUS_OWNED = "owned"
-    STATUS_RESERVED = "reserved"
-    STATUS_CHOICES = (
-        (STATUS_OWNED, "owned"),
-        (STATUS_RESERVED, "reserved"),
-    )
-
     cart = models.ForeignKey('shop.Cart', on_delete=models.CASCADE, related_name='items')
 
     event = models.ForeignKey(
@@ -242,23 +236,6 @@ class CartItem(models.Model):
     )
     object_id = models.PositiveIntegerField(verbose_name="Item ID")
     content_object = GenericForeignKey('content_type', 'object_id')
-
-    status = models.CharField(
-        max_length=32,
-        choices=STATUS_CHOICES,
-        default=STATUS_OWNED
-    )
-
-    reserved_order = models.ForeignKey(
-        'shop.Order', null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='reserved_cart_items'
-    )
-    reserved_order_item = models.ForeignKey(
-        'shop.OrderItem', null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='reserved_cart_items'
-    )
 
     added_at = models.DateTimeField(auto_now_add=True)
 
@@ -289,9 +266,6 @@ class CartItem(models.Model):
                 self.event_id = ev_id
             else:
                 print(f"[CartItem.save] WARNING: could not resolve event_id; leaving NULL.")
-
-        if not self.status:
-            self.status = self.STATUS_OWNED
 
         super().save(*args, **kwargs)
 
