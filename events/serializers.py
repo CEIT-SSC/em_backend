@@ -86,7 +86,7 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
         model = GroupCompetition
         fields = [
             'id', 'event', 'event_title', 'title', 'description', 'start_datetime', 'end_datetime',
-            'rules', 'is_paid', 'price_per_group', 'prize_details', 'is_active', 'poster',
+            'rules', 'is_paid', 'price_per_member', 'prize_details', 'is_active', 'poster',
             'min_group_size', 'max_group_size', 'max_teams',
             'requires_admin_approval', 'member_verification_instructions',
             'allow_content_submission',
