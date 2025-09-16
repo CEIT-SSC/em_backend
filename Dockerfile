@@ -26,6 +26,7 @@ RUN pip install --upgrade pip && \
 COPY . .
 
 # Give execution rights to the cron job
+COPY crontab /etc/cron.d/zp_verify_cron
 RUN chmod 0644 /etc/cron.d/zp_verify_cron
 
 # Helpful entrypoint – runs DB migrations & collectstatic only once
