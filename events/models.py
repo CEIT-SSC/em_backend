@@ -97,7 +97,7 @@ class SoloCompetition(BaseCompetition):
         verbose_name_plural = "Solo Competitions"
 
 class GroupCompetition(BaseCompetition):
-    price_per_group = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, blank=True, null=True, verbose_name="Price per Group (e.g., Toman)")
+    price_per_member = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, blank=True, null=True, verbose_name="Price per Member (e.g., Toman)")
     min_group_size = models.PositiveIntegerField(default=1, verbose_name="Min Group Size")
     max_group_size = models.PositiveIntegerField(verbose_name="Max Group Size")
     max_teams = models.PositiveIntegerField(blank=True, null=True, verbose_name="Max Teams")

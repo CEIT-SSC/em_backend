@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django import forms
-from .models import Cart, CartItem, Order, OrderItem, PaymentBatch, DiscountCode, PaymentApp, Product
+from .models import Cart, CartItem, Order, OrderItem, DiscountCode, PaymentApp, Product
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 from django.core.exceptions import ValidationError
@@ -192,12 +192,6 @@ class CartItemAdmin(admin.ModelAdmin):
     def content_object_display(self, obj):
         return str(obj.content_object) if obj.content_object else "N/A"
     content_object_display.short_description = "Item in Cart"
-
-@admin.register(PaymentBatch)
-class PaymentBatchAdmin(admin.ModelAdmin):
-    list_display = ('batch_id', 'user', 'total_amount', 'status', 'payment_gateway_authority', 'created_at', 'paid_at')
-    search_fields = ('batch_id', 'payment_gateway_authority', 'user__email')
-    list_filter = ('status', 'created_at', 'paid_at')
 
 @admin.register(PaymentApp)
 class PaymentAppAdmin(admin.ModelAdmin):

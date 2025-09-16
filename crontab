@@ -1,0 +1,2 @@
+# Run the verification command every 10 minutes
+*/10 * * * * /usr/local/bin/python /app/manage.py zp_verify_unverified >> /var/log/cron.log 2>&1

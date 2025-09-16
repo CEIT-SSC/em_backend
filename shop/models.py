@@ -172,11 +172,10 @@ class Cart(models.Model):
                 price = obj.price_per_participant
             elif isinstance(obj, CompetitionTeamModel):
                 parent = obj.group_competition
-                price = (
-                    parent.price_per_group
-                    if parent.is_paid and parent.price_per_group is not None
-                    else Decimal('0')
-                )
+                member_count = obj.memberships.count()
+                if parent.is_paid and parent.price_per_member is not None:
+                    price = parent.price_per_member * member_count
+
             elif isinstance(obj, ProductModel):
                 price = obj.price
             else:
@@ -333,35 +332,6 @@ class OrderItem(models.Model):
         verbose_name_plural = "Order Items"
         ordering = ['order']
         unique_together = ('order', 'content_type', 'object_id')
-
-
-class PaymentBatch(models.Model):
-    STATUS_PENDING = "pending"
-    STATUS_AWAITING_GATEWAY_REDIRECT = "awaiting_gateway_redirect"
-    STATUS_PAYMENT_FAILED = "payment_failed"
-    STATUS_VERIFIED = "verified"
-    STATUS_COMPLETED = "completed"
-    STATUS_CHOICES = [
-        (STATUS_PENDING, "Pending"),
-        (STATUS_AWAITING_GATEWAY_REDIRECT, "Awaiting Gateway Redirect"),
-        (STATUS_PAYMENT_FAILED, "Payment Failed"),
-        (STATUS_VERIFIED, "Verified"),
-        (STATUS_COMPLETED, "Completed"),
-    ]
-
-    batch_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="payment_batches")
-    orders = models.ManyToManyField('shop.Order', related_name='batches')
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    status = models.CharField(max_length=40, choices=STATUS_CHOICES, default=STATUS_PENDING)
-    payment_gateway_authority = models.CharField(max_length=50, blank=True, null=True, db_index=True)
-    payment_gateway_txn_id = models.CharField(max_length=100, blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    paid_at = models.DateTimeField(blank=True, null=True)
-    redirect_app = models.CharField(max_length=50, null=True, blank=True, db_index=True)
-
-    def __str__(self):
-        return f"Batch {self.batch_id} for {self.user_id} — {self.status}"
 
 
 class DiscountRedemption(models.Model):

@@ -152,6 +152,19 @@ def _add_to_cart_and_update_status(user, item_object):
     return True, "Item added to your cart."
 
 
+def _is_registration_open(item_object) -> bool:
+    start_time = None
+    if isinstance(item_object, (Presentation, SoloCompetition)):
+        start_time = getattr(item_object, 'start_time', None) or getattr(item_object, 'start_datetime', None)
+    elif isinstance(item_object, CompetitionTeam):
+        start_time = getattr(item_object.group_competition, 'start_datetime', None)
+
+    if start_time and timezone.now() > start_time:
+        return False
+
+    return True
+
+
 @extend_schema(
     tags=['Shop - Orders & Payment'],
     summary="Cancel a pending order (by order_id)",
@@ -256,6 +269,9 @@ class AddToCartView(views.APIView):
 
         if not _is_content_available(item_object):
             return Response({"error": "This item is no longer available."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not _is_registration_open(item_object):
+            return Response({"error": "The registration period for this item has passed."}, status=status.HTTP_400_BAD_REQUEST)
 
         if _is_already_owned_or_pending(user, item_object):
             return Response({"message": "You already own this item or have a pending order for it."},
