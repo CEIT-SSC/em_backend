@@ -11,6 +11,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libpq5 \
     postgresql-client \
+    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -18,11 +19,14 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir \
     gunicorn \
-    psycopg==3.1.8 \
+    psycopg \
     -r requirements.txt
 
 # Copy project
 COPY . .
+
+# Give execution rights to the cron job
+RUN chmod 0644 /etc/cron.d/zp_verify_cron
 
 # Helpful entrypoint – runs DB migrations & collectstatic only once
 COPY entrypoint.sh /entrypoint.sh
