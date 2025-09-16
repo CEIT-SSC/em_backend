@@ -55,8 +55,8 @@ class CartItemSerializer(serializers.ModelSerializer):
             return content_object.price_per_participant
         if isinstance(content_object, CompetitionTeam):
             parent_comp = content_object.group_competition
-            if parent_comp.is_paid and parent_comp.price_per_group is not None:
-                return parent_comp.price_per_group
+            if parent_comp.is_paid and parent_comp.price_per_member is not None:
+                return parent_comp.price_per_member
         if isinstance(content_object, Product):
             return content_object.price
         return 0

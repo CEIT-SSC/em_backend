@@ -172,11 +172,10 @@ class Cart(models.Model):
                 price = obj.price_per_participant
             elif isinstance(obj, CompetitionTeamModel):
                 parent = obj.group_competition
-                price = (
-                    parent.price_per_group
-                    if parent.is_paid and parent.price_per_group is not None
-                    else Decimal('0')
-                )
+                member_count = obj.memberships.count()
+                if parent.is_paid and parent.price_per_member is not None:
+                    price = parent.price_per_member * member_count
+
             elif isinstance(obj, ProductModel):
                 price = obj.price
             else:
