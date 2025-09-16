@@ -153,10 +153,14 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
         try:
             with transaction.atomic():
-                if group_competition.requires_admin_approval:
-                    initial_status = CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION
-                else:
-                    initial_status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+                proposed_team_size = 1 + len(validated_member_users_data)
+                needs_payment = bool(group_competition.is_paid and (group_competition.price_per_member or 0) > 0)
+
+                initial_status = (
+                    CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION
+                    if group_competition.requires_admin_approval
+                    else (CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT if needs_payment else CompetitionTeam.STATUS_ACTIVE)
+                )
 
                 team = CompetitionTeam.objects.create(
                     name=team_name, leader=user, group_competition=group_competition,
