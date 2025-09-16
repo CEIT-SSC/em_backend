@@ -319,7 +319,7 @@ class AddToCartView(views.APIView):
                                     status=status.HTTP_400_BAD_REQUEST)
 
                 is_free = not item_object.group_competition.is_paid or (
-                            item_object.group_competition.price_per_group is not None and item_object.group_competition.price_per_group <= 0)
+                            item_object.group_competition.price_per_member is not None and item_object.group_competition.price_per_member <= 0)
 
                 if is_free:
                     item_object.status = CompetitionTeam.STATUS_ACTIVE
