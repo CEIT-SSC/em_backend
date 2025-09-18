@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    CartView, AddToCartView, RemoveFromCartView, ApplyDiscountView, RemoveDiscountView,
+    CartView, CartItemView, ApplyDiscountView, RemoveDiscountView,
     OrderCheckoutView, OrderPaymentInitiateView, PaymentCallbackView,
     OrderHistoryViewSet, OrderCancelView, UserPurchasesView, ProductListView
 )
@@ -13,8 +13,7 @@ router.register(r'orders/history', OrderHistoryViewSet, basename='order-history'
 
 urlpatterns = [
     path('cart/', CartView.as_view(), name='cart-detail'),
-    path('cart/items/add', AddToCartView.as_view(), name='cart-add-item'),
-    path('cart/items/remove/', RemoveFromCartView.as_view(), name='cart-remove-item'),
+    path('cart/items/', CartItemView.as_view(), name='cart-item-manage'),
     path('cart/apply-discount/', ApplyDiscountView.as_view(), name='cart-apply-discount'),
     path('cart/remove-discount/', RemoveDiscountView.as_view(), name='cart-remove-discount'),
 

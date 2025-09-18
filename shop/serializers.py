@@ -150,10 +150,6 @@ class AddToCartSerializer(serializers.Serializer):
     item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'competition_team', 'product'])
     item_id = serializers.IntegerField()
 
-@ts_interface()
-class RemoveFromCartSerializer(serializers.Serializer):
-    item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'competition_team', 'product'])
-    item_id = serializers.IntegerField()
 
 @ts_interface()
 class ApplyDiscountSerializer(serializers.Serializer):
