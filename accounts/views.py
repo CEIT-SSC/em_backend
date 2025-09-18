@@ -128,6 +128,8 @@ class CustomTokenView(views.APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
+        print(f"[CustomTokenView] Received token request with data: {request.data}")
+
         django_request = request._request
         django_request.POST = request.data
         django_request.META['CONTENT_TYPE'] = 'application/x-www-form-urlencoded'
@@ -201,6 +203,8 @@ class CustomAuthorizationView(views.APIView):
         tags=['Authentication']
     )
     def get(self, request, *args, **kwargs):
+        print(f"[CustomAuthorizationView GET] Received request with query params: {request.query_params}")
+
         django_request = request._request
         handshake_token = django_request.GET.get('handshake_token')
         redirect_url = request.query_params.get('redirect_uri')
@@ -236,6 +240,8 @@ class CustomAuthorizationView(views.APIView):
         tags=['Authentication']
     )
     def post(self, request, *args, **kwargs):
+        print(f"[CustomAuthorizationView POST] Received request with data: {request.data}")
+
         django_request = request._request
         django_request.POST = request.data
 
