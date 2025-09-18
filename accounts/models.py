@@ -15,15 +15,17 @@ def validate_phone_number(value):
     if value is None or len(value) == 0: return None
 
     cleaned = re.sub(r'[^\d]', '', value)
-    if not re.match(r'^(0|98)?9\d{9}$', cleaned):
+    if not re.fullmatch(r'9\d{9}', cleaned):
         raise ValidationError("Enter a valid Iranian phone number.")
 
-    if cleaned.startswith('98'):
-        normalized = cleaned[2:]
-    elif cleaned.startswith('0'):
-        normalized = cleaned[1:]
-    else:
-        normalized = cleaned
+    # if cleaned.startswith('98'):
+    #     normalized = cleaned[2:]
+    # elif cleaned.startswith('0'):
+    #     normalized = cleaned[1:]
+    # else:
+    #     normalized = cleaned
+
+    normalized = cleaned
 
     if len(normalized) != 10 or not normalized.startswith('9'):
         raise ValidationError("Invalid phone number format after normalization.")
