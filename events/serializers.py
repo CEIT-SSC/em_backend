@@ -33,7 +33,7 @@ class PresentationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'event', 'event_title', 'title', 'description',
             'presenters_details', 'presenter_ids',
-            'type', 'is_online', 'location', 'online_link',
+            'type', 'level', 'is_online', 'location', 'online_link',
             'start_time', 'end_time', 'is_paid', 'price', 'capacity',
             'is_active', 'poster', 'remaining_capacity',
         ]

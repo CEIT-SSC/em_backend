@@ -86,8 +86,8 @@ class PresenterAdmin(admin.ModelAdmin):
 
 @admin.register(Presentation)
 class PresentationAdmin(admin.ModelAdmin):
-    list_display = ("title", "event", "type", "start_time", "is_active", "is_paid")
-    list_filter = ("is_active", "is_paid", "event", "type")
+    list_display = ("title", "event", "type", "level", "start_time", "is_active", "is_paid")
+    list_filter = ("is_active", "is_paid", "event", "type", "level")
     search_fields = ("title", "description", "event__title", "presenters__name")
     autocomplete_fields = ['event', 'presenters']
     filter_horizontal = ('presenters',)
@@ -97,7 +97,7 @@ class PresentationAdmin(admin.ModelAdmin):
         (None, {
             "fields": (
                 "event", "title", "description", "presenters",
-                "type", "is_online", "location", "online_link",
+                "type", "level", "is_online", "location", "online_link",
                 "start_time", "end_time", "is_active",
             )
         }),
