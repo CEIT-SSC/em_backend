@@ -205,7 +205,7 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     "django_typomatic",
-
+    'openpyxl',
     # Default
     'django.contrib.admin',
     'django.contrib.auth',

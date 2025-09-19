@@ -10,13 +10,87 @@ from .models import (
     TeamContent, ContentImage, ContentLike, ContentComment,
     PresentationEnrollment, SoloCompetitionRegistration, Post
 )
-
+from io import BytesIO
+from openpyxl import Workbook
+import datetime
+import re
+from django.http import HttpResponse
 
 def _format_datetime(dt):
     iran_tz = pytz.timezone('Asia/Tehran')
     local_dt = timezone.localtime(dt, iran_tz)
     return local_dt.strftime('%Y/%m/%d %H:%M')
 
+# admin actions
+@admin.action(description='Export presentation participants to Excel (.xlsx)')
+def export_presentation_enrollments(modeladmin, request, queryset):
+    """
+    Export enrollments of the selected Presentations into a single Excel workbook.
+    Each selected presentation gets its own worksheet named <id>_<safe_title>.
+    """
+    wb = Workbook()
+    default_sheet = wb.active
+    wb.remove(default_sheet)
+
+    total_rows = 0
+    for pres in queryset:
+        safe_title = re.sub(r'[^0-9a-zA-Z\u0600-\u06FF ]+', '_', (pres.title or ""))
+        sheet_name = f"{pres.id}_{safe_title}"[:31]
+        ws = wb.create_sheet(title=sheet_name)
+
+        # Header row
+        headers = [
+            "user_id",
+            "email",
+            "full_name",
+            "phone_number",  # new column
+            "status",
+            "order_item_id",
+            "enrolled_at",
+        ]
+        ws.append(headers)
+
+        enrollments = pres.enrollments.select_related('user', 'order_item').all()
+        for en in enrollments:
+            user = getattr(en, 'user', None)
+            user_id = getattr(user, 'id', '') if user else ''
+            email = getattr(user, 'email', '') if user else ''
+
+            full_name = getattr(user, 'get_full_name', None)
+            if callable(full_name):
+                full_name = full_name()
+            else:
+                full_name = getattr(user, 'first_name', '') or getattr(user, 'username', '') or email
+
+            phone_number = getattr(user, 'phone_number', '') if user else ''  # new line
+
+            status = en.get_status_display() if hasattr(en, 'get_status_display') else en.status
+            order_item_id = en.order_item.id if getattr(en, 'order_item', None) else ''
+            enrolled_at = _format_datetime(en.enrolled_at) if en.enrolled_at else ''
+
+            ws.append([user_id, email, full_name, phone_number, status, order_item_id, enrolled_at])
+            total_rows += 1
+
+        ws.append([])
+        ws.append([f"Exported from admin at {datetime.datetime.utcnow().isoformat()}Z"])
+
+    if total_rows == 0:
+        modeladmin.message_user(request, "No enrollments found for the selected presentations.", level=messages.WARNING)
+        return
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"presentation_enrollments_{ts}.xlsx"
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 @admin.action(description='Send reminder email to presentation participants')
 def send_presentation_reminder(modeladmin, request, queryset):
@@ -54,6 +128,63 @@ def send_solo_competition_reminder(modeladmin, request, queryset):
         total += len(emails)
     messages.success(request, f'{total} emails sent.')
 
+@admin.action(description='Export solo competition participants to Excel (.xlsx)')
+def export_solo_competition_registrations(modeladmin, request, queryset):
+    wb = Workbook()
+    default_sheet = wb.active
+    wb.remove(default_sheet)
+
+    total_rows = 0
+    for comp in queryset:
+        safe_title = re.sub(r'[^0-9a-zA-Z\u0600-\u06FF ]+', '_', comp.title or "")
+        sheet_name = f"{comp.id}_{safe_title}"[:31]
+        ws = wb.create_sheet(title=sheet_name)
+
+        headers = [
+            "user_id", "full_name", "email", "phone_number",
+            "status", "order_item_id", "registered_at"
+        ]
+        ws.append(headers)
+
+        registrations = comp.registrations.select_related('user', 'order_item').all()
+        for reg in registrations:
+            user = reg.user
+            user_id = getattr(user, 'id', '') if user else ''
+            email = getattr(user, 'email', '') if user else ''
+            full_name = getattr(user, 'get_full_name', None)
+            if callable(full_name):
+                full_name = full_name()
+            else:
+                full_name = getattr(user, 'first_name', '') or getattr(user, 'username', '') or email
+
+            phone_number = getattr(user, 'phone_number', '') if user else ''
+            status = reg.get_status_display() if hasattr(reg, 'get_status_display') else reg.status
+            order_item_id = reg.order_item.id if getattr(reg, 'order_item', None) else ''
+            registered_at = _format_datetime(reg.registered_at) if reg.registered_at else ''
+
+            ws.append([user_id, full_name, email, phone_number, status, order_item_id, registered_at])
+            total_rows += 1
+
+        ws.append([])
+        ws.append([f"Exported from admin at {datetime.datetime.utcnow().isoformat()}Z"])
+
+    if total_rows == 0:
+        modeladmin.message_user(request, "No participants found for the selected solo competitions.", level=messages.WARNING)
+        return
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"solo_competition_participants_{ts}.xlsx"
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
 
 @admin.action(description='Send reminder email to group competition participants')
 def send_group_competition_reminder(modeladmin, request, queryset):
@@ -77,6 +208,70 @@ def send_group_competition_reminder(modeladmin, request, queryset):
         total += len(emails_set)
     messages.success(request, f'{total} emails sent.')
 
+@admin.action(description='Export group competition teams and members to Excel (.xlsx)')
+def export_group_competition_teams(modeladmin, request, queryset):
+    wb = Workbook()
+    default_sheet = wb.active
+    wb.remove(default_sheet)
+
+    total_rows = 0
+    for comp in queryset:
+        safe_title = re.sub(r'[^0-9a-zA-Z\u0600-\u06FF ]+', '_', comp.title or "")
+        sheet_name = f"{comp.id}_{safe_title}"[:31]
+        ws = wb.create_sheet(title=sheet_name)
+
+        headers = [
+            "team_id", "team_name",
+            "leader_email",
+            "member_name", "member_email", "member_phone",
+            "status", "joined_at"
+        ]
+        ws.append(headers)
+
+        teams = comp.teams.select_related('leader').prefetch_related('memberships__user').all()
+        for team in teams:
+            leader_email = team.leader.email if team.leader else ''
+            status = team.status
+
+            memberships = team.memberships.select_related('user').all()
+            if memberships:
+                for mem in memberships:
+                    user = mem.user
+                    member_name = user.get_full_name() if hasattr(user, 'get_full_name') else getattr(user, 'username', '')
+                    member_email = user.email if user else ''
+                    member_phone = getattr(user, 'phone_number', '') if user else ''
+                    joined_at = _format_datetime(mem.joined_at) if mem.joined_at else ''
+                    ws.append([team.id, team.name, leader_email,
+                               member_name, member_email, member_phone,
+                               status, joined_at])
+                    total_rows += 1
+            else:
+                # Team has no members, still include leader email
+                ws.append([team.id, team.name, leader_email,
+                           '', '', '', status, ''])
+                total_rows += 1
+
+        ws.append([])
+        ws.append([f"Exported from admin at {datetime.datetime.utcnow().isoformat()}Z"])
+
+    if total_rows == 0:
+        modeladmin.message_user(request, "No teams found for the selected group competitions.", level=messages.WARNING)
+        return
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"group_competition_teams_{ts}.xlsx"
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
 
 @admin.register(Presenter)
 class PresenterAdmin(admin.ModelAdmin):
@@ -86,18 +281,18 @@ class PresenterAdmin(admin.ModelAdmin):
 
 @admin.register(Presentation)
 class PresentationAdmin(admin.ModelAdmin):
-    list_display = ("title", "event", "type", "start_time", "is_active", "is_paid")
-    list_filter = ("is_active", "is_paid", "event", "type")
+    list_display = ("title", "event", "type", "level", "start_time", "is_active", "is_paid")
+    list_filter = ("is_active", "is_paid", "event", "type", "level")
     search_fields = ("title", "description", "event__title", "presenters__name")
     autocomplete_fields = ['event', 'presenters']
     filter_horizontal = ('presenters',)
     readonly_fields = ("poster_preview", "created_at")
-    actions = [send_presentation_reminder]
+    actions = [send_presentation_reminder, export_presentation_enrollments]
     fieldsets = (
         (None, {
             "fields": (
                 "event", "title", "description", "presenters",
-                "type", "is_online", "location", "online_link",
+                "type", "level", "is_online", "location", "online_link",
                 "start_time", "end_time", "is_active",
             )
         }),
@@ -159,7 +354,7 @@ class SoloCompetitionAdmin(admin.ModelAdmin):
     list_filter = ('is_paid', 'is_active', 'event')
     autocomplete_fields = ['event']
     readonly_fields = ('created_at',)
-    actions = [send_solo_competition_reminder]
+    actions = [send_solo_competition_reminder, export_solo_competition_registrations]
 
 
 @admin.register(GroupCompetition)
@@ -169,7 +364,7 @@ class GroupCompetitionAdmin(admin.ModelAdmin):
     list_filter = ('is_paid', 'is_active', 'requires_admin_approval', 'event')
     autocomplete_fields = ['event']
     readonly_fields = ('created_at',)
-    actions = [send_group_competition_reminder]
+    actions = [send_group_competition_reminder, export_group_competition_teams]
 
 
 class TeamMembershipInline(admin.TabularInline):
