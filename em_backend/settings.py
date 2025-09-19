@@ -112,7 +112,7 @@ OAUTH2_PROVIDER = {
     "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
     "SCOPES": {"read": "Read scope", "write": "Write scope"},
     "PKCE_REQUIRED": True,
-    "ROTATE_REFRESH_TOKEN": True,
+    "ROTATE_REFRESH_TOKEN": False,
 }
 
 if DEBUG:
