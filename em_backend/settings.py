@@ -218,7 +218,7 @@ INSTALLED_APPS = [
 PERIODIC_JOBS_ENABLED = True
 
 MIDDLEWARE = [
-    'em_backend.middleware.RequestLoggingMiddleware',
+    # 'em_backend.middleware.RequestLoggingMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
