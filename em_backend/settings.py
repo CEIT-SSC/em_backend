@@ -35,6 +35,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = 'media/'
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
+FRONTEND_LOGIN_URL = os.getenv("FRONTEND_LOGIN_URL", default="http://localhost:3000/login")
+FORGOT_PASSWORD_MAX_AGE_SECONDS = int(os.getenv("FORGOT_PASSWORD_MAX_AGE_SECONDS", "900"))
 DOMAIN = os.getenv("DOMAIN", default="domain.ir")
 LOGIN_URL = FRONTEND_URL + '/login/'
 
