@@ -3,6 +3,9 @@ from urllib.parse import urlencode
 from allauth.socialaccount.providers.github.views import GitHubOAuth2Adapter
 from django.contrib.auth import authenticate, login
 from django.core import signing
+from django.core.signing import BadSignature, SignatureExpired
+from django.urls import reverse
+from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
 from django.http import HttpResponseRedirect
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter
@@ -571,36 +574,107 @@ class SimpleForgotPasswordView(views.APIView):
 
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
-        if serializer.is_valid():
-            email = serializer.validated_data['email']
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        email = serializer.validated_data['email']
+        tmp_message = {
+            "message": "If an account with this email exists, a verification link has been sent with a temporary password."
+        }
+
+        try:
+            user = CustomUser.objects.get(email=email)
+        except CustomUser.DoesNotExist:
+            return Response(tmp_message, status=status.HTTP_200_OK)
+
+        new_password = generate_numeric_code(length=8)
+
+        payload = {"email": user.email, "np": new_password}
+        secret = signing.dumps(payload, salt="forgot-password-v1")
+
+        verify_path = reverse('accounts:verify_forgot_password')
+        verify_url = request.build_absolute_uri(f"{verify_path}?secret={secret}")
+
+        ctx = {"password": new_password, "verify_url": verify_url}
+        html_content = render_to_string('reset_password.html', ctx)
+        text_content = (
+            f"رمز عبور موقت شما: {new_password}\n"
+            f"برای اعمال این رمز عبور، روی این لینک کلیک کنید:\n{verify_url}"
+        )
+
+        subject = "درخواست تغییر رمز عبور"
+        send_email_async_task(
+            subject=subject,
+            recipient_list=[user.email],
+            text_content=text_content,
+            html_content=html_content
+        )
+
+        return Response(tmp_message, status=status.HTTP_200_OK)
+
+
+def _append_query(url: str, params: dict) -> str:
+    parts = urlparse(url)
+    query = dict(parse_qsl(parts.query))
+    query.update(params)
+    new_qs = urlencode(query)
+    return urlunparse(parts._replace(query=new_qs))
+
+@extend_schema(
+    summary="Verify forgot password",
+    description="Finalizes a forgot-password request. Accepts a signed 'secret' and sets the temporary password.",
+    parameters=[OpenApiParameter(name='secret', required=True, type=str, location=OpenApiParameter.QUERY)],
+    responses={200: get_api_response_serializer(None), 400: ApiErrorResponseSerializer, 404: ApiErrorResponseSerializer},
+    tags=['Authentication']
+)
+class VerifyForgotPasswordView(views.APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        secret = request.query_params.get('secret')
+        if not secret:
+            if settings.FRONTEND_LOGIN_URL:
+                return HttpResponseRedirect(_append_query(settings.FRONTEND_LOGIN_URL, {"reset": "missing"}))
+            return Response({"error": "Missing 'secret'."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            max_age = settings.FORGOT_PASSWORD_MAX_AGE_SECONDS
+            data = signing.loads(secret, max_age=max_age, salt="forgot-password-v1")
+            email = data.get("email")
+            new_password = data.get("np")
+            if not email or not new_password:
+                if settings.FRONTEND_LOGIN_URL:
+                    return HttpResponseRedirect(_append_query(settings.FRONTEND_LOGIN_URL, {"reset": "invalid"}))
+                return Response({"error": "Invalid secret."}, status=status.HTTP_400_BAD_REQUEST)
+
             try:
                 user = CustomUser.objects.get(email=email)
-                new_password = generate_numeric_code(length=8)
-                user.set_password(new_password)
-                user.save()
-
-                ctx = {
-                    'password': new_password,
-                }
-                html_content = render_to_string('reset_password.html', ctx)
-                text_content = f'رمز عبور موقت شما: {new_password}\nلطفاً پس از ورود آن را تغییر دهید.'
-
-                subject = 'رمز عبور جدید'
-                send_email_async_task(
-                    subject=subject,
-                    recipient_list=[user.email],
-                    text_content=text_content,
-                    html_content=html_content
-                )
-
-                return Response({
-                                    "message": "If an account with this email exists, a new temporary password has been sent to your email address. Please change it after logging in."},
-                                status=status.HTTP_200_OK)
             except CustomUser.DoesNotExist:
-                return Response({
-                                    "message": "If an account with this email exists, a new temporary password has been sent to your email address. Please change it after logging in."},
-                                status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                if settings.FRONTEND_LOGIN_URL:
+                    return HttpResponseRedirect(_append_query(settings.FRONTEND_LOGIN_URL, {"reset": "notfound"}))
+                return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            user.set_password(new_password)
+            user.save()
+
+            if settings.FRONTEND_LOGIN_URL:
+                return HttpResponseRedirect(_append_query(settings.FRONTEND_LOGIN_URL, {"reset": "success"}))
+
+            return Response(
+                {"message": "Password has been reset. You can now log in with the temporary password."},
+                status=status.HTTP_200_OK
+            )
+
+        except SignatureExpired:
+            if settings.FRONTEND_LOGIN_URL:
+                return HttpResponseRedirect(_append_query(settings.FRONTEND_LOGIN_URL, {"reset": "expired"}))
+            return Response({"error": "Link expired. Please request a new forgot-password email."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        except BadSignature:
+            if settings.FRONTEND_LOGIN_URL:
+                return HttpResponseRedirect(_append_query(settings.FRONTEND_LOGIN_URL, {"reset": "invalid"}))
+            return Response({"error": "Invalid link."}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(

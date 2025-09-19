@@ -82,29 +82,58 @@ def _is_cart_item_active(ci) -> bool:
     except Exception:
         return False
 
+def _is_already_owned_or_pending(user, item_object) -> bool:
+    return _is_already_owned(user, item_object) or _is_pending(user, item_object)
 
-def _is_already_owned_or_pending(user, item_object):
-    content_type = ContentType.objects.get_for_model(item_object)
+def _is_already_owned(user, item_object) -> bool:
     user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
 
     if isinstance(item_object, Presentation):
-        if PresentationEnrollment.objects.filter(user=user_to_check, presentation=item_object, status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).exists():
-            return True
-    if isinstance(item_object, SoloCompetition):
-        if SoloCompetitionRegistration.objects.filter(user=user_to_check, solo_competition=item_object, status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).exists():
+        if PresentationEnrollment.objects.filter(
+            user=user_to_check, presentation=item_object,
+            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE
+        ).exists():
             return True
 
+    elif isinstance(item_object, SoloCompetition):
+        if SoloCompetitionRegistration.objects.filter(
+            user=user_to_check, solo_competition=item_object,
+            status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
+        ).exists():
+            return True
+
+    elif isinstance(item_object, CompetitionTeam):
+        if item_object.status == CompetitionTeam.STATUS_ACTIVE and (
+            item_object.leader_id == user.id or
+            TeamMembership.objects.filter(team=item_object, user=user).exists()
+        ):
+            return True
+
+    ct = ContentType.objects.get_for_model(item_object)
+    if OrderItem.objects.filter(
+        content_type=ct,
+        object_id=item_object.pk,
+        order__user=user_to_check,
+        order__status__in=[Order.STATUS_COMPLETED],
+    ).exists():
+        return True
+
+    return False
+
+def _is_pending(user, item_object) -> bool:
+    user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
+    ct = ContentType.objects.get_for_model(item_object)
     return OrderItem.objects.filter(
-        content_type=content_type,
+        content_type=ct,
         object_id=item_object.pk,
         order__user=user_to_check,
         order__status__in=[
             Order.STATUS_PENDING_PAYMENT,
             Order.STATUS_AWAITING_GATEWAY_REDIRECT,
             Order.STATUS_PROCESSING_ENROLLMENT,
-            Order.STATUS_COMPLETED,
-        ]
+        ],
     ).exists()
+
 
 
 def _has_capacity(item_object):
@@ -242,8 +271,8 @@ class CartItemView(views.APIView):
             return Response({"error": "The registration period for this item has passed."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        if _is_already_owned_or_pending(user, item_object):
-            return Response({"message": "You already own this item or have a pending order for it."},
+        if _is_already_owned(user, item_object):
+            return Response({"message": "You already own this item."},
                             status=status.HTTP_200_OK)
 
         if not _has_capacity(item_object):
@@ -544,6 +573,28 @@ class OrderCheckoutView(views.APIView):
                     "statusCode": 400,
                     "message": "Some items are no longer available.",
                     "errors": {"inactive_items": inactive_items},
+                    "data": {},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        pending_items = []
+        for ci in cart_items.select_related('content_type'):
+            obj = ci.content_object
+            if obj and _is_pending(request.user, obj):
+                pending_items.append({
+                    "cart_item_id": ci.id,
+                    "event_id": ci.event_id,
+                    "object_id": ci.object_id,
+                })
+
+        if pending_items:
+            return Response(
+                {
+                    "success": False,
+                    "statusCode": 400,
+                    "message": "You have a pending order for one or more items in your cart.",
+                    "errors": {"pending_items": pending_items},
                     "data": {},
                 },
                 status=status.HTTP_400_BAD_REQUEST,
