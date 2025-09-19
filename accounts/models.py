@@ -82,7 +82,6 @@ class CustomUserManager(BaseUserManager):
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(
-        unique=True,
         blank=False,
         error_messages={'unique': "A user with that email already exists."},
         verbose_name="Email Address"

@@ -47,13 +47,23 @@ CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "http:
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'example@example.com')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', 'pass')
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER_1')
+EMAIL_PROVIDERS = [
+    {
+        'host': 'smtp.gmail.com',
+        'port': 587,
+        'use_tls': True,
+        'user': os.getenv('EMAIL_HOST_USER_1'),
+        'password': os.getenv('EMAIL_HOST_PASSWORD_1'),
+    },
+    {
+        'host': 'smtp.gmail.com',
+        'port': 587,
+        'use_tls': True,
+        'user': os.getenv('EMAIL_HOST_USER_2'),
+        'password': os.getenv('EMAIL_HOST_PASSWORD_2'),
+    },
+]
 
 SMS_KEY = os.getenv("SMS_KEY", default="key")
 SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
