@@ -60,6 +60,7 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
         parameters=[
                 OpenApiParameter(name='event', type=str, location=OpenApiParameter.QUERY, description='Event ID'),
                 OpenApiParameter(name='type', type=str, location=OpenApiParameter.QUERY, description='Type of presentation'),
+                OpenApiParameter(name='level', type=str, location=OpenApiParameter.QUERY, description='Level'),
                 OpenApiParameter(name='is_online', type=bool, location=OpenApiParameter.QUERY, description='Is online?'),
                 OpenApiParameter(name='is_paid', type=bool, location=OpenApiParameter.QUERY, description='Is paid?'),
             ]
@@ -68,7 +69,7 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
 )
 class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PresentationSerializer
-    filterset_fields = ['event', 'type', 'is_online', 'is_paid']
+    filterset_fields = ['event', 'type', 'level', 'is_online', 'is_paid']
 
     def get_queryset(self):
         queryset = Presentation.objects.select_related('event').prefetch_related('presenters')

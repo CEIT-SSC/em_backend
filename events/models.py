@@ -42,12 +42,22 @@ class Presentation(models.Model):
     WORKSHOP = "workshop"
     PRESENTATION_TYPE_CHOICES = [(COURSE, "course"), (TALK, "Talk"), (WORKSHOP, "Workshop")]
 
+    BEGINNER = "beginner"
+    INTERMEDIATE = "intermediate"
+    ADVANCED = "advanced"
+    LEVEL_CHOICES = [
+        (BEGINNER, "Beginner"),
+        (INTERMEDIATE, "Intermediate"),
+        (ADVANCED, "Advanced"),
+    ]
+
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="presentations",
                               verbose_name="Parent Event", blank=True, null=True)
     title = models.CharField(max_length=255, verbose_name="Presentation Title")
     description = models.TextField(verbose_name="Presentation Description")
     presenters = models.ManyToManyField(Presenter, blank=True, related_name="presentations", verbose_name="Presenters")
     type = models.CharField(max_length=10, choices=PRESENTATION_TYPE_CHOICES, default=TALK, verbose_name="Type")
+    level = models.CharField(max_length=12, choices=LEVEL_CHOICES, default=BEGINNER, verbose_name="Level")
     is_online = models.BooleanField(default=False, verbose_name="Is Online?")
     location = models.CharField(max_length=255, blank=True, null=True, verbose_name="Location (if offline)")
     online_link = models.URLField(blank=True, null=True, verbose_name="Online Link (if online)")
