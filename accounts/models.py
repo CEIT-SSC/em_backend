@@ -18,13 +18,6 @@ def validate_phone_number(value):
     if not re.fullmatch(r'9\d{9}', cleaned):
         raise ValidationError("Enter a valid Iranian phone number.")
 
-    # if cleaned.startswith('98'):
-    #     normalized = cleaned[2:]
-    # elif cleaned.startswith('0'):
-    #     normalized = cleaned[1:]
-    # else:
-    #     normalized = cleaned
-
     normalized = cleaned
 
     if len(normalized) != 10 or not normalized.startswith('9'):
