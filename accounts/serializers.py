@@ -80,16 +80,14 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'first_name': {'required': False, 'allow_blank': True, 'default': ''},
             'last_name': {'required': False, 'allow_blank': True, 'default': ''},
-            'phone_number': {'required': False, 'allow_blank': True, 'default': None},
+            'phone_number': {'required': True, 'allow_blank': False, 'default': None},
         }
 
     def validate(self, attrs):
         try:
-            normalized_phone = validate_phone_number(attrs['phone_number'])
-            if CustomUser.objects.filter(phone_number=normalized_phone).exists():
-                raise serializers.ValidationError({"phone_number": "A user with this phone number already exists."})
-
-            attrs['phone_number'] = normalized_phone
+            if attrs["phone_number"]:
+                normalized_phone = validate_phone_number(attrs['phone_number'])
+                attrs['phone_number'] = normalized_phone
         except serializers.ValidationError as e:
             raise serializers.ValidationError({"phone_number": str(e)})
 

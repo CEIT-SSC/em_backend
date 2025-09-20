@@ -27,18 +27,20 @@ class CustomJSONRenderer(JSONRenderer):
 
         formatted_errors = {}
         detail_messages = []
+        message = None
         for key, value in data.items():
             clean_message = self._get_clean_error_message(value)
-
             if key in self.DETAIL_KEYS:
                 detail_messages.append(clean_message)
+                message = clean_message
             else:
                 formatted_errors[key] = clean_message
+                message = f"{key}: {clean_message}"
 
         if detail_messages:
             formatted_errors["detail"] = " ".join(detail_messages)
 
-        return formatted_errors
+        return formatted_errors, message
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
         response = renderer_context['response']
@@ -64,7 +66,8 @@ class CustomJSONRenderer(JSONRenderer):
         else:
             response_data['message'] = "An error occurred."
             if data:
-                errors = self._format_errors(data)
+                errors, message = self._format_errors(data)
                 response_data['errors'] = errors
+                response_data['message'] = message
 
         return super().render(response_data, accepted_media_type, renderer_context)
