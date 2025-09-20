@@ -35,7 +35,7 @@ class PresentationSerializer(serializers.ModelSerializer):
             'presenters_details', 'presenter_ids',
             'type', 'level', 'is_online', 'location', 'online_link',
             'start_time', 'end_time', 'is_paid', 'price', 'capacity',
-            'is_active', 'poster', 'remaining_capacity',
+            'is_active', 'poster', 'remaining_capacity', "requirements",
         ]
         read_only_fields = ['event_title', ]
     

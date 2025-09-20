@@ -69,6 +69,12 @@ class Presentation(models.Model):
     is_active = models.BooleanField(default=True, verbose_name="Is Active for Registration?")
     poster = models.ImageField(upload_to='presentation_posters/%Y/%m/', blank=True, null=True, verbose_name="Presentation Poster")
     created_at = models.DateTimeField(auto_now_add=True)
+    requirements = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Requirements",
+        help_text="Prerequisites or materials participants should have/know."
+    )
 
     def __str__(self):
         return f"{self.title}"
