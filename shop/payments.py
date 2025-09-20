@@ -190,3 +190,34 @@ class ZarrinPal:
         if isinstance(errors_block, dict):
             err_msg = errors_block.get("message") or errors_block.get("code")
         return {"status": "not_found", "error": err_msg}
+    
+    def reverse_payment(self, *, authority: str, timeout: int = 10):
+        url = f"{self.BASE}/pg/v4/payment/reverse.json"
+        payload = {
+            "merchant_id": self.merchant_id,
+            "authority": authority
+        }
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        except requests.RequestException as e:
+            return {"ok": False, "status": "network_error", "error": str(e)}
+
+        try:
+            data = resp.json() if resp.content else {}
+        except (ValueError, JSONDecodeError):
+            return {"ok": False, "status": "invalid_json", "http_status": resp.status_code}
+
+        data_block = (data or {}).get("data") or {}
+        errors = (data or {}).get("errors")
+
+        if isinstance(data_block, dict) and data_block.get("code") == 100:
+            return {"ok": True, "status": "reversed", "raw": data}
+
+        msg = None
+        if isinstance(errors, dict) and errors:
+            code = errors.get("code")
+            m = errors.get("message")
+            msg = f"{code}: {m}" if code is not None and m else (m or str(errors))
+        return {"ok": False, "status": "error", "error": msg or "Unknown reverse error", "raw": data}

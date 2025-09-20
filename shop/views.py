@@ -514,7 +514,7 @@ class OrderCheckoutView(views.APIView):
                     SoloCompetitionRegistration.objects.update_or_create(
                         user=order.user, solo_competition=content_object,
                         defaults={
-                            'status': PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
+                            'status': SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
                             'order_item': order_item
                         }
                     )
@@ -782,6 +782,127 @@ class OrderPaymentInitiateView(views.APIView):
             order.save()
             return Response({"error": f"Payment gateway error: {error_msg}"}, status=status.HTTP_400_BAD_REQUEST)
 
+@extend_schema(
+    tags=['Shop - Orders & Payment'],
+    summary="Initiate payment directly from cart (create order + payment link)",
+    parameters=[OpenApiParameter(name='event', description='Event ID', required=False, type=int)],
+    responses={200: get_api_response_serializer(PaymentInitiateResponseSerializer),
+               400: ApiErrorResponseSerializer, 500: ApiErrorResponseSerializer}
+)
+class CartPaymentInitiateView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        ser = OrderPaymentInitiateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        app_slug = (ser.validated_data.get("app") or "").strip().lower() or None
+
+        cart, _ = Cart.objects.get_or_create(user=request.user)
+
+        event_param = request.query_params.get("event")
+        if event_param:
+            try:
+                event_id = int(event_param)
+                event = Event.objects.get(pk=event_id)
+                cart_items = cart.items.filter(event_id=event_id)
+            except (TypeError, ValueError, Event.DoesNotExist):
+                return Response({"error": "Invalid event specified."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            event = None
+            cart_items = cart.items.filter(event_id__isnull=True)
+
+        if not cart_items.exists():
+            return Response({"error": "Your cart is empty for this event."}, status=status.HTTP_400_BAD_REQUEST)
+
+        inactive = [ci.id for ci in cart_items if not _is_cart_item_active(ci)]
+        if inactive:
+            return Response({"error": "Some items are no longer available.", "cart_item_ids": inactive}, status=400)
+
+        subtotal = cart._subtotal_for_items(cart_items)
+        discount_amount = cart.get_discount_amount()
+        total_amount = subtotal - discount_amount
+        if total_amount <= 0:
+            return Response({"error": "Order total must be greater than zero for gateway payment."}, status=400)
+
+        with transaction.atomic():
+            stale_qs = Order.objects.filter(
+                user=request.user, event=event,
+                status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_AWAITING_GATEWAY_REDIRECT]
+            )
+            prev = (
+                Order.objects
+                .filter(user=request.user, event=event, status__in=[
+                    Order.STATUS_PENDING_PAYMENT,
+                    Order.STATUS_AWAITING_GATEWAY_REDIRECT,
+                ])
+                .order_by("-created_at")
+                .first()
+            )
+
+            if prev and prev.payment_gateway_authority:
+                z = ZarrinPal()
+                unverified = set(z.list_unverified() or [])
+                if prev.payment_gateway_authority in unverified:
+                    vr = z.verify_payment(authority=prev.payment_gateway_authority, amount=prev.total_amount)
+                    if vr.get("status") == "success":
+                        with transaction.atomic():
+                            prev.status = Order.STATUS_PROCESSING_ENROLLMENT
+                            prev.payment_gateway_txn_id = vr.get("ref_id")
+                            prev.paid_at = timezone.now()
+                            prev.save(update_fields=["status", "payment_gateway_txn_id", "paid_at"])
+                            OrderCheckoutView()._process_successful_order(prev)
+
+                        return Response(
+                            {
+                                "error": "previous_order_captured",
+                                "message": "Your previous payment just completed. Please refresh your cart.",
+                                "order_id": str(prev.order_id),
+                            },
+                            status=status.HTTP_409_CONFLICT,
+                        )
+                else:
+                    prev.status = Order.STATUS_PAYMENT_FAILED_BY_NEW_LINK
+                    prev.save(update_fields=["status"])
+
+            order = Order.objects.create(
+                user=request.user,
+                event=event,
+                subtotal_amount=subtotal,
+                discount_code_applied=cart.applied_discount_code,
+                discount_amount=discount_amount,
+                total_amount=total_amount,
+                status=Order.STATUS_PENDING_PAYMENT,
+                redirect_app=app_slug or None,
+            )
+            for ci in cart_items.select_related('content_type'):
+                OrderItem.objects.create(
+                    order=order,
+                    content_type=ci.content_type,
+                    object_id=ci.object_id,
+                    description=str(ci.content_object),
+                    price=CartItemSerializer().get_price(ci),
+                )
+
+        z = ZarrinPal()
+        if not z.CALLBACK_URL:
+            return Response({"error": "Payment callback URL misconfiguration."}, status=500)
+
+        result = z.create_payment(
+            amount=float(order.total_amount),
+            mobile=order.user.phone_number or "",
+            email=order.user.email or "",
+            order_id=order.order_id
+        )
+        if result.get("status") != "success":
+            order.status = Order.STATUS_PAYMENT_FAILED
+            order.save(update_fields=["status"])
+            return Response({"error": f"Payment gateway error: {result.get('error')}"}, status=400)
+
+        order.payment_gateway_authority = result.get("authority")
+        order.status = Order.STATUS_AWAITING_GATEWAY_REDIRECT
+        order.save(update_fields=["payment_gateway_authority", "status"])
+
+        return Response({"payment_url": result.get("link"), "authority": result.get("authority")}, status=200)
 
 @extend_schema(
     tags=['Shop - Orders & Payment'],
@@ -808,6 +929,12 @@ class PaymentCallbackView(views.APIView):
 
         z = ZarrinPal()
 
+        FINALIZABLE = {
+            Order.STATUS_PENDING_PAYMENT,
+            Order.STATUS_AWAITING_GATEWAY_REDIRECT,
+            Order.STATUS_PROCESSING_ENROLLMENT,
+        }
+
         def _finalize_single_order(order):
             with transaction.atomic():
                 order.status = Order.STATUS_PROCESSING_ENROLLMENT
@@ -817,14 +944,56 @@ class PaymentCallbackView(views.APIView):
         if status_param == "OK":
             vr = z.verify_payment(authority=authority, amount=order.total_amount)
             if vr.get('status') == 'success':
-                with transaction.atomic():
-                    order.status = Order.STATUS_PROCESSING_ENROLLMENT
-                    order.payment_gateway_txn_id = vr.get('ref_id')
-                    order.paid_at = timezone.now()
-                    order.save()
-                    _finalize_single_order(order)
-                params = urlencode({'success': 'true', 'message': 'Payment successful', 'order_id': order.order_id})
-                return redirect(f"{frontend_url}{callback_path}?{params}")
+                if order.status in {Order.STATUS_PAYMENT_FAILED_BY_NEW_LINK, Order.STATUS_PAYMENT_FAILED}:
+                    rv = z.reverse_payment(authority=authority)
+                    if rv.get("ok"):
+                        order.status = Order.STATUS_REFUNDED
+                        order.save(update_fields=["status"])
+                        params = urlencode({
+                            "success": "false",
+                            "message": "Payment was superseded by a newer link and has been reversed.",
+                            "order_id": order.order_id,
+                        })
+                    else:
+                        order.status = Order.STATUS_REFUND_FAILED
+                        order.save(update_fields=["status"])
+                        params = urlencode({
+                            "success": "false",
+                            "message": "Payment verified but superseded; reverse failed. Please contact support.",
+                            "order_id": order.order_id,
+                        })
+                    return redirect(f"{frontend_url}{callback_path}?{params}")
+                
+                if order.status == Order.STATUS_COMPLETED:
+                    params = urlencode({'success': 'true', 'message': 'Payment already completed', 'order_id': order.order_id})
+                    return redirect(f"{frontend_url}{callback_path}?{params}")
+
+                if order.status in {Order.STATUS_REFUNDED, Order.STATUS_REFUND_FAILED, Order.STATUS_CANCELLED}:
+                    params = urlencode({'success': 'false', 'message': 'Order is not payable anymore', 'order_id': order.order_id})
+                    return redirect(f"{frontend_url}{callback_path}?{params}")
+                
+                if order.status in FINALIZABLE:
+                    with transaction.atomic():
+                        order.status = Order.STATUS_PROCESSING_ENROLLMENT
+                        order.payment_gateway_txn_id = vr.get('ref_id')
+                        order.paid_at = timezone.now()
+                        order.save()
+                        _finalize_single_order(order)
+                        try:
+                            cart = Cart.objects.get(user=order.user)
+                            for oi in order.items.all():
+                                CartItem.objects.filter(
+                                    cart=cart,
+                                    content_type=oi.content_type,
+                                    object_id=oi.object_id
+                                ).delete()
+                            # if cart.applied_discount_code and cart.items.count() == 0:
+                            #     cart.applied_discount_code = None
+                            #     cart.save(update_fields=['applied_discount_code'])
+                        except Cart.DoesNotExist:
+                            pass
+                    params = urlencode({'success': 'true', 'message': 'Payment successful', 'order_id': order.order_id})
+                    return redirect(f"{frontend_url}{callback_path}?{params}")
             else:
                 order.status = Order.STATUS_PAYMENT_FAILED
                 order.save()

@@ -279,11 +279,14 @@ class Order(models.Model):
     STATUS_CANCELLED = "cancelled"
     STATUS_REFUND_PENDING = "refund_pending"
     STATUS_REFUNDED = "refunded"
+    STATUS_PAYMENT_FAILED_BY_NEW_LINK = "failed_by_new_link"
+    STATUS_REFUND_FAILED = "refund_failed"
     ORDER_STATUS_CHOICES = [
         (STATUS_PENDING_PAYMENT, "Pending Payment"), (STATUS_AWAITING_GATEWAY_REDIRECT, "Awaiting Gateway Redirect"),
         (STATUS_PAYMENT_FAILED, "Payment Failed"), (STATUS_PROCESSING_ENROLLMENT, "Processing Enrollment/Registration"),
         (STATUS_COMPLETED, "Completed"), (STATUS_CANCELLED, "Cancelled"),
-        (STATUS_REFUND_PENDING, "Refund Pending"), (STATUS_REFUNDED, "Refunded"),
+        (STATUS_REFUND_PENDING, "Refund Pending"), (STATUS_REFUNDED, "Refunded"), (STATUS_PAYMENT_FAILED_BY_NEW_LINK, "Failed (New Link Issued)"),
+        (STATUS_REFUND_FAILED, "Refund Failed"),
     ]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
