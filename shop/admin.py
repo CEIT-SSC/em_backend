@@ -4,6 +4,10 @@ from .models import Cart, CartItem, Order, OrderItem, DiscountCode, PaymentApp, 
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 from django.core.exceptions import ValidationError
+from django.contrib import messages
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
+from django.db import models
 
 ITEM_SOURCES = [
     ('Presentation', ('events', 'Presentation'), 'title'),
@@ -162,16 +166,145 @@ class OrderItemInline(admin.TabularInline):
     def get_queryset(self, request):
         return super().get_queryset(request)
 
+class HasAuthorityFilter(admin.SimpleListFilter):
+    title = "Has gateway authority"
+    parameter_name = "has_authority"
+    def lookups(self, request, model_admin):
+        return (("yes", "Yes"), ("no", "No"))
+    def queryset(self, request, queryset):
+        val = self.value()
+        if val == "yes":
+            return queryset.exclude(payment_gateway_authority__isnull=True).exclude(payment_gateway_authority__exact="")
+        if val == "no":
+            return queryset.filter(models.Q(payment_gateway_authority__isnull=True) | models.Q(payment_gateway_authority=""))
+        return queryset
 
+class HasTxnFilter(admin.SimpleListFilter):
+    title = "Has gateway txn_id"
+    parameter_name = "has_txn"
+    def lookups(self, request, model_admin):
+        return (("yes", "Yes"), ("no", "No"))
+    def queryset(self, request, queryset):
+        val = self.value()
+        if val == "yes":
+            return queryset.exclude(payment_gateway_txn_id__isnull=True).exclude(payment_gateway_txn_id__exact="")
+        if val == "no":
+            return queryset.filter(models.Q(payment_gateway_txn_id__isnull=True) | models.Q(payment_gateway_txn_id=""))
+        return queryset
+    
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('order_id', 'user', 'total_amount', 'status', 'payment_gateway_txn_id', 'created_at', 'paid_at')
-    search_fields = ('order_id', 'user__email', 'payment_gateway_txn_id')
-    list_filter = ('status', 'created_at', 'paid_at')
-    readonly_fields = ('order_id', 'created_at', 'paid_at', 'subtotal_amount', 'discount_amount', 'total_amount')
+    list_display = (
+        'order_id', 'user', 'event', 'redirect_app',
+        'total_amount', 'status',
+        'payment_gateway_authority', 'payment_gateway_txn_id',
+        'created_at', 'paid_at',
+    )
+    search_fields = (
+        'order_id',
+        'user__email', 'user__first_name', 'user__last_name',
+        'payment_gateway_authority', 'payment_gateway_txn_id',
+    )
+    list_filter = (
+        'status', 'created_at', 'paid_at', 'event', 'redirect_app',
+        HasAuthorityFilter, HasTxnFilter,
+    )
+    readonly_fields = (
+        'order_id', 'created_at', 'paid_at',
+        'subtotal_amount', 'discount_amount', 'total_amount',
+        'payment_gateway_authority', 'payment_gateway_txn_id',
+        'gateway_inquiry_readonly',
+    )
     autocomplete_fields = ['user', 'discount_code_applied']
     inlines = [OrderItemInline]
     date_hierarchy = 'created_at'
+    list_select_related = ('user', 'event')
+
+    actions = ['export_orders_csv', 'inquiry_gateway_status']
+
+    def gateway_inquiry_readonly(self, obj):
+        from .payments import ZarrinPal
+        if not obj.payment_gateway_authority:
+            return "—"
+        z = ZarrinPal()
+        res = z.inquiry(authority=obj.payment_gateway_authority)
+        parts = []
+        for k in ('status', 'error'):
+            v = res.get(k)
+            if v:
+                parts.append(f"<b>{k}</b>: {v}")
+        html = "<br>".join(parts) if parts else "No data"
+        return mark_safe(html)
+    gateway_inquiry_readonly.short_description = "Gateway inquiry (live)"
+
+    def gateway_inquiry_badge(self, obj):
+        from .payments import ZarrinPal
+        if not obj.payment_gateway_authority:
+            return "-"
+        z = ZarrinPal()
+        res = z.inquiry(authority=obj.payment_gateway_authority)
+        st = (res.get('status') or '').lower()
+        color = {
+            'failed': '#c0392b',
+            'in_bank': '#f39c12',
+            'not_found': '#7f8c8d',
+        }.get(st, '#2ecc71')
+        label = st.upper() if st else 'N/A'
+        return format_html('<span style="padding:2px 6px;border-radius:10px;background:{};color:#fff;">{}</span>', color, label)
+    gateway_inquiry_badge.short_description = "Gateway status"
+
+    def inquiry_gateway_status(self, request, queryset):
+        from .payments import ZarrinPal
+        z = ZarrinPal()
+
+        MAX_CHECK = 20
+        qs = queryset.exclude(payment_gateway_authority__isnull=True)\
+                    .exclude(payment_gateway_authority__exact="")[:MAX_CHECK]
+
+        total = queryset.count()
+        checked = 0
+        for o in qs:
+            res = z.inquiry(authority=o.payment_gateway_authority)
+            checked += 1
+            messages.info(request, f"[{o.order_id}] inquiry → {res}")
+
+        if total > MAX_CHECK:
+            messages.warning(request, f"Selected {total} orders; limited to first {MAX_CHECK} to avoid load.")
+
+        if checked == 0:
+            messages.warning(request, "No selected orders had an Authority to check.")
+    inquiry_gateway_status.short_description = "Gateway inquiry (show results in messages)"
+
+    def export_orders_csv(self, request, queryset):
+        import csv
+        from django.http import HttpResponse
+        fieldnames = [
+            'order_id', 'user_email', 'event_id', 'redirect_app',
+            'subtotal_amount', 'discount_amount', 'total_amount',
+            'status', 'payment_gateway_authority', 'payment_gateway_txn_id',
+            'created_at', 'paid_at',
+        ]
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = 'attachment; filename="orders_export.csv"'
+        writer = csv.DictWriter(resp, fieldnames=fieldnames)
+        writer.writeheader()
+        for o in queryset.select_related('user', 'event'):
+            writer.writerow({
+                'order_id': str(o.order_id),
+                'user_email': getattr(o.user, 'email', ''),
+                'event_id': getattr(o.event, 'id', '') if o.event_id else '',
+                'redirect_app': o.redirect_app or '',
+                'subtotal_amount': o.subtotal_amount,
+                'discount_amount': o.discount_amount,
+                'total_amount': o.total_amount,
+                'status': o.status,
+                'payment_gateway_authority': o.payment_gateway_authority or '',
+                'payment_gateway_txn_id': o.payment_gateway_txn_id or '',
+                'created_at': o.created_at.isoformat(),
+                'paid_at': o.paid_at.isoformat() if o.paid_at else '',
+            })
+        return resp
+    export_orders_csv.short_description = "Export selected orders to CSV"
 
 
 @admin.register(OrderItem)
