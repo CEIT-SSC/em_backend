@@ -1,4 +1,3 @@
-import pytz
 from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.template.loader import render_to_string
@@ -17,8 +16,7 @@ import re
 from django.http import HttpResponse
 
 def _format_datetime(dt):
-    iran_tz = pytz.timezone('Asia/Tehran')
-    local_dt = timezone.localtime(dt, iran_tz)
+    local_dt = timezone.localtime(dt)
     return local_dt.strftime('%Y/%m/%d %H:%M')
 
 @admin.action(description='Export presentation participants to Excel (.xlsx)')

@@ -1,9 +1,7 @@
 import json
-from urllib.parse import urlencode
 from allauth.socialaccount.providers.github.views import GitHubOAuth2Adapter
 from django.contrib.auth import authenticate, login
 from django.core import signing
-from django.core.signing import BadSignature, SignatureExpired
 from django.urls import reverse
 from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
 from django.http import HttpResponseRedirect
