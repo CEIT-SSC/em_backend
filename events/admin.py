@@ -1,4 +1,3 @@
-import pytz
 from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.template.loader import render_to_string
@@ -17,17 +16,11 @@ import re
 from django.http import HttpResponse
 
 def _format_datetime(dt):
-    iran_tz = pytz.timezone('Asia/Tehran')
-    local_dt = timezone.localtime(dt, iran_tz)
+    local_dt = timezone.localtime(dt)
     return local_dt.strftime('%Y/%m/%d %H:%M')
 
-# admin actions
 @admin.action(description='Export presentation participants to Excel (.xlsx)')
 def export_presentation_enrollments(modeladmin, request, queryset):
-    """
-    Export enrollments of the selected Presentations into a single Excel workbook.
-    Each selected presentation gets its own worksheet named <id>_<safe_title>.
-    """
     wb = Workbook()
     default_sheet = wb.active
     wb.remove(default_sheet)
@@ -43,7 +36,7 @@ def export_presentation_enrollments(modeladmin, request, queryset):
             "user_id",
             "email",
             "full_name",
-            "phone_number",  # new column
+            "phone_number",
             "status",
             "order_item_id",
             "enrolled_at",
@@ -101,6 +94,24 @@ def send_presentation_reminder(modeladmin, request, queryset):
         if not emails:
             continue
         html = render_to_string('reminder.html', {
+            'object': pres,
+            'object_datetime': _format_datetime(pres.start_time),
+            'object_location': pres.online_link if pres.is_online else pres.location or '',
+        })
+        subject = f'یادآوری ارائه: {pres.title}'
+        send_email_async_task(subject, emails, text_content='', html_content=html)
+        total += len(emails)
+    messages.success(request, f'{total} reminder emails sent.')
+
+@admin.action(description='Send warning email to presentation participants')
+def send_presentation_warning(modeladmin, request, queryset):
+    total = 0
+    for pres in queryset:
+        qs = pres.enrollments.filter(status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE)
+        emails = list(qs.values_list('user__email', flat=True))
+        if not emails:
+            continue
+        html = render_to_string('warning.html', {
             'object': pres,
             'object_datetime': _format_datetime(pres.start_time),
             'object_location': pres.online_link if pres.is_online else pres.location or '',
@@ -287,7 +298,7 @@ class PresentationAdmin(admin.ModelAdmin):
     autocomplete_fields = ['event', 'presenters']
     filter_horizontal = ('presenters',)
     readonly_fields = ("poster_preview", "created_at")
-    actions = [send_presentation_reminder, export_presentation_enrollments]
+    actions = [send_presentation_reminder, export_presentation_enrollments, send_presentation_warning]
     fieldsets = (
         (None, {
             "fields": (
