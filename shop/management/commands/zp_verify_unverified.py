@@ -36,6 +36,16 @@ class Command(BaseCommand):
                 if order.status == Order.STATUS_COMPLETED:
                     continue
 
+                if order.status == Order.STATUS_PAYMENT_FAILED:
+                    rv = client.reverse_payment(authority=authority)
+                    if rv.get("ok"):
+                        order.status = Order.STATUS_REFUND_FAILED
+                        order.save(update_fields=["status"])
+                        self.stdout.write(f"[ORDER] Reversed & refunded: {order.order_id}")
+                    else:
+                        self.stdout.write(f"[ORDER] Reverse failed: {order.order_id} -> {rv.get('error') or rv.get('status')}")
+                    continue
+
                 try:
                     vr = client.verify_payment(authority=authority, amount=order.total_amount)
                 except Exception as e:
@@ -49,6 +59,20 @@ class Command(BaseCommand):
                         order.paid_at = timezone.now()
                         order.save(update_fields=["status", "payment_gateway_txn_id", "paid_at"])
                         OrderCheckoutView()._process_successful_order(order)
+                        try:
+                            from shop.models import CartItem, Cart
+                            cart = Cart.objects.get(user=order.user)
+                            for oi in order.items.all():
+                                CartItem.objects.filter(
+                                    cart=cart,
+                                    content_type=oi.content_type,
+                                    object_id=oi.object_id
+                                ).delete()
+                            # if cart.applied_discount_code and cart.items.count() == 0:
+                            #     cart.applied_discount_code = None
+                            #     cart.save(update_fields=['applied_discount_code'])
+                        except Cart.DoesNotExist:
+                            pass
                     self.stdout.write(f"[ORDER] Verified & finalized: {order.order_id}")
                 else:
                     order.status = Order.STATUS_PAYMENT_FAILED
