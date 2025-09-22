@@ -109,8 +109,8 @@ def send_presentation_reminder(modeladmin, request, queryset):
 def send_presentation_warning(modeladmin, request, queryset):
     total = 0
     for pres in queryset:
-        emails = list(qs.values_list('user__email', flat=True))
         qs = pres.enrollments.filter(status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE)
+        emails = list(qs.values_list('user__email', flat=True))
         if not emails:
             continue
         html = render_to_string('warning.html', {
