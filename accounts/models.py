@@ -1,8 +1,29 @@
+import string
+import random
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
-from django.db import models
+from django.db import models, transaction, IntegrityError
 from django.utils import timezone
 import re
 from django.core.exceptions import ValidationError
+
+
+def _random_alnum(length=8):
+    alphabet = string.ascii_lowercase + string.digits
+    return ''.join(random.choice(alphabet) for _ in range(length))
+
+
+def generate_unique_sky_username():
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    for _ in range(1000):
+        candidate = _random_alnum(8)
+        if not User.objects.filter(sky_username=candidate).exists():
+            return candidate
+    raise RuntimeError("Failed to generate unique sky_username after many attempts")
+
+
+def generate_sky_password():
+    return _random_alnum(8)
 
 
 def validate_image_size(image):
@@ -14,7 +35,7 @@ def validate_image_size(image):
 def validate_phone_number(value):
     if value is None or len(value) == 0: return None
 
-    cleaned = re.sub(r'[^\d]', '', value)
+    cleaned = re.sub(r'\D', '', value)
     if not re.fullmatch(r'9\d{9}', cleaned):
         raise ValidationError("Enter a valid Iranian phone number.")
 
@@ -104,6 +125,23 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     email_verification_code_expires_at = models.DateTimeField(blank=True, null=True,
                                                               verbose_name="Verification Code Expiry")
 
+    sky_username = models.CharField(
+        max_length=8,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name="Online Class Username",
+        help_text="8-character unique username for online classes."
+    )
+
+    sky_password = models.CharField(
+        max_length=8,
+        blank=True,
+        null=True,
+        verbose_name="Online Class Password",
+        help_text="8-character password for online classes."
+    )
+
     objects = CustomUserManager()
 
     USERNAME_FIELD = 'email'
@@ -118,6 +156,27 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def get_short_name(self):
         return self.first_name
+
+    def save(self, *args, **kwargs):
+        if not self.sky_username:
+            for attempt in range(5):
+                candidate = generate_unique_sky_username()
+                self.sky_username = candidate
+                if not self.sky_password:
+                    self.sky_password = generate_sky_password()
+                try:
+                    with transaction.atomic():
+                        super(CustomUser, self).save(*args, **kwargs)
+                    break
+                except IntegrityError:
+                    self.sky_username = None
+                    continue
+            else:
+                raise IntegrityError("Could not generate unique sky_username after retries")
+        else:
+            if not self.sky_password:
+                self.sky_password = generate_sky_password()
+            super(CustomUser, self).save(*args, **kwargs)
 
     class Meta:
         verbose_name = "User"

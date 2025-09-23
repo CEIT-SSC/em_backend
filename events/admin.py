@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.template.loader import render_to_string
@@ -9,74 +10,117 @@ from .models import (
     TeamContent, ContentImage, ContentLike, ContentComment,
     PresentationEnrollment, SoloCompetitionRegistration, Post
 )
+import re
+import datetime
 from io import BytesIO
 from openpyxl import Workbook
-import datetime
-import re
 from django.http import HttpResponse
+from django.db import transaction
+
 
 def _format_datetime(dt):
     local_dt = timezone.localtime(dt)
     return local_dt.strftime('%Y/%m/%d %H:%M')
 
+
 @admin.action(description='Export presentation participants to Excel (.xlsx)')
 def export_presentation_enrollments(modeladmin, request, queryset):
-    wb = Workbook()
-    default_sheet = wb.active
-    wb.remove(default_sheet)
+    TARGET_STATUS = PresentationEnrollment.STATUS_COMPLETED_OR_FREE
+    enrollments = PresentationEnrollment.objects.filter(
+        presentation__in=queryset,
+        status=TARGET_STATUS
+    ).select_related('user', 'presentation', 'order_item', 'presentation__event')
 
-    total_rows = 0
-    for pres in queryset:
-        safe_title = re.sub(r'[^0-9a-zA-Z\u0600-\u06FF ]+', '_', (pres.title or ""))
-        sheet_name = f"{pres.id}_{safe_title}"[:31]
-        ws = wb.create_sheet(title=sheet_name)
+    users_map = {}
 
-        # Header row
-        headers = [
-            "user_id",
-            "email",
-            "full_name",
-            "phone_number",
-            "status",
-            "order_item_id",
-            "enrolled_at",
-        ]
-        ws.append(headers)
+    def extract_room_from_link(link):
+        if not link:
+            return ""
+        try:
+            p = urlparse(link)
+            parts = [seg for seg in p.path.split('/') if seg]
+            return parts[-1] if parts else ""
+        except Exception:
+            return ""
 
-        enrollments = pres.enrollments.select_related('user', 'order_item').all()
-        for en in enrollments:
-            user = getattr(en, 'user', None)
-            user_id = getattr(user, 'id', '') if user else ''
-            email = getattr(user, 'email', '') if user else ''
+    for en in enrollments:
+        user = en.user
+        if user is None:
+            continue
+        uinfo = users_map.setdefault(user.id, {
+            'user': user,
+            'email': user.email or "",
+            'phone_number': getattr(user, 'phone_number', '') or "",
+            'full_name': (user.get_full_name() or (user.first_name or getattr(user, 'username', '') or user.email)),
+            'presentations': set(),
+            'rooms': set()
+        })
+        pres = en.presentation
+        if pres:
+            uinfo['presentations'].add(pres.title)
+            room = extract_room_from_link(getattr(pres, 'online_link', None))
+            if room:
+                uinfo['rooms'].add(room)
 
-            full_name = getattr(user, 'get_full_name', None)
-            if callable(full_name):
-                full_name = full_name()
-            else:
-                full_name = getattr(user, 'first_name', '') or getattr(user, 'username', '') or email
-
-            phone_number = getattr(user, 'phone_number', '') if user else ''  # new line
-
-            status = en.get_status_display() if hasattr(en, 'get_status_display') else en.status
-            order_item_id = en.order_item.id if getattr(en, 'order_item', None) else ''
-            enrolled_at = _format_datetime(en.enrolled_at) if en.enrolled_at else ''
-
-            ws.append([user_id, email, full_name, phone_number, status, order_item_id, enrolled_at])
-            total_rows += 1
-
-        ws.append([])
-        ws.append([f"Exported from admin at {datetime.datetime.utcnow().isoformat()}Z"])
-
-    if total_rows == 0:
-        modeladmin.message_user(request, "No enrollments found for the selected presentations.", level=messages.WARNING)
+    if not users_map:
+        modeladmin.message_user(request, "No completed enrollments found for the selected presentations.", level=messages.WARNING)
         return
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Participants"
+    headers = ["email", "phone_number", "full_name", "sky_username", "sky_password", "presentations", "rooms"]
+    ws.append(headers)
+
+    from accounts.models import generate_sky_password, generate_unique_sky_username
+
+    for uid, uinfo in users_map.items():
+        user = uinfo['user']
+        if not getattr(user, 'sky_username', None):
+            for _ in range(5):
+                candidate = generate_unique_sky_username()
+                user.sky_username = candidate
+                if not getattr(user, 'sky_password', None):
+                    user.sky_password = generate_sky_password()
+                try:
+                    with transaction.atomic():
+                        user.save()
+                    break
+                except Exception:
+                    user.sky_username = None
+                    continue
+            if not user.sky_username:
+                user.sky_username = f"U{user.id:07d}"[:8]
+                user.sky_password = generate_sky_password()
+                user.save()
+        else:
+            if not getattr(user, 'sky_password', None):
+                user.sky_password = generate_sky_password()
+                user.save()
+
+        presentations_str = ", ".join(sorted(uinfo['presentations']))
+        rooms_str = ", ".join(sorted(uinfo['rooms']))
+
+        row = [
+            user.email or "",
+            getattr(user, 'phone_number', '') or "",
+            uinfo['full_name'],
+            user.sky_username or "",
+            user.sky_password or "",
+            presentations_str,
+            rooms_str
+        ]
+        ws.append(row)
+
+    ws.append([])
+    ws.append([f"Exported from admin at {datetime.datetime.utcnow().replace(microsecond=0).isoformat()}Z"])
 
     output = BytesIO()
     wb.save(output)
     output.seek(0)
 
     ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"presentation_enrollments_{ts}.xlsx"
+    filename = f"presentation_participants_{ts}.xlsx"
 
     response = HttpResponse(
         output.getvalue(),
