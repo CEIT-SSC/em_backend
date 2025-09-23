@@ -98,8 +98,8 @@ def export_presentation_enrollments(modeladmin, request, queryset):
                 user.sky_password = generate_sky_password()
                 user.save()
 
-        presentations_str = ", ".join(sorted(uinfo['presentations']))
-        rooms_str = ", ".join(sorted(uinfo['rooms']))
+        presentations_str = ",".join(sorted(uinfo['presentations']))
+        rooms_str = ",".join(sorted(uinfo['rooms']))
 
         row = [
             user.email or "",
@@ -301,7 +301,6 @@ def export_group_competition_teams(modeladmin, request, queryset):
                                status, joined_at])
                     total_rows += 1
             else:
-                # Team has no members, still include leader email
                 ws.append([team.id, team.name, leader_email,
                            '', '', '', status, ''])
                 total_rows += 1

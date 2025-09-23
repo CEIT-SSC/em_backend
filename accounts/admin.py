@@ -56,7 +56,7 @@ class CustomUserAdmin(BaseUserAdmin):
 
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
-        (_('Personal info'), {'fields': ('first_name', 'last_name', 'phone_number', 'profile_picture')}),
+        (_('Personal info'), {'fields': ('first_name', 'last_name', 'phone_number', 'profile_picture', 'sky_username', 'sky_password')}),
         (_('Permissions'), {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         (_('Important dates'), {'fields': ('last_login', 'date_joined')}),
         (_('Email verification'), {'fields': ('email_verification_code', 'email_verification_code_expires_at')}),
