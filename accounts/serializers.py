@@ -119,8 +119,9 @@ class ResendVerificationEmailSerializer(serializers.Serializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ('email', 'first_name', 'last_name', 'phone_number', 'profile_picture', 'date_joined')
-        read_only_fields = ('email', 'date_joined')
+        fields = ('email', 'first_name', 'last_name', 'phone_number', 'profile_picture',
+                  'date_joined', 'sky_username', 'sky_password')
+        read_only_fields = ('email', 'date_joined', 'sky_username', 'sky_password')
 
 
 @ts_interface()
