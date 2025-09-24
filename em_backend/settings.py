@@ -15,10 +15,29 @@ from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
+LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+SMSIR_API_KEY = os.getenv("SMSIR_API_KEY")
+SMSIR_LINE_NUMBER = os.getenv("SMSIR_LINE_NUMBER")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",  # or "DEBUG" if you want more details
+    },
+}
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("SECRET_KEY", default="key34572dfg57ll90xdvs234ghh$")
