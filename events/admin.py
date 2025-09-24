@@ -16,14 +16,13 @@ from io import BytesIO
 from openpyxl import Workbook
 from django.http import HttpResponse
 from django.db import transaction
-from django.shortcuts import render, redirect
+from django.shortcuts import render
 from django import forms
 from django.conf import settings
 import http.client
 import json
 import ssl
 import certifi
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,7 @@ def send_sms(phone_number: str, message: str) -> bool:
         return False
 
     try:
-        context = ssl.create_default_context(cafile=certifi.where())  # Trust certifi CA
+        context = ssl.create_default_context(cafile=certifi.where())
         conn = http.client.HTTPSConnection("api.sms.ir", context=context)
 
         payload = json.dumps({
@@ -419,7 +418,6 @@ class PresentationAdmin(admin.ModelAdmin):
 
     @admin.action(description="📩 Send SMS to Completed/Free Enrolled Users")
     def send_sms_to_participants(self, request, queryset):
-        # Get selected IDs from POST or queryset
         selected_ids = request.POST.getlist('_selected_action') or queryset.values_list('id', flat=True)
         presentations = Presentation.objects.filter(pk__in=selected_ids)
 
@@ -432,11 +430,11 @@ class PresentationAdmin(admin.ModelAdmin):
                     for enrollment in pres.enrollments.filter(status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).select_related('user'):
                         phone = getattr(enrollment.user, "phone_number", None)
                         if phone:
-                            print(f"Sending SMS to {phone}")  # debug logging
+                            print(f"Sending SMS to {phone}")
                             send_sms(phone, message_text)
                             total_sent += 1
                 self.message_user(request, f"✅ SMS sent to {total_sent} users.")
-                return None  # let admin redirect
+                return None
         else:
             form = SMSForm(initial={"_selected_action": selected_ids})
 
