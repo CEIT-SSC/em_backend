@@ -33,18 +33,22 @@ def validate_image_size(image):
 
 
 def validate_phone_number(value):
-    if value is None or len(value) == 0: return None
+    if not value:
+        return None
 
+    # Remove any non-digit characters
     cleaned = re.sub(r'\D', '', value)
+
+    # Remove leading 0 if present
+    if cleaned.startswith('0'):
+        cleaned = cleaned[1:]
+
+    # Check if the remaining number is 10 digits starting with 9
     if not re.fullmatch(r'9\d{9}', cleaned):
         raise ValidationError("Enter a valid Iranian phone number.")
 
-    normalized = cleaned
-
-    if len(normalized) != 10 or not normalized.startswith('9'):
-        raise ValidationError("Invalid phone number format after normalization.")
-
-    return normalized
+    # Return normalized number (10 digits, starts with 9)
+    return cleaned
 
 
 class CustomUserManager(BaseUserManager):

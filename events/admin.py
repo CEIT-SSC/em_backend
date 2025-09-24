@@ -16,7 +16,65 @@ from io import BytesIO
 from openpyxl import Workbook
 from django.http import HttpResponse
 from django.db import transaction
+from django.shortcuts import render, redirect
+from django import forms
+from django.conf import settings
+import http.client
+import json
+import ssl
+import certifi
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+SMSIR_API_KEY = getattr(settings, "SMSIR_API_KEY", None)
+SMSIR_LINE_NUMBER = getattr(settings, "SMSIR_LINE_NUMBER", None)
+
+def send_sms(phone_number: str, message: str) -> bool:
+    if not SMSIR_API_KEY or not SMSIR_LINE_NUMBER:
+        logging.error("sms.ir API key or LINE_NUMBER not set in settings.")
+        return False
+
+    try:
+        context = ssl.create_default_context(cafile=certifi.where())  # Trust certifi CA
+        conn = http.client.HTTPSConnection("api.sms.ir", context=context)
+
+        payload = json.dumps({
+            "lineNumber": SMSIR_LINE_NUMBER,
+            "messageText": message,
+            "mobiles": [phone_number],
+            "sendDateTime": None
+        })
+
+        headers = {
+            'X-API-KEY': SMSIR_API_KEY,
+            'Content-Type': 'application/json'
+        }
+
+        conn.request("POST", "/v1/send/bulk", payload, headers)
+        res = conn.getresponse()
+        data = res.read()
+        response_text = data.decode("utf-8").strip()
+
+        logging.info(f"sms.ir response: {response_text}")
+
+        if not response_text:
+            logging.error("sms.ir returned empty response")
+            return False
+
+        response_json = json.loads(response_text)
+        if response_json.get("status") == 1:
+            print("SMS sent successfully ✅")
+            return True
+        else:
+            logging.error(f"Failed to send SMS: {response_text}")
+            return False
+
+    except Exception as e:
+        logging.error(f"Exception sending SMS: {e}")
+        return False
 
 def _format_datetime(dt):
     local_dt = timezone.localtime(dt)
@@ -333,6 +391,10 @@ class PresenterAdmin(admin.ModelAdmin):
     search_fields = ("name", "email", "bio")
 
 
+class SMSForm(forms.Form):
+    _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
+    message = forms.CharField(widget=forms.Textarea(attrs={"rows": 4, "cols": 50}), label="SMS Message")
+
 @admin.register(Presentation)
 class PresentationAdmin(admin.ModelAdmin):
     list_display = ("title", "event", "type", "level", "start_time", "is_active", "is_paid")
@@ -341,7 +403,7 @@ class PresentationAdmin(admin.ModelAdmin):
     autocomplete_fields = ['event', 'presenters']
     filter_horizontal = ('presenters',)
     readonly_fields = ("poster_preview", "created_at")
-    actions = [send_presentation_reminder, export_presentation_enrollments, send_presentation_warning]
+    actions = [send_presentation_reminder, export_presentation_enrollments, send_presentation_warning, 'send_sms_to_participants']
     fieldsets = (
         (None, {
             "fields": (
@@ -354,6 +416,41 @@ class PresentationAdmin(admin.ModelAdmin):
         ("Media",   {"fields": ("poster", "poster_preview")}),
         ("Meta",    {"fields": ("created_at",)}),
     )
+
+    @admin.action(description="📩 Send SMS to Completed/Free Enrolled Users")
+    def send_sms_to_participants(self, request, queryset):
+        # Get selected IDs from POST or queryset
+        selected_ids = request.POST.getlist('_selected_action') or queryset.values_list('id', flat=True)
+        presentations = Presentation.objects.filter(pk__in=selected_ids)
+
+        if request.method == "POST" and "apply" in request.POST:
+            form = SMSForm(request.POST)
+            if form.is_valid():
+                message_text = form.cleaned_data["message"]
+                total_sent = 0
+                for pres in presentations:
+                    for enrollment in pres.enrollments.filter(status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).select_related('user'):
+                        phone = getattr(enrollment.user, "phone_number", None)
+                        if phone:
+                            print(f"Sending SMS to {phone}")  # debug logging
+                            send_sms(phone, message_text)
+                            total_sent += 1
+                self.message_user(request, f"✅ SMS sent to {total_sent} users.")
+                return None  # let admin redirect
+        else:
+            form = SMSForm(initial={"_selected_action": selected_ids})
+
+        return render(
+            request,
+            "send_sms.html",
+            {
+                "form": form,
+                "queryset": presentations,
+                "action": "send_sms_to_participants",
+                "title": "Send SMS to Completed/Free Enrolled Users",
+            },
+        )
+
 
     @admin.display(description="Poster Preview")
     def poster_preview(self, obj):

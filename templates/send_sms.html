@@ -1,0 +1,10 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Send Custom SMS</h1>
+<form method="post">{% csrf_token %}
+    {{ form.as_p }}
+    <input type="hidden" name="apply" value="1">
+    <input type="hidden" name="action" value="send_sms_to_participants">
+    <button type="submit" class="button default">Send SMS</button>
+</form>
+{% endblock %}
