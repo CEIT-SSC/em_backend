@@ -55,7 +55,6 @@ class DiscountCode(models.Model):
         limit_choices_to=(
                 models.Q(app_label='events', model='presentation') |
                 models.Q(app_label='events', model='solocompetition') |
-                models.Q(app_label='events', model='competitionteam') |
                 models.Q(app_label='shop', model='product')
         ),
         verbose_name="Discount target type"
@@ -225,7 +224,6 @@ class CartItem(models.Model):
     limit_to_models = (
             models.Q(app_label='events', model='presentation')
             | models.Q(app_label='events', model='solocompetition')
-            | models.Q(app_label='events', model='competitionteam')
             | models.Q(app_label='shop', model='product')
     )
     content_type = models.ForeignKey(
@@ -319,7 +317,12 @@ class Order(models.Model):
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items", verbose_name="Order")
-    limit_to_models_for_order = CartItem.limit_to_models
+    limit_to_models_for_order = (
+            models.Q(app_label='events', model='presentation')
+            | models.Q(app_label='events', model='solocompetition')
+            | models.Q(app_label='events', model='competitionteam')
+            | models.Q(app_label='shop', model='product')
+    )
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True,
                                      limit_choices_to=limit_to_models_for_order, verbose_name="Item Type")
     object_id = models.PositiveIntegerField(verbose_name="Item ID", null=True, blank=True)

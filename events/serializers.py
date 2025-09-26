@@ -16,8 +16,9 @@ CustomUser = get_user_model()
 class PresenterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Presenter
-        fields = ['id', 'name', 'email', 'bio', 'presenter_picture', 'created_at',]
-        read_only_fields = ['created_at',]
+        fields = ['id', 'name', 'email', 'bio', 'presenter_picture', 'created_at', ]
+        read_only_fields = ['created_at', ]
+
 
 @ts_interface()
 class PresentationSerializer(serializers.ModelSerializer):
@@ -38,7 +39,7 @@ class PresentationSerializer(serializers.ModelSerializer):
             'is_active', 'poster', 'remaining_capacity', "requirements",
         ]
         read_only_fields = ['event_title', ]
-    
+
     @extend_schema_field(OpenApiTypes.INT)
     def get_remaining_capacity(self, obj):
         if obj.capacity is None:
@@ -50,6 +51,7 @@ class PresentationSerializer(serializers.ModelSerializer):
             ]
         ).count()
         return max(obj.capacity - taken, 0)
+
 
 @ts_interface()
 class SoloCompetitionSerializer(serializers.ModelSerializer):
@@ -64,7 +66,7 @@ class SoloCompetitionSerializer(serializers.ModelSerializer):
             'max_participants', 'created_at', 'remaining_capacity',
         ]
         read_only_fields = ['event_title', 'created_at', ]
-    
+
     @extend_schema_field(OpenApiTypes.INT)
     def get_remaining_capacity(self, obj):
         if obj.max_participants is None:
@@ -76,6 +78,7 @@ class SoloCompetitionSerializer(serializers.ModelSerializer):
             ]
         ).count()
         return max(obj.max_participants - taken, 0)
+
 
 @ts_interface()
 class GroupCompetitionSerializer(serializers.ModelSerializer):
@@ -93,7 +96,7 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
             'created_at', 'remaining_capacity',
         ]
         read_only_fields = ['event_title', 'created_at', ]
-    
+
     @extend_schema_field(OpenApiTypes.INT)
     def get_remaining_capacity(self, obj):
         if obj.max_teams is None:
@@ -103,11 +106,11 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
                 CompetitionTeam.STATUS_ACTIVE,
                 CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
                 CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
-                # CompetitionTeam.STATUS_IN_CART,
                 CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
             ]
         ).count()
         return max(obj.max_teams - taken, 0)
+
 
 @ts_interface()
 class TeamMembershipUserDetailSerializer(serializers.ModelSerializer):
@@ -115,14 +118,16 @@ class TeamMembershipUserDetailSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = ['id', 'email', 'first_name', 'last_name', 'profile_picture']
 
+
 @ts_interface()
 class TeamMembershipSerializer(serializers.ModelSerializer):
     user_details = TeamMembershipUserDetailSerializer(source='user', read_only=True)
 
     class Meta:
         model = TeamMembership
-        fields = ['id', 'user_details', 'government_id_picture', 'joined_at']
+        fields = ['id', 'user_details', 'status', 'joined_at']
         read_only_fields = ['joined_at']
+
 
 @ts_interface()
 class ContentImageSerializer(serializers.ModelSerializer):
@@ -130,6 +135,7 @@ class ContentImageSerializer(serializers.ModelSerializer):
         model = ContentImage
         fields = ['id', 'image', 'caption', 'uploaded_at']
         read_only_fields = ['id', 'uploaded_at']
+
 
 @ts_interface()
 class TeamContentSerializer(serializers.ModelSerializer):
@@ -187,107 +193,61 @@ class TeamContentSerializer(serializers.ModelSerializer):
                 ContentImage.objects.create(team_content=instance, image=image_data)
         return instance
 
+
 @ts_interface()
 class CompetitionTeamDetailSerializer(serializers.ModelSerializer):
     leader_details = TeamMembershipUserDetailSerializer(source='leader', read_only=True)
-    group_competition_title = serializers.CharField(source='group_competition.title', read_only=True)
+    group_competition_details = GroupCompetitionSerializer(source='group_competition', read_only=True)
     memberships = TeamMembershipSerializer(many=True, read_only=True)
     content_submission = TeamContentSerializer(read_only=True, required=False)
 
     class Meta:
         model = CompetitionTeam
         fields = [
-            'id', 'name', 'leader_details', 'group_competition_title',
+            'id', 'name', 'leader_details', 'group_competition_details',
             'status', 'is_approved_by_admin', 'admin_remarks',
             'memberships', 'content_submission',
             'created_at',
         ]
         read_only_fields = fields
 
-@ts_interface()
-class MemberDetailSubmitSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    government_id_picture = serializers.ImageField(required=False, allow_null=True, allow_empty_file=True)
 
 @ts_interface()
-class CompetitionTeamSubmitSerializer(serializers.Serializer):
+class TeamCreateSerializer(serializers.Serializer):
     team_name = serializers.CharField(max_length=255)
-    member_details = MemberDetailSubmitSerializer(many=True, required=True)
+    member_emails = serializers.ListField(
+        child=serializers.EmailField(),
+        required=False,
+        allow_empty=True
+    )
 
-    def validate(self, attrs):
-        team_name = attrs.get('team_name')
-        member_details_list = attrs.get('member_details')
+    def validate_team_name(self, value):
+        if CompetitionTeam.objects.filter(name__iexact=value).exists():
+            raise serializers.ValidationError("A team with this name already exists.")
+        return value
 
-        group_competition = self.context.get('group_competition')
+    def validate_member_emails(self, emails):
         request = self.context.get('request')
-        if not group_competition or not request:
-            raise serializers.ValidationError("Context missing (group_competition or request).")
-        leader_user = request.user
+        leader_email = request.user.email.lower()
 
-        if CompetitionTeam.objects.filter(group_competition=group_competition, name__iexact=team_name).exists():
-            raise serializers.ValidationError(
-                {"team_name": f"A team with this name already exists for this competition."})
+        cleaned_emails = [email.lower() for email in emails]
 
-        num_total_members = len(member_details_list) + 1
-        if not (group_competition.min_group_size <= num_total_members <= group_competition.max_group_size):
-            raise serializers.ValidationError(
-                {
-                    "member_details": f"Team size (leader + members) must be between {group_competition.min_group_size} and {group_competition.max_group_size}. Submitted: {num_total_members}"}
-            )
+        if leader_email in cleaned_emails:
+            raise serializers.ValidationError("Leader cannot be in the member list.")
+        if len(cleaned_emails) != len(set(cleaned_emails)):
+            raise serializers.ValidationError("Duplicate emails found in the member list.")
 
-        all_proposed_emails_for_check = [leader_user.email.lower()]
-        validated_member_users_data = []
+        for email in cleaned_emails:
+            if not CustomUser.objects.filter(email__iexact=email).exists():
+                raise serializers.ValidationError(f"User with email '{email}' not found.")
 
-        for index, member_data in enumerate(member_details_list):
-            email = member_data.get('email', '').lower()
-            gov_id_pic = member_data.get('government_id_picture')
+        return cleaned_emails
 
-            if not email:
-                raise serializers.ValidationError(
-                    {f"member_details.[{index}].email": "Email is required for all members."})
 
-            if group_competition.requires_admin_approval and not gov_id_pic:
-                raise serializers.ValidationError({
-                                                      f"member_details.[{index}].government_id_picture": "Government ID picture is required for this competition."})
+@ts_interface()
+class InviteActionSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=['accept', 'reject'])
 
-            try:
-                user_instance = CustomUser.objects.get(email__iexact=email)
-                if user_instance == leader_user:
-                    raise serializers.ValidationError(
-                        {f"member_details.[{index}].email": "Leader cannot be listed as an additional member."})
-
-                if TeamMembership.objects.filter(
-                        user=user_instance, team__group_competition=group_competition,
-                        team__status__in=[CompetitionTeam.STATUS_ACTIVE,
-                                          CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
-                                          CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-                                          CompetitionTeam.STATUS_IN_CART,
-                                          CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION]
-                ).exists():
-                    raise serializers.ValidationError({
-                                                          f"member_details.[{index}].email": f"User '{email}' is already in another team for this competition."})
-                validated_member_users_data.append(
-                    {'user_instance': user_instance, 'government_id_picture': gov_id_pic})
-                all_proposed_emails_for_check.append(email)
-            except CustomUser.DoesNotExist:
-                raise serializers.ValidationError(
-                    {f"member_details.[{index}].email": f"User with email '{email}' not found."})
-
-        if len(all_proposed_emails_for_check) != len(set(all_proposed_emails_for_check)):
-            raise serializers.ValidationError(
-                {"member_details": "Duplicate emails provided for team members or leader."})
-
-        if TeamMembership.objects.filter(
-                user=leader_user, team__group_competition=group_competition,
-                team__status__in=[CompetitionTeam.STATUS_ACTIVE, CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
-                                  CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT, CompetitionTeam.STATUS_IN_CART,
-                                  CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION]
-        ).exists():
-            raise serializers.ValidationError(
-                {"leader": "You (leader) are already in another team for this competition."})
-
-        attrs['validated_member_users_data'] = validated_member_users_data
-        return attrs
 
 @ts_interface()
 class ContentLikeSerializer(serializers.ModelSerializer):
@@ -298,10 +258,12 @@ class ContentLikeSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'user_email', 'team_content', 'created_at']
         read_only_fields = ['user', 'user_email', 'team_content', 'created_at']
 
+
 @ts_interface()
 class LikeStatusSerializer(serializers.Serializer):
-    liked         = serializers.BooleanField()
-    likes_count   = serializers.IntegerField()
+    liked = serializers.BooleanField()
+    likes_count = serializers.IntegerField()
+
 
 @ts_interface()
 class ContentCommentSerializer(serializers.ModelSerializer):
@@ -312,19 +274,23 @@ class ContentCommentSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'user_details', 'team_content', 'text', 'created_at', ]
         read_only_fields = ['user', 'user_details', 'team_content', 'created_at', ]
 
+
 @ts_interface()
 class CommentListSerializer(serializers.Serializer):
-    parent_content_id           = serializers.IntegerField()
-    parent_content_likes_count  = serializers.IntegerField()
-    comments                    = ContentCommentSerializer(many=True)
+    parent_content_id = serializers.IntegerField()
+    parent_content_likes_count = serializers.IntegerField()
+    comments = ContentCommentSerializer(many=True)
+
 
 @ts_interface()
 class CommentCreateSerializer(serializers.Serializer):
     text = serializers.CharField()
 
+
 @ts_interface()
 class CommentUpdateSerializer(serializers.Serializer):
     text = serializers.CharField()
+
 
 @ts_interface()
 class EventDetailSerializer(serializers.ModelSerializer):
@@ -341,12 +307,14 @@ class EventDetailSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', ]
 
+
 @ts_interface()
 class EventListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
         fields = ['id', 'title', 'start_date', 'end_date', 'poster',
                   'is_active', 'landing_url', 'description', 'manager']
+
 
 @ts_interface()
 class PresentationEnrollmentSerializer(serializers.ModelSerializer):
@@ -358,6 +326,7 @@ class PresentationEnrollmentSerializer(serializers.ModelSerializer):
         fields = ['id', 'user_email', 'presentation_title', 'status', 'enrolled_at', 'order_item']
         read_only_fields = fields
 
+
 @ts_interface()
 class SoloCompetitionRegistrationSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source='user.email', read_only=True)
@@ -368,16 +337,18 @@ class SoloCompetitionRegistrationSerializer(serializers.ModelSerializer):
         fields = ['id', 'user_email', 'solo_competition_title', 'status', 'registered_at', 'order_item']
         read_only_fields = fields
 
+
 @ts_interface()
 class PostListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Post
-        fields = ["id", "title", "excerpt", "published_at",]
+        fields = ["id", "title", "excerpt", "published_at", ]
         read_only_fields = fields
+
 
 @ts_interface()
 class PostDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Post
-        fields = ["id", "title", "excerpt", "body_markdown", "published_at",]
+        fields = ["id", "title", "excerpt", "body_markdown", "published_at", ]
         read_only_fields = fields
