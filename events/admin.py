@@ -16,14 +16,13 @@ from io import BytesIO
 from openpyxl import Workbook
 from django.http import HttpResponse
 from django.db import transaction
-from django.shortcuts import render, redirect
+from django.shortcuts import render
 from django import forms
 from django.conf import settings
 import http.client
 import json
 import ssl
 import certifi
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,7 @@ def send_sms(phone_number: str, message: str) -> bool:
         return False
 
     try:
-        context = ssl.create_default_context(cafile=certifi.where())  # Trust certifi CA
+        context = ssl.create_default_context(cafile=certifi.where())
         conn = http.client.HTTPSConnection("api.sms.ir", context=context)
 
         payload = json.dumps({
@@ -66,7 +65,7 @@ def send_sms(phone_number: str, message: str) -> bool:
 
         response_json = json.loads(response_text)
         if response_json.get("status") == 1:
-            print("SMS sent successfully ✅")
+            print("SMS sent successfully")
             return True
         else:
             logging.error(f"Failed to send SMS: {response_text}")
@@ -241,56 +240,52 @@ def send_solo_competition_reminder(modeladmin, request, queryset):
         total += len(emails)
     messages.success(request, f'{total} emails sent.')
 
+
 @admin.action(description='Export solo competition participants to Excel (.xlsx)')
 def export_solo_competition_registrations(modeladmin, request, queryset):
-    wb = Workbook()
-    default_sheet = wb.active
-    wb.remove(default_sheet)
+    registrations = SoloCompetitionRegistration.objects.filter(
+        solo_competition__in=queryset,
+        status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
+    ).select_related('user', 'solo_competition')
 
-    total_rows = 0
-    for comp in queryset:
-        safe_title = re.sub(r'[^0-9a-zA-Z\u0600-\u06FF ]+', '_', comp.title or "")
-        sheet_name = f"{comp.id}_{safe_title}"[:31]
-        ws = wb.create_sheet(title=sheet_name)
+    users_map = {}
+    for reg in registrations:
+        user = reg.user
+        if not user:
+            continue
 
-        headers = [
-            "user_id", "full_name", "email", "phone_number",
-            "status", "order_item_id", "registered_at"
-        ]
-        ws.append(headers)
+        user_info = users_map.setdefault(user.id, {
+            'full_name': user.get_full_name() or user.email,
+            'email': user.email,
+            'phone_number': getattr(user, 'phone_number', ''),
+            'competitions': set()
+        })
+        user_info['competitions'].add(reg.solo_competition.title)
 
-        registrations = comp.registrations.select_related('user', 'order_item').all()
-        for reg in registrations:
-            user = reg.user
-            user_id = getattr(user, 'id', '') if user else ''
-            email = getattr(user, 'email', '') if user else ''
-            full_name = getattr(user, 'get_full_name', None)
-            if callable(full_name):
-                full_name = full_name()
-            else:
-                full_name = getattr(user, 'first_name', '') or getattr(user, 'username', '') or email
-
-            phone_number = getattr(user, 'phone_number', '') if user else ''
-            status = reg.get_status_display() if hasattr(reg, 'get_status_display') else reg.status
-            order_item_id = reg.order_item.id if getattr(reg, 'order_item', None) else ''
-            registered_at = _format_datetime(reg.registered_at) if reg.registered_at else ''
-
-            ws.append([user_id, full_name, email, phone_number, status, order_item_id, registered_at])
-            total_rows += 1
-
-        ws.append([])
-        ws.append([f"Exported from admin at {datetime.datetime.utcnow().isoformat()}Z"])
-
-    if total_rows == 0:
-        modeladmin.message_user(request, "No participants found for the selected solo competitions.", level=messages.WARNING)
+    if not users_map:
+        modeladmin.message_user(request, "No completed registrations found for the selected competitions.",
+                                level=messages.WARNING)
         return
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Participants"
+    headers = ["full_name", "email", "phone_number", "solo_competitions_owned"]
+    ws.append(headers)
+
+    for user_id, info in users_map.items():
+        ws.append([
+            info['full_name'],
+            info['email'],
+            info['phone_number'],
+            ", ".join(sorted(info['competitions']))
+        ])
 
     output = BytesIO()
     wb.save(output)
     output.seek(0)
     ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"solo_competition_participants_{ts}.xlsx"
-
     response = HttpResponse(
         output.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -321,68 +316,61 @@ def send_group_competition_reminder(modeladmin, request, queryset):
         total += len(emails_set)
     messages.success(request, f'{total} emails sent.')
 
+
 @admin.action(description='Export group competition teams and members to Excel (.xlsx)')
 def export_group_competition_teams(modeladmin, request, queryset):
-    wb = Workbook()
-    default_sheet = wb.active
-    wb.remove(default_sheet)
+    teams = CompetitionTeam.objects.filter(
+        group_competition__in=queryset,
+        status=CompetitionTeam.STATUS_ACTIVE
+    ).select_related('group_competition').prefetch_related('memberships__user')
 
-    total_rows = 0
-    for comp in queryset:
-        safe_title = re.sub(r'[^0-9a-zA-Z\u0600-\u06FF ]+', '_', comp.title or "")
-        sheet_name = f"{comp.id}_{safe_title}"[:31]
-        ws = wb.create_sheet(title=sheet_name)
+    users_map = {}
+    for team in teams:
+        for membership in team.memberships.filter(status=TeamMembership.STATUS_ACCEPTED):
+            user = membership.user
+            if not user:
+                continue
 
-        headers = [
-            "team_id", "team_name",
-            "leader_email",
-            "member_name", "member_email", "member_phone",
-            "status", "joined_at"
-        ]
-        ws.append(headers)
+            user_info = users_map.setdefault(user.id, {
+                'full_name': user.get_full_name() or user.email,
+                'email': user.email,
+                'phone_number': getattr(user, 'phone_number', ''),
+                'teams': set(),
+                'competitions': set()
+            })
+            user_info['teams'].add(team.name)
+            user_info['competitions'].add(team.group_competition.title)
 
-        teams = comp.teams.select_related('leader').prefetch_related('memberships__user').all()
-        for team in teams:
-            leader_email = team.leader.email if team.leader else ''
-            status = team.status
-
-            memberships = team.memberships.select_related('user').all()
-            if memberships:
-                for mem in memberships:
-                    user = mem.user
-                    member_name = user.get_full_name() if hasattr(user, 'get_full_name') else getattr(user, 'username', '')
-                    member_email = user.email if user else ''
-                    member_phone = getattr(user, 'phone_number', '') if user else ''
-                    joined_at = _format_datetime(mem.joined_at) if mem.joined_at else ''
-                    ws.append([team.id, team.name, leader_email,
-                               member_name, member_email, member_phone,
-                               status, joined_at])
-                    total_rows += 1
-            else:
-                ws.append([team.id, team.name, leader_email,
-                           '', '', '', status, ''])
-                total_rows += 1
-
-        ws.append([])
-        ws.append([f"Exported from admin at {datetime.datetime.utcnow().isoformat()}Z"])
-
-    if total_rows == 0:
-        modeladmin.message_user(request, "No teams found for the selected group competitions.", level=messages.WARNING)
+    if not users_map:
+        modeladmin.message_user(request, "No active team members found for the selected competitions.", level=messages.WARNING)
         return
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Participants"
+    headers = ["full_name", "email", "phone_number", "team_names", "group_competitions_attended"]
+    ws.append(headers)
+
+    for user_id, info in users_map.items():
+        ws.append([
+            info['full_name'],
+            info['email'],
+            info['phone_number'],
+            ", ".join(sorted(info['teams'])),
+            ", ".join(sorted(info['competitions']))
+        ])
 
     output = BytesIO()
     wb.save(output)
     output.seek(0)
     ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"group_competition_teams_{ts}.xlsx"
-
+    filename = f"group_competition_participants_{ts}.xlsx"
     response = HttpResponse(
         output.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
-
 
 
 @admin.register(Presenter)
@@ -394,6 +382,7 @@ class PresenterAdmin(admin.ModelAdmin):
 class SMSForm(forms.Form):
     _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
     message = forms.CharField(widget=forms.Textarea(attrs={"rows": 4, "cols": 50}), label="SMS Message")
+
 
 @admin.register(Presentation)
 class PresentationAdmin(admin.ModelAdmin):
@@ -417,9 +406,8 @@ class PresentationAdmin(admin.ModelAdmin):
         ("Meta",    {"fields": ("created_at",)}),
     )
 
-    @admin.action(description="📩 Send SMS to Completed/Free Enrolled Users")
+    @admin.action(description="Send SMS to Completed/Free Enrolled Users")
     def send_sms_to_participants(self, request, queryset):
-        # Get selected IDs from POST or queryset
         selected_ids = request.POST.getlist('_selected_action') or queryset.values_list('id', flat=True)
         presentations = Presentation.objects.filter(pk__in=selected_ids)
 
@@ -432,11 +420,11 @@ class PresentationAdmin(admin.ModelAdmin):
                     for enrollment in pres.enrollments.filter(status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).select_related('user'):
                         phone = getattr(enrollment.user, "phone_number", None)
                         if phone:
-                            print(f"Sending SMS to {phone}")  # debug logging
+                            print(f"Sending SMS to {phone}")
                             send_sms(phone, message_text)
                             total_sent += 1
-                self.message_user(request, f"✅ SMS sent to {total_sent} users.")
-                return None  # let admin redirect
+                self.message_user(request, f"SMS sent to {total_sent} users.")
+                return None
         else:
             form = SMSForm(initial={"_selected_action": selected_ids})
 
@@ -524,6 +512,7 @@ class TeamMembershipInline(admin.TabularInline):
     autocomplete_fields = ['user']
     readonly_fields = ('joined_at',)
     ordering = ('-joined_at',)
+    fields = ('user', 'status', 'joined_at')
 
 
 class ContentImageInline(admin.TabularInline):

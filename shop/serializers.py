@@ -67,7 +67,6 @@ class CartItemSerializer(serializers.ModelSerializer):
 class CartSerializer(serializers.ModelSerializer):
     presentations = serializers.SerializerMethodField()
     solo_competitions = serializers.SerializerMethodField()
-    competition_teams = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
     discount_code = serializers.CharField(
         source='applied_discount_code.code', read_only=True, allow_null=True
@@ -83,7 +82,6 @@ class CartSerializer(serializers.ModelSerializer):
             'discount_code',
             'presentations',
             'solo_competitions',
-            'competition_teams',
             'products',
             'subtotal_amount',
             'discount_amount',
@@ -104,10 +102,6 @@ class CartSerializer(serializers.ModelSerializer):
     def get_solo_competitions(self, obj):
         return SoloCompetitionSerializer(self._get_items_by_type(obj, SoloCompetition), many=True,
                                          context=self.context).data
-
-    def get_competition_teams(self, obj):
-        return CompetitionTeamDetailSerializer(self._get_items_by_type(obj, CompetitionTeam), many=True,
-                                               context=self.context).data
 
     def get_products(self, obj):
         return ProductSerializer(self._get_items_by_type(obj, Product), many=True, context=self.context).data
@@ -148,7 +142,7 @@ class CartSerializer(serializers.ModelSerializer):
 
 @ts_interface()
 class AddToCartSerializer(serializers.Serializer):
-    item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'competition_team', 'product'])
+    item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'product'])
     item_id = serializers.IntegerField()
 
 

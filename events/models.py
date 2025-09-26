@@ -126,6 +126,7 @@ class GroupCompetition(BaseCompetition):
         verbose_name_plural = "Group Competitions"
 
 class CompetitionTeam(models.Model):
+    STATUS_FORMING = "forming"
     STATUS_PENDING_ADMIN_VERIFICATION = "pending_admin_verification"
     STATUS_REJECTED_BY_ADMIN = "rejected_by_admin"
     STATUS_APPROVED_AWAITING_PAYMENT = "approved_awaiting_payment"
@@ -136,6 +137,7 @@ class CompetitionTeam(models.Model):
     STATUS_CANCELLED = "cancelled"
 
     TEAM_STATUS_CHOICES = [
+        (STATUS_FORMING, "Forming"),
         (STATUS_PENDING_ADMIN_VERIFICATION, "Pending Admin Verification"),
         (STATUS_REJECTED_BY_ADMIN, "Rejected by Admin"),
         (STATUS_APPROVED_AWAITING_PAYMENT, "Approved - Awaiting Payment"),
@@ -146,34 +148,43 @@ class CompetitionTeam(models.Model):
         (STATUS_CANCELLED, "Cancelled"),
     ]
 
-    name = models.CharField(max_length=255, verbose_name="Team Name")
+    name = models.CharField(max_length=255, verbose_name="Team Name", unique=True)
     leader = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="led_teams", verbose_name="Team Leader")
-    group_competition = models.ForeignKey(GroupCompetition, on_delete=models.CASCADE, related_name="teams", verbose_name="Parent Group Competition")
-    status = models.CharField(max_length=40, choices=TEAM_STATUS_CHOICES, default=STATUS_IN_CART, verbose_name="Team Status")
+    group_competition = models.ForeignKey(GroupCompetition, on_delete=models.SET_NULL, related_name="teams", verbose_name="Parent Group Competition", null=True, blank=True)
+    status = models.CharField(max_length=40, choices=TEAM_STATUS_CHOICES, default=STATUS_FORMING, verbose_name="Team Status")
     is_approved_by_admin = models.BooleanField(default=False, verbose_name="Has Admin Approved?")
     admin_remarks = models.TextField(blank=True, null=True, verbose_name="Admin Remarks")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.name} for {self.group_competition.title} (Leader: {self.leader.email})"
+        return f"{self.name} (Leader: {self.leader.email})"
 
     class Meta:
         verbose_name = "Competition Team"
         verbose_name_plural = "Competition Teams"
-        unique_together = ('group_competition', 'name')
         ordering = ['-created_at', 'name']
 
-    def needs_admin_approval(self):
-        return self.group_competition.requires_admin_approval
+    def is_ready_for_competition(self):
+        return self.memberships.filter(status=TeamMembership.STATUS_PENDING).count() == 0
 
 class TeamMembership(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_ACCEPTED = "accepted"
+    STATUS_REJECTED = "rejected"
+
+    MEMBERSHIP_STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_ACCEPTED, "Accepted"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
+
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="team_memberships", verbose_name="User")
     team = models.ForeignKey(CompetitionTeam, on_delete=models.CASCADE, related_name="memberships", verbose_name="Team")
-    government_id_picture = models.ImageField(upload_to='gov_ids/%Y/%m/', blank=True, null=True, verbose_name="Government ID Picture")
+    status = models.CharField(max_length=10, choices=MEMBERSHIP_STATUS_CHOICES, default=STATUS_PENDING)
     joined_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.user.email} in {self.team.name}"
+        return f"{self.user.email} in {self.team.name} ({self.get_status_display()})"
 
     class Meta:
         verbose_name = "Team Membership"
@@ -312,6 +323,8 @@ class SoloCompetitionRegistration(models.Model):
 
     def __str__(self):
         return f"{self.user.email} registered for {self.solo_competition.title} ({self.get_status_display()})"
+
+
 class Post(models.Model):
     title = models.CharField(max_length=255)
     excerpt = models.TextField(
