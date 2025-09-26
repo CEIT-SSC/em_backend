@@ -522,6 +522,7 @@ class TeamMembershipInline(admin.TabularInline):
     autocomplete_fields = ['user']
     readonly_fields = ('joined_at',)
     ordering = ('-joined_at',)
+    fields = ('user', 'status', 'joined_at')
 
 
 class ContentImageInline(admin.TabularInline):

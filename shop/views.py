@@ -588,6 +588,7 @@ class OrderCheckoutView(views.APIView):
 @extend_schema(
     tags=['Shop - Orders & Payment'],
     summary="Initiate payment for an order via Zarinpal",
+    request=OrderPaymentInitiateSerializer,
     responses={
         200: get_api_response_serializer(PaymentInitiateResponseSerializer),
         400: ApiErrorResponseSerializer,
@@ -727,6 +728,7 @@ class OrderPaymentInitiateView(views.APIView):
 @extend_schema(
     tags=['Shop - Orders & Payment'],
     summary="Initiate payment directly from cart (create order + payment link)",
+    request=OrderPaymentInitiateSerializer,
     parameters=[OpenApiParameter(name='event', description='Event ID', required=False, type=int)],
     responses={200: get_api_response_serializer(PaymentInitiateResponseSerializer),
                400: ApiErrorResponseSerializer, 500: ApiErrorResponseSerializer}
@@ -814,7 +816,7 @@ class CartPaymentInitiateView(views.APIView):
                 discount_amount=discount_amount,
                 total_amount=total_amount,
                 status=Order.STATUS_PENDING_PAYMENT,
-                redirect_app=app_slug or None,
+                redirect_app=app_slug,
             )
             for ci in cart_items.select_related('content_type'):
                 OrderItem.objects.create(
@@ -939,15 +941,23 @@ class PaymentCallbackView(views.APIView):
         authority = request.GET.get('Authority')
         status_param = request.GET.get('Status')
 
+        # --- Default Redirect URL ---
         frontend_url = getattr(settings, 'FRONTEND_URL', '')
-        callback_path = "/payment/callback/"
+        base_redirect_url = f"{frontend_url}/payment/callback"
+        # ---
 
         if not authority:
             logger.warning("Zarinpal callback: Authority missing.")
             params = urlencode({'success': 'false', 'message': 'Invalid callback parameters'})
-            return redirect(f"{frontend_url}{callback_path}?{params}")
+            return redirect(f"{base_redirect_url}?{params}")
 
         order = get_object_or_404(Order, payment_gateway_authority=authority)
+
+        # --- dynamic redirect logic, as requested ---
+        # app_slug = order.redirect_app
+        # redirects_map = getattr(settings, 'PAYMENT_APP_REDIRECTS', {})
+        # base_redirect_url = redirects_map.get(app_slug, redirects_map.get('web', f"{frontend_url}/payment/callback"))
+        # ---
 
         z = ZarrinPal()
 
@@ -974,7 +984,7 @@ class PaymentCallbackView(views.APIView):
                         params = urlencode({
                             "success": "false",
                             "message": "Payment was superseded by a newer link and has been reversed.",
-                            "order_id": order.order_id,
+                            "order_id": str(order.order_id),
                         })
                     else:
                         order.status = Order.STATUS_REFUND_FAILED
@@ -982,19 +992,19 @@ class PaymentCallbackView(views.APIView):
                         params = urlencode({
                             "success": "false",
                             "message": "Payment verified but superseded; reverse failed. Please contact support.",
-                            "order_id": order.order_id,
+                            "order_id": str(order.order_id),
                         })
-                    return redirect(f"{frontend_url}{callback_path}?{params}")
+                    return redirect(f"{base_redirect_url}?{params}")
 
                 if order.status == Order.STATUS_COMPLETED:
                     params = urlencode(
-                        {'success': 'true', 'message': 'Payment already completed', 'order_id': order.order_id})
-                    return redirect(f"{frontend_url}{callback_path}?{params}")
+                        {'success': 'true', 'message': 'Payment already completed', 'order_id': str(order.order_id)})
+                    return redirect(f"{base_redirect_url}?{params}")
 
                 if order.status in {Order.STATUS_REFUNDED, Order.STATUS_REFUND_FAILED, Order.STATUS_CANCELLED}:
-                    params = urlencode(
-                        {'success': 'false', 'message': 'Order is not payable anymore', 'order_id': order.order_id})
-                    return redirect(f"{frontend_url}{callback_path}?{params}")
+                    params = urlencode({'success': 'false', 'message': 'Order is not payable anymore',
+                                        'order_id': str(order.order_id)})
+                    return redirect(f"{base_redirect_url}?{params}")
 
                 if order.status in FINALIZABLE:
                     with transaction.atomic():
@@ -1013,22 +1023,23 @@ class PaymentCallbackView(views.APIView):
                                 ).delete()
                         except Cart.DoesNotExist:
                             pass
-                    params = urlencode({'success': 'true', 'message': 'Payment successful', 'order_id': order.order_id})
-                    return redirect(f"{frontend_url}{callback_path}?{params}")
+                    params = urlencode(
+                        {'success': 'true', 'message': 'Payment successful', 'order_id': str(order.order_id)})
+                    return redirect(f"{base_redirect_url}?{params}")
             else:
                 order.status = Order.STATUS_PAYMENT_FAILED
                 order.save()
                 _release_reservations_for_orders(order)
                 params = urlencode(
-                    {'success': 'false', 'message': 'Payment verification failed', 'order_id': order.order_id})
-                return redirect(f"{frontend_url}{callback_path}?{params}")
+                    {'success': 'false', 'message': 'Payment verification failed', 'order_id': str(order.order_id)})
+                return redirect(f"{base_redirect_url}?{params}")
         else:
             order.status = Order.STATUS_PAYMENT_FAILED
             order.save()
             _release_reservations_for_orders(order)
             params = urlencode(
-                {'success': 'false', 'message': 'Payment cancelled or failed', 'order_id': order.order_id})
-            return redirect(f"{frontend_url}{callback_path}?{params}")
+                {'success': 'false', 'message': 'Payment cancelled or failed', 'order_id': str(order.order_id)})
+            return redirect(f"{base_redirect_url}?{params}")
 
 
 @extend_schema(tags=['Shop - Orders & Payment'])
