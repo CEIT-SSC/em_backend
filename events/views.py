@@ -2,6 +2,7 @@ from django.db import transaction, models
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
@@ -202,8 +203,8 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
         instance = self.get_object()
         if instance.leader != request.user:
             return Response({"error": "Only the team leader can delete the team."}, status=status.HTTP_403_FORBIDDEN)
-        if instance.status != CompetitionTeam.STATUS_FORMING:
-            return Response({"error": "Only teams in the 'forming' state can be deleted."},
+        if instance.status == CompetitionTeam.STATUS_ACTIVE:
+            return Response({"error": "Teams is already active."},
                             status=status.HTTP_400_BAD_REQUEST)
 
         self.perform_destroy(instance)
@@ -227,6 +228,14 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
                             status=status.HTTP_400_BAD_REQUEST)
 
         competition = get_object_or_404(GroupCompetition, pk=competition_pk)
+
+        if not competition.is_active or not competition.event.is_active:
+            return Response({"error": "This competition is not active or available for registration."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if competition.start_datetime and timezone.now() > competition.start_datetime:
+            return Response({"error": "The registration deadline for this competition has passed."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         team_size = team.memberships.filter(status=TeamMembership.STATUS_ACCEPTED).count()
         if not (competition.min_group_size <= team_size <= competition.max_group_size):

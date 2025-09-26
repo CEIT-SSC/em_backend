@@ -865,7 +865,8 @@ class TeamPaymentInitiateView(views.APIView):
         if team.leader != user:
             return Response({"error": "Only the team leader can pay for the team."}, status=status.HTTP_403_FORBIDDEN)
 
-        if team.status != CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT:
+        if team.status not in [CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
+                               CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION]:
             return Response({"error": "This team is not awaiting payment."}, status=status.HTTP_400_BAD_REQUEST)
 
         competition = team.group_competition

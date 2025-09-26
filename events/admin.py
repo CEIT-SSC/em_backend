@@ -65,7 +65,7 @@ def send_sms(phone_number: str, message: str) -> bool:
 
         response_json = json.loads(response_text)
         if response_json.get("status") == 1:
-            print("SMS sent successfully ✅")
+            print("SMS sent successfully")
             return True
         else:
             logging.error(f"Failed to send SMS: {response_text}")
@@ -416,7 +416,7 @@ class PresentationAdmin(admin.ModelAdmin):
         ("Meta",    {"fields": ("created_at",)}),
     )
 
-    @admin.action(description="📩 Send SMS to Completed/Free Enrolled Users")
+    @admin.action(description="Send SMS to Completed/Free Enrolled Users")
     def send_sms_to_participants(self, request, queryset):
         selected_ids = request.POST.getlist('_selected_action') or queryset.values_list('id', flat=True)
         presentations = Presentation.objects.filter(pk__in=selected_ids)
@@ -433,7 +433,7 @@ class PresentationAdmin(admin.ModelAdmin):
                             print(f"Sending SMS to {phone}")
                             send_sms(phone, message_text)
                             total_sent += 1
-                self.message_user(request, f"✅ SMS sent to {total_sent} users.")
+                self.message_user(request, f"SMS sent to {total_sent} users.")
                 return None
         else:
             form = SMSForm(initial={"_selected_action": selected_ids})
