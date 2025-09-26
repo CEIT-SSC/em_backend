@@ -366,7 +366,9 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
             liked = False
         else:
             liked = True
-        return Response({"liked": liked, "likes_count": content.likes.count()}, status=status.HTTP_200_OK)
+
+        fresh_likes_count = ContentLike.objects.filter(team_content=content).count()
+        return Response({"liked": liked, "likes_count": fresh_likes_count}, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="List comments for a Team Content Submission",
