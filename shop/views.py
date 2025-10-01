@@ -233,7 +233,7 @@ class CartItemView(views.APIView):
         request=AddToCartSerializer,
         responses={
             200: get_api_response_serializer(CartSerializer),
-            201: "Success (Enrolled in free item)",
+            201: get_api_response_serializer(None),
             400: ApiErrorResponseSerializer,
             403: ApiErrorResponseSerializer,
             404: ApiErrorResponseSerializer,
@@ -1095,7 +1095,7 @@ class OrderHistoryViewSet(viewsets.ReadOnlyModelViewSet):
             description="Event ID to filter purchases by. If omitted, returns all purchases."
         ),
     ],
-    responses={200: get_paginated_response_serializer(UserPurchasesSerializer)}
+    responses={200: get_api_response_serializer(UserPurchasesSerializer)}
 )
 class UserPurchasesView(views.APIView):
     permission_classes = [IsAuthenticated]
