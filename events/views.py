@@ -261,7 +261,7 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
 
         competition = get_object_or_404(GroupCompetition, pk=competition_pk)
 
-        if not competition.is_active or not competition.event.is_active:
+        if not competition.is_active or (competition.event and not competition.event.is_active):
             return Response({"error": "This competition is not active or available for registration."},
                             status=status.HTTP_400_BAD_REQUEST)
 
