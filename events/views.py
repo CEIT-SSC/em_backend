@@ -235,9 +235,9 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
         instance = self.get_object()
         if instance.leader != request.user:
             return Response({"error": "Only the team leader can delete the team."}, status=status.HTTP_403_FORBIDDEN)
-        if instance.status == CompetitionTeam.STATUS_ACTIVE:
-            return Response({"error": "Teams is already active."},
-                            status=status.HTTP_400_BAD_REQUEST)
+        # if instance.status == CompetitionTeam.STATUS_ACTIVE:
+        #     return Response({"error": "Teams is already active."},
+        #                     status=status.HTTP_400_BAD_REQUEST)
 
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -261,6 +261,40 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
 
         competition = get_object_or_404(GroupCompetition, pk=competition_pk)
 
+        current_team_member_ids = list(team.memberships.filter(
+            status=TeamMembership.STATUS_ACCEPTED
+        ).values_list('user_id', flat=True))
+
+        registered_statuses = [
+            CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
+            CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
+            CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
+            CompetitionTeam.STATUS_ACTIVE,
+        ]
+
+        other_teams_in_comp = CompetitionTeam.objects.filter(
+            group_competition=competition,
+            status__in=registered_statuses
+        ).exclude(pk=team.id)
+
+        conflicting_leader_team = other_teams_in_comp.filter(leader_id__in=current_team_member_ids).first()
+        if conflicting_leader_team:
+            conflicting_user = CustomUser.objects.get(pk=conflicting_leader_team.leader_id)
+            return Response({
+                "error": f"A member of your team ({conflicting_user.get_full_name() or conflicting_user.email}) is already the leader of another team ('{conflicting_leader_team.name}') in this competition."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        conflicting_membership = TeamMembership.objects.filter(
+            team__in=other_teams_in_comp,
+            user_id__in=current_team_member_ids,
+            status=TeamMembership.STATUS_ACCEPTED
+        ).select_related('user', 'team').first()
+
+        if conflicting_membership:
+            return Response({
+                "error": f"A member of your team ({conflicting_membership.user.get_full_name() or conflicting_membership.user.email}) is already a member of another team ('{conflicting_membership.team.name}') in this competition."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         if not competition.is_active or (competition.event and not competition.event.is_active):
             return Response({"error": "This competition is not active or available for registration."},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -269,11 +303,11 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
             return Response({"error": "The registration deadline for this competition has passed."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        team_size = team.memberships.filter(status=TeamMembership.STATUS_ACCEPTED).count()
+        team_size = len(current_team_member_ids)
         if not (competition.min_group_size <= team_size <= competition.max_group_size):
             return Response({
-                                "error": f"Team size ({team_size}) is not within the competition's limits ({competition.min_group_size}-{competition.max_group_size})."},
-                            status=status.HTTP_400_BAD_REQUEST)
+                "error": f"Team size ({team_size}) is not within the competition's limits ({competition.min_group_size}-{competition.max_group_size})."},
+                status=status.HTTP_400_BAD_REQUEST)
 
         team.group_competition = competition
         if competition.requires_admin_approval:
