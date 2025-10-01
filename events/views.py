@@ -131,7 +131,7 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
         summary="List all content submissions for a group competition",
         description="Retrieve all submitted content for an active group competition. This is a non-paginated list.",
         responses={
-            200: get_api_response_serializer(TeamContentSerializer(many=True)),
+            200: get_paginated_response_serializer(TeamContentSerializer),
             400: ApiErrorResponseSerializer,
         }
     )
@@ -153,10 +153,42 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(tags=['User - My Teams'])
 @extend_schema_view(
-    list=extend_schema(summary="List my teams (led or member of)"),
-    retrieve=extend_schema(summary="Get team details"),
-    destroy=extend_schema(summary="Delete a team (leader only, if 'forming')"),
-    create=extend_schema(summary="Create a new team and invite members"),
+    list=extend_schema(
+        summary="List my teams (led or member of)",
+        description="Paginated list of teams where the user is the leader or a member.",
+        responses={200: get_paginated_response_serializer(CompetitionTeamDetailSerializer)},
+        tags=["User - My Teams"],
+        operation_id="my_teams_list",
+    ),
+    retrieve=extend_schema(
+        summary="Get team details",
+        responses={
+            200: get_api_response_serializer(CompetitionTeamDetailSerializer),
+            404: ApiErrorResponseSerializer,
+        },
+        operation_id="my_teams_retrieve",
+        tags=["User - My Teams"],
+    ),
+    create=extend_schema(
+        summary="Create a new team and invite members",
+        request=TeamCreateSerializer,
+        responses={
+            201: get_api_response_serializer(CompetitionTeamDetailSerializer),
+            400: ApiErrorResponseSerializer,
+        },
+        operation_id="my_teams_create",
+        tags=["User - My Teams"],
+    ),
+    destroy=extend_schema(
+        summary="Delete a team (leader only, if 'forming')",
+        responses={
+            204: get_api_response_serializer(None),
+            400: ApiErrorResponseSerializer,
+            403: ApiErrorResponseSerializer,
+        },
+        operation_id="my_teams_destroy",
+        tags=["User - My Teams"],
+    ),
 )
 class MyTeamsViewSet(mixins.CreateModelMixin,
                      mixins.RetrieveModelMixin,
@@ -229,7 +261,7 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
 
         competition = get_object_or_404(GroupCompetition, pk=competition_pk)
 
-        if not competition.is_active or not competition.event.is_active:
+        if not competition.is_active or (competition.event and not competition.event.is_active):
             return Response({"error": "This competition is not active or available for registration."},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -292,6 +324,14 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
 
 
 @extend_schema(tags=['User - My Invitations'])
+@extend_schema_view(
+    list=extend_schema(
+        summary="List my pending team invitations",
+        description="Paginated list of teams where the current user has a pending invitation.",
+        responses={200: get_paginated_response_serializer(CompetitionTeamDetailSerializer)},
+        tags=["User - My Invitations"],
+    ),
+)
 class MyInvitationsViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = CompetitionTeamDetailSerializer
     permission_classes = [IsAuthenticated]
@@ -305,7 +345,10 @@ class MyInvitationsViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     @extend_schema(
         summary="Accept or reject a team invitation",
         request=InviteActionSerializer,
-        responses={200: get_api_response_serializer(TeamMembershipSerializer)}
+        responses={
+            200: get_api_response_serializer(TeamMembershipSerializer),
+            204: get_api_response_serializer(None),
+        }
     )
     @action(detail=True, methods=['post'], url_path='respond')
     def respond_to_invitation(self, request, pk=None):
@@ -325,7 +368,7 @@ class MyInvitationsViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             membership.save()
         elif action == 'reject':
             membership.delete()
-            return Response({"message": "Invitation rejected."}, status=status.HTTP_200_OK)
+            return Response({"message": "Invitation rejected."}, status=status.HTTP_204_NO_CONTENT)
 
         return Response(TeamMembershipSerializer(membership).data, status=status.HTTP_200_OK)
 
@@ -373,7 +416,7 @@ class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
     @extend_schema(
         summary="List comments for a Team Content Submission",
         responses={
-            200: get_api_response_serializer(CommentListSerializer),
+            200: get_paginated_response_serializer(CommentListSerializer),
             404: ApiErrorResponseSerializer,
         }
     )

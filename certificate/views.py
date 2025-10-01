@@ -5,7 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.exceptions import NotFound, ValidationError
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
-from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, get_paginated_response_serializer
 from events.models import PresentationEnrollment, SoloCompetitionRegistration, CompetitionTeam
 from .models import Certificate, CompetitionCertificate
 from .utils import generate_solo_certificate, generate_group_certificate, generate_presentation_certificate
@@ -35,7 +35,7 @@ class IsCertificateOwnerForCompetition(permissions.BasePermission):
     summary="List Eligible Presentation Enrollments",
     description="Retrieves a list of the authenticated user's presentation enrollments that have finished and are eligible for a certificate request. An enrollment is eligible if it's completed and the presentation's end time is in the past.",
     responses={
-        200: get_api_response_serializer(CompletedEnrollmentSerializer(many=True)),
+        200: get_paginated_response_serializer(CompletedEnrollmentSerializer),
         401: ApiErrorResponseSerializer,
     }
 )
@@ -122,7 +122,7 @@ class CertificateDetailView(generics.RetrieveAPIView):
     summary="List Eligible Solo Competitions",
     description="Lists all solo competitions the authenticated user has completed and is eligible to request a certificate for. A competition is eligible if the user's registration is complete and the competition's end date is in the past.",
     responses={
-        200: get_api_response_serializer(EligibleSoloCompetitionSerializer(many=True)),
+        200: get_paginated_response_serializer(EligibleSoloCompetitionSerializer),
         401: ApiErrorResponseSerializer,
     }
 )
@@ -142,7 +142,7 @@ class CompetitionCertificateListView(generics.ListAPIView):
     summary="List Eligible Group Competitions",
     description="Lists all group competitions where the authenticated user is an active team member and is eligible for a certificate. A competition is eligible if the team is active and the competition's end date is in the past.",
     responses={
-        200: get_api_response_serializer(EligibleGroupCompetitionSerializer(many=True)),
+        200: get_paginated_response_serializer(EligibleGroupCompetitionSerializer),
         401: ApiErrorResponseSerializer,
     }
 )

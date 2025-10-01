@@ -21,7 +21,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
 from rest_framework.viewsets import ReadOnlyModelViewSet
 from em_backend import settings
-from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, get_paginated_response_serializer
 from .models import Staff, CustomUser
 from .serializers import (
     UserRegistrationSerializer,
@@ -674,16 +674,26 @@ class VerifyForgotPasswordView(views.APIView):
                 return HttpResponseRedirect(_append_query(settings.FRONTEND_LOGIN_URL, {"reset": "invalid"}))
             return Response({"error": "Invalid link."}, status=status.HTTP_400_BAD_REQUEST)
 
-
-@extend_schema(
-    summary="List or Retrieve Staff",
-    request=None,
-    responses={
-        200: get_api_response_serializer(StaffSerializer),
-        404: ApiErrorResponseSerializer,
-    },
-    tags=["Staff"]
-)
 class StaffViewSet(ReadOnlyModelViewSet):
     queryset = Staff.objects.all()
     serializer_class = StaffSerializer
+
+    @extend_schema(
+        summary="List Staff",
+        description="Returns a paginated list of staff.",
+        operation_id="staff_list",
+        responses={200: get_paginated_response_serializer(StaffSerializer)},
+        tags=["Staff"],
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Retrieve Staff by ID",
+        description="Get a single staff member by ID.",
+        operation_id="staff_retrieve",
+        responses={200: get_api_response_serializer(StaffSerializer), 404: ApiErrorResponseSerializer},
+        tags=["Staff"],
+    )
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
