@@ -853,7 +853,10 @@ class CartPaymentInitiateView(views.APIView):
     tags=['Shop - Orders & Payment'],
     summary="Initiate payment for a team registration",
     request=OrderPaymentInitiateSerializer,
-    responses={200: get_api_response_serializer(PaymentInitiateResponseSerializer)}
+    responses={
+        200: get_api_response_serializer(PaymentInitiateResponseSerializer),
+        204: get_api_response_serializer(None)
+    }
 )
 class TeamPaymentInitiateView(views.APIView):
     permission_classes = [IsAuthenticated]
@@ -870,8 +873,14 @@ class TeamPaymentInitiateView(views.APIView):
             return Response({"error": "This team is not awaiting payment."}, status=status.HTTP_400_BAD_REQUEST)
 
         competition = team.group_competition
-        if not competition or not competition.is_paid or not competition.price_per_member or competition.price_per_member <= 0:
-            return Response({"error": "This competition does not require payment."}, status=status.HTTP_400_BAD_REQUEST)
+        if not competition:
+            return Response({"error": "This team is not registered in any competition."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not competition.is_paid or not competition.price_per_member or competition.price_per_member <= 0:
+            with transaction.atomic():
+                team.status = CompetitionTeam.STATUS_ACTIVE
+                team.save(update_fields=['status'])
+            return Response({"message": "Team is Registered for this competition."}, status=status.HTTP_204_NO_CONTENT)
 
         ser = OrderPaymentInitiateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
