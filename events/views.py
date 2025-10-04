@@ -337,9 +337,17 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
         if request.user != team.leader:
             return Response({"error": "Only the team leader can submit/update content."},
                             status=status.HTTP_403_FORBIDDEN)
-        if not team.group_competition or not team.group_competition.allow_content_submission:
+
+        competition = team.group_competition
+        if not competition or not competition.allow_content_submission:
             return Response({"error": "Content submission is not allowed for this competition."},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+        if not (competition.start_datetime <= now <= competition.end_datetime):
+            return Response({"error": "Content can only be submitted within the competition's time frame."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         if team.status != CompetitionTeam.STATUS_ACTIVE:
             return Response({"error": "Team must be active to submit content."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -352,7 +360,7 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
 
         if serializer.is_valid():
             instance = serializer.save(team=team) if not getattr(serializer, 'instance', None) else serializer.save()
-            status_code = status.HTTP_201_CREATED if not getattr(serializer, 'instance', None) else status.HTTP_200_OK
+            status_code = status.HTTP_201_CREATED if request.method == 'POST' else status.HTTP_200_OK
             return Response(TeamContentSerializer(instance, context={'request': request}).data, status=status_code)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
