@@ -104,9 +104,6 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
         taken = obj.teams.filter(
             status__in=[
                 CompetitionTeam.STATUS_ACTIVE,
-                CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-                CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
-                CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
             ]
         ).count()
         return max(obj.max_teams - taken, 0)
