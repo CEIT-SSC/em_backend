@@ -284,6 +284,21 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
             competition = get_object_or_404(
                 GroupCompetition, pk=competition_pk)
 
+            if competition.max_teams is not None:
+                active_teams_count = competition.teams.select_for_update().filter(
+                    status__in=[
+                        CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
+                        CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
+                        CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
+                        CompetitionTeam.STATUS_ACTIVE
+                    ]
+                ).count()
+                if active_teams_count >= competition.max_teams:
+                    return Response(
+                        {"error": "This competition has reached its maximum number of teams."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
             current_team_member_ids = list(team.memberships.filter(
                 status=TeamMembership.STATUS_ACCEPTED
             ).values_list('user_id', flat=True))
