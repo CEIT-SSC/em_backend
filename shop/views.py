@@ -876,6 +876,27 @@ class TeamPaymentInitiateView(views.APIView):
         if not competition:
             return Response({"error": "This team is not registered in any competition."}, status=status.HTTP_400_BAD_REQUEST)
 
+        if not competition.is_active or (competition.event and not competition.event.is_active):
+            return Response({"error": "This competition is no longer active."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if competition.max_teams is not None:
+            active_and_pending_teams = competition.teams.filter(
+                status__in=[
+                    CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
+                    CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
+                    CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
+                    CompetitionTeam.STATUS_ACTIVE,
+                ]
+            ).exclude(pk=team.id).count()
+
+            if active_and_pending_teams >= competition.max_teams:
+                return Response(
+                    {
+                        "error": "This competition has reached its maximum capacity while you were preparing for payment."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         if not competition.is_paid or not competition.price_per_member or competition.price_per_member <= 0:
             with transaction.atomic():
                 team.status = CompetitionTeam.STATUS_ACTIVE
