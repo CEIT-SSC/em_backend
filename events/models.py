@@ -75,6 +75,12 @@ class Presentation(models.Model):
         verbose_name="Requirements",
         help_text="Prerequisites or materials participants should have/know."
     )
+    contents = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Contents",
+        help_text="Contents or materials discussed in the presentation."
+    )
 
     def __str__(self):
         return f"{self.title}"
