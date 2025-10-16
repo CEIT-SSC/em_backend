@@ -582,6 +582,13 @@ class OrderCheckoutView(views.APIView):
                     price=CartItemSerializer().get_price(ci),
                 )
 
+        if total_amount < 1:
+            self._process_successful_order(order)
+            cart_items.delete()
+            if cart.applied_discount_code:
+                cart.applied_discount_code = None
+                cart.save(update_fields=['applied_discount_code'])
+
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
 
