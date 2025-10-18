@@ -9,7 +9,7 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
-from oauth2_provider.models import get_application_model, RefreshToken
+from oauth2_provider.models import get_application_model, RefreshToken, AccessToken
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views import (
     TokenView,
@@ -170,6 +170,82 @@ class CustomRevokeTokenView(views.APIView):
             data = json.loads(original_response.content)
         except json.JSONDecodeError:
             data = {}
+
+        if original_response.status_code == 200:
+            token_str = (
+                    request.data.get('token')
+                    or request.data.get('refresh_token')
+                    or request.data.get('access_token')
+            )
+            user = None
+            excluded_access_token_str = None
+
+            try:
+                if token_str:
+                    try:
+                        rt = RefreshToken.objects.select_related('user', 'access_token').get(token=token_str)
+                        user = rt.user
+                        access_obj = getattr(rt, 'access_token', None)
+                        excluded_access_token_str = access_obj.token if access_obj else None
+                    except RefreshToken.DoesNotExist:
+                        try:
+                            at = AccessToken.objects.select_related('user').get(token=token_str)
+                            user = at.user
+                            excluded_access_token_str = token_str
+                        except AccessToken.DoesNotExist:
+                            user = None
+
+                if not user and getattr(request, 'user', None) and request.user.is_authenticated:
+                    user = request.user
+
+            except Exception:
+                user = None
+
+            if user:
+                try:
+                    rts = RefreshToken.objects.filter(user=user)
+                    if token_str:
+                        rts = rts.exclude(token=token_str)
+
+                    for other_rt in rts:
+                        try:
+                            other_rt.revoke()
+                        except Exception:
+                            if hasattr(other_rt, 'revoked'):
+                                other_rt.revoked = True
+                                other_rt.save(update_fields=['revoked'])
+                            else:
+                                try:
+                                    other_rt.delete()
+                                except Exception:
+                                    pass
+
+                        try:
+                            linked_access = getattr(other_rt, 'access_token', None)
+                            if linked_access:
+                                linked_access.delete()
+                        except Exception:
+                            pass
+
+                    ats = AccessToken.objects.filter(user=user)
+                    if excluded_access_token_str:
+                        ats = ats.exclude(token=excluded_access_token_str)
+                    elif token_str:
+                        ats = ats.exclude(token=token_str)
+
+                    try:
+                        from django.utils import timezone
+                        ats.update(expires=timezone.now())
+                    except Exception:
+                        pass
+
+                    try:
+                        ats.delete()
+                    except Exception:
+                        pass
+
+                except Exception:
+                    pass
 
         return Response(data, status=original_response.status_code)
 

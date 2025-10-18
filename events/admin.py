@@ -398,7 +398,8 @@ class PresentationAdmin(admin.ModelAdmin):
             "fields": (
                 "event", "title", "description", "presenters",
                 "type", "level", "is_online", "location", "online_link",
-                "start_time", "end_time", "is_active", "requirements", "contents", "timing"
+                "start_time", "end_time", "is_active", "requirements",
+                # "contents", "timing"
             )
         }),
         ("Payment", {"fields": ("is_paid", "price", "capacity")}),
