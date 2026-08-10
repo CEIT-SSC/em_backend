@@ -1,12 +1,12 @@
+import uuid
+from decimal import Decimal
 from django.apps import apps
-from django.db import models
+from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-from django.conf import settings
-from django.utils import timezone
-from decimal import Decimal
 from django.core.exceptions import ValidationError
-import uuid
+from django.db import models
+from django.utils import timezone
 
 
 class Product(models.Model):
@@ -39,23 +39,14 @@ class DiscountCode(models.Model):
     times_used = models.PositiveIntegerField(default=0)
     max_uses_per_user = models.PositiveIntegerField(null=True, blank=True)
 
-    def has_remaining_user_quota(self, user) -> bool:
-        per_user_limit = getattr(self, 'max_uses_per_user', None)
-        if not per_user_limit:
-            return True
-
-        DiscountRedemptionModel = apps.get_model('shop', 'DiscountRedemption')
-        used = DiscountRedemptionModel.objects.filter(code=self, user=user).count()
-        return used < per_user_limit
-
     content_type = models.ForeignKey(
         ContentType,
         on_delete=models.SET_NULL,
         null=True, blank=True,
         limit_choices_to=(
-                models.Q(app_label='events', model='presentation') |
-                models.Q(app_label='events', model='solocompetition') |
-                models.Q(app_label='shop', model='product')
+            models.Q(app_label='events', model='presentation') |
+            models.Q(app_label='events', model='solocompetition') |
+            models.Q(app_label='shop', model='product')
         ),
         verbose_name="Discount target type"
     )
@@ -77,6 +68,14 @@ class DiscountCode(models.Model):
         if self.content_type_id and self.object_id:
             target = f"{self.content_type.app_label}.{self.content_type.model}#{self.object_id}"
         return f"{self.code}{' → ' + target if target else ''}"
+
+    def has_remaining_user_quota(self, user) -> bool:
+        per_user_limit = getattr(self, 'max_uses_per_user', None)
+        if not per_user_limit:
+            return True
+        DiscountRedemptionModel = apps.get_model('shop', 'DiscountRedemption')
+        used = DiscountRedemptionModel.objects.filter(code=self, user=user).count()
+        return used < per_user_limit
 
     def is_valid(self, cart_subtotal: Decimal) -> bool:
         if not self.is_active:
@@ -252,8 +251,8 @@ class CartItem(models.Model):
             obj = None
             try:
                 obj = self.content_object
-            except Exception as e:
-                print(f"[CartItem.save] content_object not available yet: {e}")
+            except Exception:
+                pass
             if obj is not None:
                 ev_id = getattr(obj, 'event_id', None)
                 if ev_id is None:
@@ -262,29 +261,25 @@ class CartItem(models.Model):
 
             if ev_id:
                 self.event_id = ev_id
-            else:
-                print(f"[CartItem.save] WARNING: could not resolve event_id; leaving NULL.")
 
         super().save(*args, **kwargs)
 
 
 class Order(models.Model):
     STATUS_PENDING_PAYMENT = "pending_payment"
-    STATUS_AWAITING_GATEWAY_REDIRECT = "awaiting_gateway_redirect"
-    STATUS_PAYMENT_FAILED = "payment_failed"
     STATUS_PROCESSING_ENROLLMENT = "processing_enrollment"
     STATUS_COMPLETED = "completed"
     STATUS_CANCELLED = "cancelled"
-    STATUS_REFUND_PENDING = "refund_pending"
+    STATUS_PAYMENT_FAILED = "payment_failed"
     STATUS_REFUNDED = "refunded"
-    STATUS_PAYMENT_FAILED_BY_NEW_LINK = "failed_by_new_link"
-    STATUS_REFUND_FAILED = "refund_failed"
+
     ORDER_STATUS_CHOICES = [
-        (STATUS_PENDING_PAYMENT, "Pending Payment"), (STATUS_AWAITING_GATEWAY_REDIRECT, "Awaiting Gateway Redirect"),
-        (STATUS_PAYMENT_FAILED, "Payment Failed"), (STATUS_PROCESSING_ENROLLMENT, "Processing Enrollment/Registration"),
-        (STATUS_COMPLETED, "Completed"), (STATUS_CANCELLED, "Cancelled"),
-        (STATUS_REFUND_PENDING, "Refund Pending"), (STATUS_REFUNDED, "Refunded"), (STATUS_PAYMENT_FAILED_BY_NEW_LINK, "Failed (New Link Issued)"),
-        (STATUS_REFUND_FAILED, "Refund Failed"),
+        (STATUS_PENDING_PAYMENT, "Pending Payment"),
+        (STATUS_PROCESSING_ENROLLMENT, "Processing Enrollment/Registration"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_CANCELLED, "Cancelled"),
+        (STATUS_PAYMENT_FAILED, "Payment Failed"),
+        (STATUS_REFUNDED, "Refunded"),
     ]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
@@ -296,15 +291,11 @@ class Order(models.Model):
                                               related_name="orders_applied_to", verbose_name="Applied Discount Code")
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, verbose_name="Discount Amount")
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Total Amount")
-    status = models.CharField(max_length=30, choices=ORDER_STATUS_CHOICES, default=STATUS_PENDING_PAYMENT,
-                              verbose_name="Order Status")
-    payment_gateway_authority = models.CharField(max_length=50, blank=True, null=True, db_index=True,
-                                                 verbose_name="Payment Gateway Authority (Zarinpal)")
-    payment_gateway_txn_id = models.CharField(max_length=100, blank=True, null=True,
-                                              verbose_name="Payment Gateway Transaction ID (Zarinpal ref_id)")
+    status = models.CharField(
+        max_length=30, choices=ORDER_STATUS_CHOICES, default=STATUS_PENDING_PAYMENT, verbose_name="Order Status"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(blank=True, null=True, verbose_name="Paid At")
-    redirect_app = models.CharField(max_length=50, null=True, blank=True, db_index=True)
 
     def __str__(self):
         return f"Order {self.order_id} by {self.user.email if self.user else 'Anonymous'}"
