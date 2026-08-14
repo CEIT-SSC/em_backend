@@ -70,6 +70,16 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER_1')
+
+# --- Primary Email Provider ---
+MAIL_HOST = os.getenv("MAIL_HOST", "smtp.c1.liara.email")
+MAIL_PORT = int(os.getenv("MAIL_PORT", 465))
+MAIL_USER = os.getenv("MAIL_USER")
+MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
+MAIL_FROM_ADDRESS = os.getenv("MAIL_FROM_ADDRESS", "service@ceit-ssc.ir")
+MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME", "CEIT SSC")
+
+# --- Fallback Gmail Providers ---
 EMAIL_PROVIDERS = [
     {
         'host': 'smtp.gmail.com',
