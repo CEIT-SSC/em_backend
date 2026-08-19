@@ -13,13 +13,14 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from drf_spectacular.types import OpenApiTypes
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
     get_paginated_response_serializer
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem, DiscountRedemption, Product
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, Product
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
     OrderSerializer, OrderListSerializer, PaymentInitiateResponseSerializer,
     UserPurchasesSerializer, OrderPaymentInitiateSerializer, CartItemSerializer, ProductSerializer
 )
 from .payments import ZarrinPal
+from .fulfillment import process_successful_order
 from decimal import Decimal
 
 Presentation = apps.get_model('events', 'Presentation')
@@ -460,45 +461,6 @@ class RemoveDiscountView(views.APIView):
 class OrderCheckoutView(views.APIView):
     permission_classes = [IsAuthenticated]
 
-    def _process_successful_order(self, order):
-        logger.info(f"Processing successful order: {order.order_id}")
-        with transaction.atomic():
-            for order_item in order.items.all():
-                content_object = order_item.content_object
-                if not content_object:
-                    continue
-
-                if isinstance(content_object, Presentation):
-                    PresentationEnrollment.objects.update_or_create(
-                        user=order.user, presentation=content_object,
-                        defaults={
-                            'status': PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
-                            'order_item': order_item
-                        }
-                    )
-                elif isinstance(content_object, SoloCompetition):
-                    SoloCompetitionRegistration.objects.update_or_create(
-                        user=order.user, solo_competition=content_object,
-                        defaults={
-                            'status': SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
-                            'order_item': order_item
-                        }
-                    )
-                elif isinstance(content_object, CompetitionTeam):
-                    team = content_object
-                    team.status = CompetitionTeam.STATUS_ACTIVE
-                    team.save(update_fields=['status'])
-
-            order.status = Order.STATUS_COMPLETED
-            if order.discount_code_applied:
-                discount = order.discount_code_applied
-                DiscountRedemption.objects.get_or_create(code=discount, user=order.user, order=order)
-                discount.times_used = models.F('times_used') + 1
-                discount.save(update_fields=['times_used'])
-            order.save(update_fields=['status'])
-
-        logger.info(f"Finished processing order: {order.order_id}")
-
     def post(self, request, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
 
@@ -551,7 +513,7 @@ class OrderCheckoutView(views.APIView):
                         prev.payment_gateway_txn_id = vr.get("ref_id")
                         prev.paid_at = timezone.now()
                         prev.save(update_fields=["status", "payment_gateway_txn_id", "paid_at"])
-                        OrderCheckoutView()._process_successful_order(prev)
+                        process_successful_order(prev)
                         return Response(
                             {
                                 "error": "previous_order_captured",
@@ -583,7 +545,7 @@ class OrderCheckoutView(views.APIView):
                 )
 
         if total_amount < 1:
-            self._process_successful_order(order)
+            process_successful_order(order)
             cart_items.delete()
             if cart.applied_discount_code:
                 cart.applied_discount_code = None
@@ -801,7 +763,7 @@ class CartPaymentInitiateView(views.APIView):
                             prev.payment_gateway_txn_id = vr.get("ref_id")
                             prev.paid_at = timezone.now()
                             prev.save(update_fields=["status", "payment_gateway_txn_id", "paid_at"])
-                            OrderCheckoutView()._process_successful_order(prev)
+                            process_successful_order(prev)
 
                         return Response(
                             {
@@ -1009,7 +971,7 @@ class PaymentCallbackView(views.APIView):
             with transaction.atomic():
                 order.status = Order.STATUS_PROCESSING_ENROLLMENT
                 order.save(update_fields=["status"])
-                OrderCheckoutView()._process_successful_order(order)
+                process_successful_order(order)
 
         if status_param == "OK":
             vr = z.verify_payment(authority=authority, amount=order.total_amount)

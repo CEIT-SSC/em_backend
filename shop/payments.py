@@ -54,11 +54,11 @@ class ZarrinPal:
 
         return authorities or []
 
-    def create_payment(self, amount, mobile, email, order_id=None):
+    def create_payment(self, amount, mobile, email, order_id=None, callback_url=None):
         data = {
             "merchant_id": self.merchant_id,
             "amount": int(amount) * 10,
-            "callback_url": self.CALLBACK_URL,
+            "callback_url": callback_url or self.CALLBACK_URL,
             "description": self.PAYMENT_DESCRIPTION,
             "metadata": {},
         }

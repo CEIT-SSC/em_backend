@@ -98,6 +98,7 @@ else:
     PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
 
 PAYMENT_CALLBACK_URL = os.getenv("PAYMENT_CALLBACK_URL", default="callback")
+WALLET_PAYMENT_CALLBACK_URL = os.getenv("WALLET_PAYMENT_CALLBACK_URL", default="")
 
 CORS_ALLOW_CREDENTIALS = True
 SESSION_COOKIE_SECURE = not DEBUG
@@ -213,6 +214,7 @@ INSTALLED_APPS = [
     'accounts',
     'shop',
     'events',
+    'wallet',
     'rest_framework',
     'rest_framework.authtoken',
     'django.contrib.sites',
