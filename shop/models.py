@@ -340,16 +340,3 @@ class DiscountRedemption(models.Model):
     class Meta:
         unique_together = ('code', 'user', 'order')
         indexes = [models.Index(fields=['code', 'user'])]
-
-
-class PaymentApp(models.Model):
-    slug = models.SlugField(max_length=50, unique=True)
-    name = models.CharField(max_length=100, blank=True)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        verbose_name = "Payment App"
-        verbose_name_plural = "Payment Apps"
-
-    def __str__(self):
-        return self.name or self.slug

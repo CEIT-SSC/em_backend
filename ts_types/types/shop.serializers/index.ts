@@ -3,34 +3,30 @@ import type { ItemDetail, Presentation, SoloCompetition, CompetitionTeamDetail }
 export enum ItemTypeChoiceEnum {
     PRESENTATION = 'presentation',
     SOLO_COMPETITION = 'solo_competition',
-    COMPETITION_TEAM = 'competition_team',
+    PRODUCT = 'product',
 }
 
 export enum ItemTypeChoiceEnumValues {
     presentation = 'presentation',
     solo_competition = 'solo_competition',
-    competition_team = 'competition_team',
+    product = 'product',
 }
 
 export enum StatusChoiceEnum {
     PENDING_PAYMENT = 'pending_payment',
-    AWAITING_GATEWAY_REDIRECT = 'awaiting_gateway_redirect',
-    PAYMENT_FAILED = 'payment_failed',
     PROCESSING_ENROLLMENT = 'processing_enrollment',
     COMPLETED = 'completed',
     CANCELLED = 'cancelled',
-    REFUND_PENDING = 'refund_pending',
+    PAYMENT_FAILED = 'payment_failed',
     REFUNDED = 'refunded',
 }
 
 export enum StatusChoiceEnumValues {
     pending_payment = 'Pending Payment',
-    awaiting_gateway_redirect = 'Awaiting Gateway Redirect',
-    payment_failed = 'Payment Failed',
     processing_enrollment = 'Processing Enrollment/Registration',
     completed = 'Completed',
     cancelled = 'Cancelled',
-    refund_pending = 'Refund Pending',
+    payment_failed = 'Payment Failed',
     refunded = 'Refunded',
 }
 
@@ -45,11 +41,6 @@ export interface ApplyDiscount {
     * @maxLength 50
     */
     code: string;
-}
-
-export interface BatchPaymentInitiate {
-    orderIds: number[];
-    app?: string | null;
 }
 
 export interface CartItem {
@@ -192,10 +183,6 @@ export interface OrderList {
     items?: OrderItemWithEvent[];
 }
 
-export interface OrderPaymentInitiate {
-    app?: string | null;
-}
-
 export interface Order {
     /**
     * @label Order ID
@@ -230,14 +217,6 @@ export interface Order {
     */
     status?: StatusChoiceEnum;
     /**
-    * @label Payment Gateway Authority (Zarinpal)
-    */
-    paymentGatewayAuthority?: string | null;
-    /**
-    * @label Payment Gateway Transaction ID (Zarinpal ref_id)
-    */
-    paymentGatewayTxnId?: string | null;
-    /**
     * @format date-time
     */
     createdAt?: string;
@@ -246,18 +225,6 @@ export interface Order {
     * @format date-time
     */
     paidAt?: string | null;
-}
-
-export interface PartialCheckout {
-    cartItemIds: number[];
-}
-
-export interface PaymentInitiateResponse {
-    /**
-    * @format url
-    */
-    paymentUrl: string;
-    authority: string;
 }
 
 export interface RegisteredThing {
