@@ -90,14 +90,7 @@ EMAIL_PROVIDERS = [
 SMS_KEY = os.getenv("SMS_KEY", default="key")
 SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
-ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", default=False)
 
-if ZARINPAL_SANDBOX == 'True':
-    PAYMENT_API_KEY = os.getenv("ZARINPAL_MERCHANT_ID", "11111111-1111-1111-1111-111111111111")
-else:
-    PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
-
-PAYMENT_CALLBACK_URL = os.getenv("PAYMENT_CALLBACK_URL", default="callback")
 
 CORS_ALLOW_CREDENTIALS = True
 SESSION_COOKIE_SECURE = not DEBUG
