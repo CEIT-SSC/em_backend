@@ -544,8 +544,7 @@ class CompetitionTeamAdmin(admin.ModelAdmin):
             if team.needs_admin_approval() and team.status == CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION:
                 team.is_approved_by_admin = True
                 team.status = (CompetitionTeam.STATUS_ACTIVE
-                               if not team.group_competition.is_paid
-                               or team.group_competition.price_per_member <= 0
+                               if not team.group_competition.requires_payment()
                                else CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT)
                 team.save()
                 updated += 1

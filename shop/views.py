@@ -1,8 +1,6 @@
-import logging
 from django.apps import apps
-from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.db import models, transaction
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -16,7 +14,13 @@ from em_backend.schemas import (
     get_api_response_serializer,
     get_paginated_response_serializer,
 )
-from .models import Cart, CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Product
+from .fulfillment import (
+    OrderCapacityError,
+    fulfill_order,
+    has_capacity,
+    release_order_reservations,
+)
+from .models import Cart, CartItem, DiscountCode, Order, OrderItem, Product
 from .serializers import (
     AddToCartSerializer,
     ApplyDiscountSerializer,
@@ -35,9 +39,6 @@ PresentationEnrollment = apps.get_model('events', 'PresentationEnrollment')
 SoloCompetitionRegistration = apps.get_model('events', 'SoloCompetitionRegistration')
 TeamMembership = apps.get_model('events', 'TeamMembership')
 Event = apps.get_model('events', 'Event')
-logger = logging.getLogger(__name__)
-
-
 def _is_content_available(obj) -> bool:
     if obj is None:
         return False
@@ -104,35 +105,6 @@ def _is_already_owned(user, item_object) -> bool:
     return False
 
 
-def _has_capacity(item_object):
-    if isinstance(item_object, Presentation):
-        if item_object.capacity is None: return True
-        return item_object.enrollments.filter(
-            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).count() < item_object.capacity
-
-    if isinstance(item_object, SoloCompetition):
-        if item_object.max_participants is None: return True
-        return item_object.registrations.filter(
-            status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).count() < item_object.max_participants
-
-    if isinstance(item_object, CompetitionTeam):
-        group_comp = item_object.group_competition
-        if group_comp.max_teams is None: return True
-        return group_comp.teams.filter(status=CompetitionTeam.STATUS_ACTIVE).count() < group_comp.max_teams
-
-    if isinstance(item_object, Product):
-        if item_object.capacity is None: return True
-        content_type = ContentType.objects.get_for_model(Product)
-        sold_count = OrderItem.objects.filter(
-            content_type=content_type,
-            object_id=item_object.pk,
-            order__status=Order.STATUS_COMPLETED
-        ).count()
-        return sold_count < item_object.capacity
-
-    return True
-
-
 def _add_to_cart_and_update_status(user, item_object):
     cart, _ = Cart.objects.get_or_create(user=user)
     content_type = ContentType.objects.get_for_model(item_object)
@@ -170,17 +142,25 @@ class OrderCancelView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, order_id, *args, **kwargs):
-        order = get_object_or_404(Order, order_id=order_id, user=request.user)
-
-        if order.status != Order.STATUS_PENDING_PAYMENT:
-            return Response(
-                {"error": f"Order cannot be cancelled in status '{order.get_status_display()}'."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         with transaction.atomic():
+            order = get_object_or_404(
+                Order.objects.select_for_update(),
+                order_id=order_id,
+                user=request.user,
+            )
+            cancellable_statuses = {
+                Order.STATUS_PENDING_PAYMENT,
+                Order.STATUS_PAYMENT_FAILED,
+            }
+            if order.status not in cancellable_statuses:
+                return Response(
+                    {"error": f"Order cannot be cancelled in status '{order.get_status_display()}'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             order.status = Order.STATUS_CANCELLED
             order.save(update_fields=["status"])
+            release_order_reservations(order)
 
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
 
@@ -232,7 +212,7 @@ class CartItemView(views.APIView):
             return Response({"message": "You already own this item."},
                             status=status.HTTP_200_OK)
 
-        if not _has_capacity(item_object):
+        if not has_capacity(item_object):
             return Response({"error": "This item is sold out or has reached full capacity."},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -417,45 +397,6 @@ class RemoveDiscountView(views.APIView):
 class OrderCheckoutView(views.APIView):
     permission_classes = [IsAuthenticated]
 
-    def _process_successful_order(self, order):
-        logger.info(f"Processing successful order: {order.order_id}")
-        with transaction.atomic():
-            for order_item in order.items.all():
-                content_object = order_item.content_object
-                if not content_object:
-                    continue
-
-                if isinstance(content_object, Presentation):
-                    PresentationEnrollment.objects.update_or_create(
-                        user=order.user, presentation=content_object,
-                        defaults={
-                            'status': PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
-                            'order_item': order_item
-                        }
-                    )
-                elif isinstance(content_object, SoloCompetition):
-                    SoloCompetitionRegistration.objects.update_or_create(
-                        user=order.user, solo_competition=content_object,
-                        defaults={
-                            'status': SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
-                            'order_item': order_item
-                        }
-                    )
-                elif isinstance(content_object, CompetitionTeam):
-                    team = content_object
-                    team.status = CompetitionTeam.STATUS_ACTIVE
-                    team.save(update_fields=['status'])
-
-            order.status = Order.STATUS_COMPLETED
-            if order.discount_code_applied:
-                discount = order.discount_code_applied
-                DiscountRedemption.objects.get_or_create(code=discount, user=order.user, order=order)
-                discount.times_used = models.F('times_used') + 1
-                discount.save(update_fields=['times_used'])
-            order.save(update_fields=['status'])
-
-        logger.info(f"Finished processing order: {order.order_id}")
-
     def post(self, request, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
 
@@ -479,6 +420,20 @@ class OrderCheckoutView(views.APIView):
             return Response(
                 {"error": "Some items are no longer available.", "cart_item_ids": inactive},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+        unavailable = [ci.id for ci in cart_items if not has_capacity(ci.content_object)]
+        if unavailable:
+            return Response(
+                {"error": "Some items have reached capacity.", "cart_item_ids": unavailable},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        already_owned = [ci.id for ci in cart_items if _is_already_owned(request.user, ci.content_object)]
+        if already_owned:
+            return Response(
+                {"error": "Some items are already owned.", "cart_item_ids": already_owned},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         subtotal = cart._subtotal_for_items(cart_items)
@@ -507,11 +462,12 @@ class OrderCheckoutView(views.APIView):
                 )
 
         if total_amount == 0:
-            self._process_successful_order(order)
-            cart_items.delete()
-            if cart.applied_discount_code:
-                cart.applied_discount_code = None
-                cart.save(update_fields=['applied_discount_code'])
+            try:
+                order, _ = fulfill_order(order)
+            except OrderCapacityError as exc:
+                order.status = Order.STATUS_CANCELLED
+                order.save(update_fields=['status'])
+                return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
