@@ -3,8 +3,7 @@ from django.db import transaction
 from datetime import timedelta
 from django.utils import timezone
 from shop.models import Order
-from shop.views import _release_reservations_for_orders
-from shop.fulfillment import process_successful_order
+from shop.views import OrderCheckoutView, _release_reservations_for_orders
 from shop.payments import ZarrinPal
 
 
@@ -59,7 +58,7 @@ class Command(BaseCommand):
                         order.payment_gateway_txn_id = vr.get("ref_id")
                         order.paid_at = timezone.now()
                         order.save(update_fields=["status", "payment_gateway_txn_id", "paid_at"])
-                        process_successful_order(order)
+                        OrderCheckoutView()._process_successful_order(order)
                         try:
                             from shop.models import CartItem, Cart
                             cart = Cart.objects.get(user=order.user)
