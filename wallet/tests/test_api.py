@@ -1,14 +1,13 @@
 from decimal import Decimal
-from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from shop.models import Order
-from wallet.models import Wallet, WalletEntry, WalletTopUp
+from wallet.models import Wallet, WalletTopUp
 from wallet.services import WalletService
-from wallet.tests.helpers import FakePaymentClient, credit, make_order, make_user
+from wallet.tests.helpers import credit, make_order, make_user
 
 
 class WalletAPITests(TestCase):
@@ -47,11 +46,7 @@ class WalletAPITests(TestCase):
         keys = {row['idempotency_key'] for row in first_page.data['results'] + second_page.data['results']}
         self.assertNotIn('other-hist', keys)
 
-    @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_start_topup_and_status(self, mock_client_cls):
-        fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+    def test_start_topup_and_status(self):
         self.client.force_authenticate(self.user)
         response = self.client.post(
             '/api/wallet/top-ups/',
@@ -59,14 +54,13 @@ class WalletAPITests(TestCase):
             format='json',
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['status'], WalletTopUp.STATUS_AWAITING_GATEWAY)
-        self.assertEqual(response.data['payment_url'], fake.create_result['link'])
+        self.assertEqual(response.data['status'], WalletTopUp.STATUS_PENDING)
         public_id = response.data['public_id']
+        self.assertEqual(WalletService.get_balance(self.user), Decimal('0.00'))
 
         status_response = self.client.get(f'/api/wallet/top-ups/{public_id}/')
         self.assertEqual(status_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(status_response.data['status'], WalletTopUp.STATUS_AWAITING_GATEWAY)
-        self.assertEqual(WalletService.get_balance(self.user), Decimal('0.00'))
+        self.assertEqual(status_response.data['status'], WalletTopUp.STATUS_PENDING)
 
         replay = self.client.post(
             '/api/wallet/top-ups/',
@@ -75,87 +69,6 @@ class WalletAPITests(TestCase):
         )
         self.assertEqual(replay.status_code, status.HTTP_200_OK)
         self.assertEqual(str(replay.data['public_id']), str(public_id))
-
-    @patch('wallet.services.ZarrinPal')
-    def test_topup_callback_credits_once(self, mock_client_cls):
-        fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
-        topup, _ = WalletService.start_topup(
-            self.user,
-            '80.00',
-            'cb-topup',
-            callback_url='https://example.com/callback',
-            payment_client=fake,
-        )
-        mock_client_cls.return_value = fake
-        first = self.client.get(
-            '/api/wallet/top-ups/callback/',
-            {'Authority': topup.gateway_authority, 'Status': 'OK'},
-        )
-        self.assertEqual(first.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(WalletService.get_balance(self.user), Decimal('80.00'))
-
-        second = self.client.get(
-            '/api/wallet/top-ups/callback/',
-            {'Authority': topup.gateway_authority, 'Status': 'OK'},
-        )
-        self.assertEqual(second.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(WalletService.get_balance(self.user), Decimal('80.00'))
-        self.assertEqual(WalletEntry.objects.filter(topup=topup).count(), 1)
-
-        self.client.force_authenticate(self.user)
-        status_response = self.client.get(f'/api/wallet/top-ups/{topup.public_id}/')
-        self.assertEqual(status_response.data['status'], WalletTopUp.STATUS_CREDITED)
-
-    def test_pay_order_endpoint(self):
-        credit(self.user, '90.00', 'api-pay-seed', actor=self.staff)
-        order = make_order(self.user, '40.00')
-        self.client.force_authenticate(self.user)
-
-        response = self.client.post(
-            '/api/wallet/pay/',
-            {'order_id': str(order.order_id), 'idempotency_key': 'api-pay-1'},
-            format='json',
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(response.data['already_processed'])
-        order.refresh_from_db()
-        self.assertEqual(order.status, Order.STATUS_COMPLETED)
-        self.assertEqual(Decimal(str(response.data['balance'])), Decimal('50.00'))
-
-        replay = self.client.post(
-            '/api/wallet/pay/',
-            {'order_id': str(order.order_id), 'idempotency_key': 'api-pay-1'},
-            format='json',
-        )
-        self.assertEqual(replay.status_code, status.HTTP_200_OK)
-        self.assertTrue(replay.data['already_processed'])
-        self.assertEqual(WalletService.get_balance(self.user), Decimal('50.00'))
-
-    def test_pay_order_insufficient_funds(self):
-        credit(self.user, '5.00', 'api-nsf', actor=self.staff)
-        order = make_order(self.user, '40.00')
-        self.client.force_authenticate(self.user)
-        response = self.client.post(
-            '/api/wallet/pay/',
-            {'order_id': str(order.order_id)},
-            format='json',
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        order.refresh_from_db()
-        self.assertEqual(order.status, Order.STATUS_PENDING_PAYMENT)
-        self.assertEqual(WalletService.get_balance(self.user), Decimal('5.00'))
-
-    def test_cannot_pay_someone_elses_order(self):
-        credit(self.user, '50.00', 'api-foreign', actor=self.staff)
-        order = make_order(self.other, '10.00')
-        self.client.force_authenticate(self.user)
-        response = self.client.post(
-            '/api/wallet/pay/',
-            {'order_id': str(order.order_id)},
-            format='json',
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_admin_adjust_requires_staff(self):
         self.client.force_authenticate(self.user)

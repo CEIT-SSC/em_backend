@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from shop.fulfillment import process_successful_order
 from shop.models import Cart, CartItem, Order
-from shop.payments import ZarrinPal
 
 from wallet.exceptions import (
     AdjustmentReasonRequired,
@@ -18,7 +17,6 @@ from wallet.exceptions import (
     InvalidAmount,
     OrderNotPayable,
     RefundNotAllowed,
-    TopUpGatewayError,
     TopUpNotFound,
     WalletError,
 )
@@ -235,21 +233,11 @@ class WalletService:
         return entry, True
 
     @classmethod
-    def start_topup(
-        cls,
-        user,
-        amount,
-        idempotency_key,
-        *,
-        callback_url,
-        metadata=None,
-        payment_client=None,
-    ):
+    def start_topup(cls, user, amount, idempotency_key, metadata=None):
+        """Create a pending top-up. Payment credits it later after external verification."""
         amount = _as_money(amount)
         if not idempotency_key:
             raise WalletError("Idempotency key is required.")
-        if not callback_url:
-            raise TopUpGatewayError("Wallet payment callback URL is not configured.")
 
         with transaction.atomic():
             wallet = cls._locked_wallet(user)
@@ -257,50 +245,24 @@ class WalletService:
             if topup:
                 if topup.wallet_id != wallet.pk:
                     raise DuplicateIdempotencyKey()
-                if topup.status == WalletTopUp.STATUS_CREDITED:
-                    return topup, False
-                if topup.status == WalletTopUp.STATUS_AWAITING_GATEWAY and topup.payment_url:
-                    return topup, False
-            else:
-                try:
-                    with transaction.atomic():
-                        topup = WalletTopUp.objects.create(
-                            wallet=wallet,
-                            amount=amount,
-                            status=WalletTopUp.STATUS_PENDING,
-                            idempotency_key=idempotency_key,
-                            metadata=sanitize_metadata(metadata),
-                        )
-                except IntegrityError:
-                    topup = WalletTopUp.objects.select_for_update().get(idempotency_key=idempotency_key)
-                    if topup.wallet_id != wallet.pk:
-                        raise DuplicateIdempotencyKey()
-                    if topup.status == WalletTopUp.STATUS_CREDITED:
-                        return topup, False
-                    if topup.status == WalletTopUp.STATUS_AWAITING_GATEWAY and topup.payment_url:
-                        return topup, False
-
-        client = payment_client or ZarrinPal()
-        result = client.create_payment(
-            amount=float(amount),
-            mobile=getattr(user, 'phone_number', None) or '',
-            email=getattr(user, 'email', None) or '',
-            order_id=str(topup.public_id),
-            callback_url=callback_url,
-        )
-        if result.get('status') == 'success' and result.get('authority') and result.get('link'):
-            topup.gateway_authority = result.get('authority')
-            topup.payment_url = result.get('link')
-            topup.status = WalletTopUp.STATUS_AWAITING_GATEWAY
-            topup.save(update_fields=['gateway_authority', 'payment_url', 'status', 'updated_at'])
+                if topup.amount != amount and topup.status != WalletTopUp.STATUS_CREDITED:
+                    raise DuplicateIdempotencyKey()
+                return topup, False
+            try:
+                with transaction.atomic():
+                    topup = WalletTopUp.objects.create(
+                        wallet=wallet,
+                        amount=amount,
+                        status=WalletTopUp.STATUS_PENDING,
+                        idempotency_key=idempotency_key,
+                        metadata=sanitize_metadata(metadata),
+                    )
+            except IntegrityError:
+                topup = WalletTopUp.objects.select_for_update().get(idempotency_key=idempotency_key)
+                if topup.wallet_id != wallet.pk:
+                    raise DuplicateIdempotencyKey()
+                return topup, False
             return topup, True
-
-        topup.status = WalletTopUp.STATUS_FAILED
-        extra = dict(topup.metadata or {})
-        extra['gateway_error'] = str(result.get('error') or 'Payment request failed.')[:MAX_METADATA_VALUE_LENGTH]
-        topup.metadata = extra
-        topup.save(update_fields=['status', 'metadata', 'updated_at'])
-        raise TopUpGatewayError(result.get('error') or 'Payment request failed.')
 
     @classmethod
     def get_topup(cls, user, public_id):
@@ -311,15 +273,9 @@ class WalletService:
             raise TopUpNotFound() from exc
 
     @classmethod
-    def mark_topup_failed(cls, authority, metadata=None):
+    def mark_topup_failed(cls, topup, metadata=None):
         with transaction.atomic():
-            topup = (
-                WalletTopUp.objects.select_for_update()
-                .filter(gateway_authority=authority)
-                .first()
-            )
-            if not topup:
-                raise TopUpNotFound()
+            topup = WalletTopUp.objects.select_for_update().get(pk=topup.pk)
             if topup.status == WalletTopUp.STATUS_CREDITED:
                 return topup
             topup.status = WalletTopUp.STATUS_FAILED
@@ -330,47 +286,46 @@ class WalletService:
             return topup
 
     @classmethod
-    def credit_verified_topup(cls, authority, *, payment_client=None):
-        client = payment_client or ZarrinPal()
-        topup = WalletTopUp.objects.filter(gateway_authority=authority).first()
-        if not topup:
-            raise TopUpNotFound()
-        if topup.status == WalletTopUp.STATUS_CREDITED:
-            return topup, False
-
-        result = client.verify_payment(authority=authority, amount=topup.amount)
+    def credit_verified_topup(cls, topup, *, gateway_authority=None, gateway_ref_id=None, metadata=None):
+        """Credit a pending top-up after payment has already verified the external charge."""
         with transaction.atomic():
             topup = WalletTopUp.objects.select_for_update().select_related('wallet').get(pk=topup.pk)
             if topup.status == WalletTopUp.STATUS_CREDITED:
                 return topup, False
-            if result.get('status') != 'success':
-                topup.status = WalletTopUp.STATUS_FAILED
-                extra = dict(topup.metadata or {})
-                extra['gateway_error'] = str(result.get('error') or 'Payment verification failed.')[:MAX_METADATA_VALUE_LENGTH]
-                topup.metadata = extra
-                topup.save(update_fields=['status', 'metadata', 'updated_at'])
-                return topup, False
+            if topup.status == WalletTopUp.STATUS_FAILED:
+                raise WalletError("This top-up has already failed and cannot be credited.")
 
-            entry, created = cls._apply_entry(
+            extra_meta = {'source': 'verified_topup'}
+            extra_meta.update(sanitize_metadata(metadata))
+            if gateway_authority:
+                extra_meta['authority'] = str(gateway_authority)[:MAX_METADATA_VALUE_LENGTH]
+            if gateway_ref_id:
+                extra_meta['ref_id'] = str(gateway_ref_id)[:MAX_METADATA_VALUE_LENGTH]
+
+            _entry, created = cls._apply_entry(
                 wallet=topup.wallet,
                 entry_type=WalletEntry.TYPE_TOPUP,
                 direction=WalletEntry.DIRECTION_CREDIT,
                 amount=topup.amount,
                 idempotency_key=f'topup:{topup.public_id}',
                 topup=topup,
-                metadata={
-                    'gateway': 'zarinpal',
-                    'authority': authority,
-                    'ref_id': result.get('ref_id'),
-                    'card_pan': result.get('card_pan'),
-                    'source': 'topup_callback',
-                },
+                metadata=extra_meta,
             )
             if created or topup.status != WalletTopUp.STATUS_CREDITED:
                 topup.status = WalletTopUp.STATUS_CREDITED
-                topup.gateway_ref_id = result.get('ref_id')
+                update_fields = ['status', 'credited_at', 'updated_at']
                 topup.credited_at = timezone.now()
-                topup.save(update_fields=['status', 'gateway_ref_id', 'credited_at', 'updated_at'])
+                if gateway_authority:
+                    topup.gateway_authority = gateway_authority
+                    update_fields.append('gateway_authority')
+                if gateway_ref_id:
+                    topup.gateway_ref_id = gateway_ref_id
+                    update_fields.append('gateway_ref_id')
+                extra = dict(topup.metadata or {})
+                extra.update(extra_meta)
+                topup.metadata = extra
+                update_fields.append('metadata')
+                topup.save(update_fields=update_fields)
             return topup, created
 
     @staticmethod

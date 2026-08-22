@@ -12,10 +12,11 @@ from wallet.exceptions import (
     InvalidAmount,
     OrderNotPayable,
     RefundNotAllowed,
+    WalletError,
 )
 from wallet.models import Wallet, WalletEntry, WalletTopUp
 from wallet.services import WalletService
-from wallet.tests.helpers import FakePaymentClient, credit, make_order, make_user
+from wallet.tests.helpers import credit, make_order, make_user
 
 
 class WalletServiceTests(TestCase):
@@ -125,22 +126,16 @@ class WalletServiceTests(TestCase):
             )
 
     def test_topup_is_credited_only_after_verified_payment(self):
-        client = FakePaymentClient()
-        topup, created = WalletService.start_topup(
-            self.user,
-            '100.00',
-            'topup-key-1',
-            callback_url='https://example.com/api/wallet/top-ups/callback/',
-            payment_client=client,
-        )
+        topup, created = WalletService.start_topup(self.user, '100.00', 'topup-key-1')
         self.assertTrue(created)
-        self.assertEqual(topup.status, WalletTopUp.STATUS_AWAITING_GATEWAY)
+        self.assertEqual(topup.status, WalletTopUp.STATUS_PENDING)
         self.assertEqual(WalletService.get_balance(self.user), Decimal('0.00'))
         self.assertEqual(WalletEntry.objects.filter(entry_type=WalletEntry.TYPE_TOPUP).count(), 0)
 
         credited, first_credit = WalletService.credit_verified_topup(
-            topup.gateway_authority,
-            payment_client=client,
+            topup,
+            gateway_authority='AUTH-100',
+            gateway_ref_id='REF-100',
         )
         self.assertTrue(first_credit)
         self.assertEqual(credited.status, WalletTopUp.STATUS_CREDITED)
@@ -148,61 +143,28 @@ class WalletServiceTests(TestCase):
         wallet = Wallet.objects.get(user=self.user)
         self.assertEqual(WalletService.ledger_sum(wallet), wallet.balance)
 
-    def test_duplicate_topup_callback_does_not_credit_twice(self):
-        client = FakePaymentClient()
-        topup, _ = WalletService.start_topup(
-            self.user,
-            '40.00',
-            'topup-dup',
-            callback_url='https://example.com/callback',
-            payment_client=client,
-        )
-        WalletService.credit_verified_topup(topup.gateway_authority, payment_client=client)
-        WalletService.credit_verified_topup(topup.gateway_authority, payment_client=client)
-        self.assertEqual(client.verify_calls, 1)
+    def test_duplicate_topup_credit_does_not_credit_twice(self):
+        topup, _ = WalletService.start_topup(self.user, '40.00', 'topup-dup')
+        WalletService.credit_verified_topup(topup, gateway_authority='AUTH-40', gateway_ref_id='REF-40')
+        WalletService.credit_verified_topup(topup, gateway_authority='AUTH-40', gateway_ref_id='REF-40')
         self.assertEqual(WalletService.get_balance(self.user), Decimal('40.00'))
         self.assertEqual(WalletEntry.objects.filter(topup=topup).count(), 1)
 
-    def test_unverified_topup_does_not_credit(self):
-        client = FakePaymentClient(verify_result={
-            'status': 'failed', 'ref_id': None, 'error': 'not paid', 'card_pan': None,
-        })
-        topup, _ = WalletService.start_topup(
-            self.user,
-            '40.00',
-            'topup-fail',
-            callback_url='https://example.com/callback',
-            payment_client=client,
-        )
-        result, created = WalletService.credit_verified_topup(
-            topup.gateway_authority,
-            payment_client=client,
-        )
-        self.assertFalse(created)
-        self.assertEqual(result.status, WalletTopUp.STATUS_FAILED)
+    def test_failed_topup_is_not_credited(self):
+        topup, _ = WalletService.start_topup(self.user, '40.00', 'topup-fail')
+        WalletService.mark_topup_failed(topup, metadata={'note': 'payment_failed'})
+        with self.assertRaises(WalletError):
+            WalletService.credit_verified_topup(topup, gateway_authority='AUTH-FAIL')
         self.assertEqual(WalletService.get_balance(self.user), Decimal('0.00'))
         self.assertEqual(WalletEntry.objects.count(), 0)
 
-    def test_start_topup_is_idempotent_while_awaiting_gateway(self):
-        client = FakePaymentClient()
-        first, created_first = WalletService.start_topup(
-            self.user,
-            '20.00',
-            'topup-repeat',
-            callback_url='https://example.com/callback',
-            payment_client=client,
-        )
-        second, created_second = WalletService.start_topup(
-            self.user,
-            '20.00',
-            'topup-repeat',
-            callback_url='https://example.com/callback',
-            payment_client=client,
-        )
+    def test_start_topup_is_idempotent(self):
+        first, created_first = WalletService.start_topup(self.user, '20.00', 'topup-repeat')
+        second, created_second = WalletService.start_topup(self.user, '20.00', 'topup-repeat')
         self.assertTrue(created_first)
         self.assertFalse(created_second)
         self.assertEqual(first.pk, second.pk)
-        self.assertEqual(client.create_calls, 1)
+        self.assertEqual(first.status, WalletTopUp.STATUS_PENDING)
 
     def test_pay_order_debits_and_completes_once(self):
         credit(self.user, '80.00', 'seed-pay', actor=self.staff)
@@ -311,15 +273,8 @@ class WalletServiceTests(TestCase):
             WalletService.refund_debit(actor=self.staff, reason='Nothing to reverse', order=order)
 
     def test_ledger_sum_matches_cached_balance_after_mixed_operations(self):
-        client = FakePaymentClient()
-        topup, _ = WalletService.start_topup(
-            self.user,
-            '200.00',
-            'mix-topup',
-            callback_url='https://example.com/callback',
-            payment_client=client,
-        )
-        WalletService.credit_verified_topup(topup.gateway_authority, payment_client=client)
+        topup, _ = WalletService.start_topup(self.user, '200.00', 'mix-topup')
+        WalletService.credit_verified_topup(topup, gateway_authority='AUTH-200', gateway_ref_id='REF-200')
         order = make_order(self.user, '75.00')
         WalletService.pay_order(self.user, order)
         WalletService.admin_adjust(

@@ -69,23 +69,6 @@ class TopUpStartResponseSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     status = serializers.CharField()
     idempotency_key = serializers.CharField()
-    payment_url = serializers.URLField(allow_null=True)
-    authority = serializers.CharField(allow_null=True)
-
-
-@ts_interface()
-class PayOrderSerializer(serializers.Serializer):
-    order_id = serializers.UUIDField()
-    idempotency_key = serializers.RegexField(regex=r'^[\w.:-]{8,128}$', required=False)
-
-
-@ts_interface()
-class WalletPurchaseSerializer(serializers.Serializer):
-    entry_id = serializers.IntegerField()
-    order_id = serializers.UUIDField()
-    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
-    balance = serializers.DecimalField(max_digits=12, decimal_places=2)
-    already_processed = serializers.BooleanField()
 
 
 @ts_interface()

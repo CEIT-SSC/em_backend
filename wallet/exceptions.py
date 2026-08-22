@@ -37,10 +37,6 @@ class ImmutableLedgerError(WalletError):
     default_message = "Ledger entries cannot be edited or deleted."
 
 
-class TopUpGatewayError(WalletError):
-    default_message = "Payment gateway error while starting wallet top-up."
-
-
 class TopUpNotFound(WalletError):
     default_message = "Wallet top-up was not found."
 
