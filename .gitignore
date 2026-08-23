@@ -59,6 +59,11 @@ celerybeat.pid
 events/migrations/0002_groupcompetition_allow_content_submission_and_more.py
 accounts/migrations/0002_alter_customuser_profile_picture.py
 
+# AI/internal docs (not for repo)
+zarinbaldoc.txt
+TASKS_ROADMAP.md
+certificate/tests_audit.py
+
 # Other files
 node_modules/
 node_modules

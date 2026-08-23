@@ -9,9 +9,18 @@ from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSeri
 from events.models import PresentationEnrollment, SoloCompetitionRegistration, CompetitionTeam
 from .models import Certificate, CompetitionCertificate
 from .utils import generate_solo_certificate, generate_group_certificate, generate_presentation_certificate
+from .services import (
+    get_user_eligible_presentations,
+    check_presentation_eligibility,
+    get_user_eligible_solo_competitions,
+    check_solo_competition_eligibility,
+    get_user_eligible_group_competitions,
+    check_group_competition_eligibility,
+)
 from .serializers import (
-    CertificateRequestSerializer, CertificateSerializer, CompletedEnrollmentSerializer,
-    CompetitionCertificateSerializer, EligibleSoloCompetitionSerializer, EligibleGroupCompetitionSerializer,
+    CertificateRequestSerializer, CertificateSerializer, PublicCertificateSerializer,
+    CompletedEnrollmentSerializer, CompetitionCertificateSerializer, PublicCompetitionCertificateSerializer,
+    EligibleSoloCompetitionSerializer, EligibleGroupCompetitionSerializer,
     UnifiedCompetitionCertificateRequestSerializer,
 )
 
@@ -44,10 +53,7 @@ class CompletedEnrollmentsView(generics.ListAPIView):
     serializer_class = CompletedEnrollmentSerializer
 
     def get_queryset(self):
-        return PresentationEnrollment.objects.filter(
-            user=self.request.user, status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
-            presentation__end_time__lt=timezone.now()
-        ).select_related('presentation', 'certificate').order_by('-presentation__end_time')
+        return get_user_eligible_presentations(self.request.user)
 
 
 @extend_schema(
@@ -71,17 +77,12 @@ class CertificateRequestView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         enrollment_pk = self.kwargs.get('enrollment_pk')
-        try:
-            enrollment = PresentationEnrollment.objects.select_related('presentation').get(
-                pk=enrollment_pk, user=self.request.user,
-                status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE
-            )
-        except PresentationEnrollment.DoesNotExist:
-            raise NotFound('Eligible enrollment not found.')
-        if enrollment.presentation.end_time > timezone.now():
-            raise ValidationError('This presentation has not ended yet.')
-        if hasattr(enrollment, 'certificate'):
-            raise ValidationError('A certificate has already been requested for this enrollment.')
+        enrollment, err_msg = check_presentation_eligibility(self.request.user, enrollment_pk)
+        if err_msg:
+            if "not found" in err_msg.lower():
+                raise NotFound(err_msg)
+            raise ValidationError(err_msg)
+
         name_serializer = CertificateRequestSerializer(data=self.request.data)
         name_serializer.is_valid(raise_exception=True)
         serializer.save(enrollment=enrollment, name_on_certificate=name_serializer.validated_data['name'])
@@ -111,7 +112,7 @@ class CertificateDetailView(generics.RetrieveAPIView):
         with transaction.atomic():
             cert = Certificate.objects.select_for_update().get(pk=self.kwargs['pk'])
             self.check_object_permissions(self.request, cert)
-            if cert.is_verified and (not cert.file_en or not cert.file_fa):
+            if cert.is_verified and (not cert.file_en or not cert.file_fa or cert.status != Certificate.STATUS_GENERATED):
                 generate_presentation_certificate(cert)
                 cert.refresh_from_db()
             return cert
@@ -131,10 +132,7 @@ class CompetitionCertificateListView(generics.ListAPIView):
     serializer_class = EligibleSoloCompetitionSerializer
 
     def get_queryset(self):
-        return SoloCompetitionRegistration.objects.filter(
-            user=self.request.user, status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
-            solo_competition__end_datetime__lt=timezone.now()
-        ).select_related('solo_competition__event', 'certificate').order_by('-solo_competition__start_datetime')
+        return get_user_eligible_solo_competitions(self.request.user)
 
 
 @extend_schema(
@@ -151,10 +149,7 @@ class GroupCompetitionCertificateListView(generics.ListAPIView):
     serializer_class = EligibleGroupCompetitionSerializer
 
     def get_queryset(self):
-        return CompetitionTeam.objects.filter(
-            memberships__user=self.request.user, status=CompetitionTeam.STATUS_ACTIVE,
-            group_competition__end_datetime__lt=timezone.now()
-        ).select_related('group_competition__event', 'certificate').order_by('-group_competition__start_datetime')
+        return get_user_eligible_group_competitions(self.request.user)
 
 
 @extend_schema(
@@ -179,22 +174,19 @@ class UnifiedCompetitionCertificateRequestView(generics.CreateAPIView):
         data = request_serializer.validated_data
 
         if data['registration_type'] == 'solo':
-            try:
-                registration = SoloCompetitionRegistration.objects.get(pk=data['registration_id'],
-                                                                       user=self.request.user)
-            except SoloCompetitionRegistration.DoesNotExist:
-                raise NotFound('Eligible solo competition registration not found.')
-            if hasattr(registration, 'certificate'):
-                raise ValidationError('Certificate already requested for this registration.')
+            registration, err_msg = check_solo_competition_eligibility(self.request.user, data['registration_id'])
+            if err_msg:
+                if "not found" in err_msg.lower():
+                    raise NotFound(err_msg)
+                raise ValidationError(err_msg)
             serializer.save(registration_type="solo", solo_registration=registration, name_on_certificate=data['name'])
 
         elif data['registration_type'] == 'group':
-            try:
-                team = CompetitionTeam.objects.get(pk=data['registration_id'], memberships__user=self.request.user)
-            except CompetitionTeam.DoesNotExist:
-                raise NotFound('Team not found for this competition, or you are not a member.')
-            if hasattr(team, 'certificate'):
-                raise ValidationError('Certificate already requested for this team.')
+            team, err_msg = check_group_competition_eligibility(self.request.user, data['registration_id'])
+            if err_msg:
+                if "not found" in err_msg.lower():
+                    raise NotFound(err_msg)
+                raise ValidationError(err_msg)
             serializer.save(registration_type="group", team=team, name_on_certificate=team.name)
 
 
@@ -239,13 +231,13 @@ class CompetitionCertificateDetailView(generics.RetrieveAPIView):
         OpenApiParameter(name='verification_id', description='The public UUID of the certificate.', required=True, type=OpenApiTypes.UUID, location=OpenApiParameter.PATH)
     ],
     responses={
-        200: get_api_response_serializer(CertificateSerializer),
+        200: get_api_response_serializer(PublicCertificateSerializer),
         404: ApiErrorResponseSerializer,
     }
 )
 class PublicCertificateVerifyView(generics.RetrieveAPIView):
     permission_classes = [AllowAny]
-    serializer_class = CertificateSerializer
+    serializer_class = PublicCertificateSerializer
     queryset = Certificate.objects.filter(is_verified=True)
     lookup_field = 'verification_id'
     lookup_url_kwarg = 'verification_id'
@@ -253,7 +245,7 @@ class PublicCertificateVerifyView(generics.RetrieveAPIView):
     def get_object(self):
         cert = super().get_object()
 
-        if cert.is_verified and (not cert.file_en or not cert.file_fa):
+        if cert.is_verified and (not cert.file_en or not cert.file_fa or cert.status != Certificate.STATUS_GENERATED):
             generate_presentation_certificate(cert)
             cert.refresh_from_db()
 
@@ -268,13 +260,13 @@ class PublicCertificateVerifyView(generics.RetrieveAPIView):
         OpenApiParameter(name='verification_id', description='The public UUID of the certificate.', required=True, type=OpenApiTypes.UUID, location=OpenApiParameter.PATH)
     ],
     responses={
-        200: get_api_response_serializer(CompetitionCertificateSerializer),
+        200: get_api_response_serializer(PublicCompetitionCertificateSerializer),
         404: ApiErrorResponseSerializer,
     }
 )
 class PublicCompetitionCertificateVerifyView(generics.RetrieveAPIView):
     permission_classes = [AllowAny]
-    serializer_class = CompetitionCertificateSerializer
+    serializer_class = PublicCompetitionCertificateSerializer
     queryset = CompetitionCertificate.objects.filter(is_verified=True)
     lookup_field = 'verification_id'
     lookup_url_kwarg = 'verification_id'
@@ -282,7 +274,7 @@ class PublicCompetitionCertificateVerifyView(generics.RetrieveAPIView):
     def get_object(self):
         cert = super().get_object()
 
-        if cert.is_verified and (not cert.file_en or not cert.file_fa):
+        if cert.is_verified and (not cert.file_en or not cert.file_fa or cert.status != CompetitionCertificate.STATUS_GENERATED):
             if cert.registration_type == "solo":
                 generate_solo_certificate(cert)
             elif cert.registration_type == "group":

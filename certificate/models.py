@@ -20,8 +20,31 @@ class Certificate(models.Model):
         blank=True,
         null=True
     )
-    is_verified = models.BooleanField(default=None, blank=True, null=True)
+    is_verified = models.BooleanField(default=None, blank=True, null=True, verbose_name="Verified by Admin?")
     requested_at = models.DateTimeField(auto_now_add=True)
+
+    STATUS_PENDING = 'pending'
+    STATUS_GENERATED = 'generated'
+    STATUS_FAILED = 'failed'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_GENERATED, 'Generated'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        verbose_name="Generation Status"
+    )
+    generation_error = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Generation Error",
+        help_text="Records error details if certificate rendering fails."
+    )
 
     grade = models.PositiveIntegerField(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
@@ -88,8 +111,31 @@ class CompetitionCertificate(models.Model):
         verbose_name="Persian Certificate File"
     )
 
-    is_verified = models.BooleanField(default=False, verbose_name="Verified by Admin?")
+    is_verified = models.BooleanField(default=None, blank=True, null=True, verbose_name="Verified by Admin?")
     requested_at = models.DateTimeField(auto_now_add=True)
+
+    STATUS_PENDING = 'pending'
+    STATUS_GENERATED = 'generated'
+    STATUS_FAILED = 'failed'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_GENERATED, 'Generated'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        verbose_name="Generation Status"
+    )
+    generation_error = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Generation Error",
+        help_text="Records error details if certificate rendering fails."
+    )
 
     def __str__(self):
         if self.registration_type == "solo" and self.solo_registration:
