@@ -41,12 +41,12 @@ class CertificateAdmin(admin.ModelAdmin):
         success_count = 0
         fail_count = 0
         for cert in queryset:
-            cert.is_verified = True
-            cert.save(update_fields=['is_verified'])
             try:
                 generate_presentation_cert(cert, force_regenerate=True)
+                cert.is_verified = True
+                cert.save(update_fields=['is_verified'])
                 success_count += 1
-            except Exception as e:
+            except Exception:
                 fail_count += 1
 
         msg = f"Verified & generated {success_count} certificate(s)."
@@ -129,10 +129,10 @@ class CompetitionCertificateAdmin(admin.ModelAdmin):
         success_count = 0
         fail_count = 0
         for cert in queryset:
-            cert.is_verified = True
-            cert.save(update_fields=['is_verified'])
             try:
                 generate_cert_for_object(cert, force_regenerate=True)
+                cert.is_verified = True
+                cert.save(update_fields=['is_verified'])
                 success_count += 1
             except Exception:
                 fail_count += 1
