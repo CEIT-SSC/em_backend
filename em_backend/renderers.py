@@ -23,7 +23,8 @@ class CustomJSONRenderer(JSONRenderer):
 
     def _format_errors(self, data):
         if not isinstance(data, dict):
-            return {"detail": self._get_clean_error_message(data)}
+            message = self._get_clean_error_message(data)
+            return {"detail": message}, message
 
         formatted_errors = {}
         detail_messages = []

@@ -17,6 +17,7 @@ from oauth2_provider.views import (
     AuthorizationView
 )
 from rest_framework import generics, status, views
+from rest_framework.renderers import JSONRenderer
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema
 from rest_framework.viewsets import ReadOnlyModelViewSet
@@ -127,6 +128,7 @@ class GitHubLoginView(SocialLoginView):
 )
 class CustomTokenView(views.APIView):
     permission_classes = [AllowAny]
+    renderer_classes = [JSONRenderer]
 
     def post(self, request, *args, **kwargs):
         django_request = request._request
