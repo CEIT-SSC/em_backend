@@ -1,72 +1,109 @@
-CSS<!DOCTYPE html>
-<html lang="fa" dir="rtl" class="dark"> <!-- Remove 'class="dark"' to make light mode default -->
+{% load static tailwind_cli %}
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>نشریه CEIT-SSC</title>
-    <!-- Tailwind CSS (CDN for standalone UI) -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>{% block title %}نشریه بینام{% endblock %}</title>
+    
+    <!-- Local Fonts -->
+    <link rel="stylesheet" href="{% static 'journal/css/fonts.css' %}">
+    
+    <!-- tailwind-->
+    {% tailwind_css %}
+    
+    <!-- Dark Mode Initializer to prevent flicker -->
     <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Vazirmatn', 'sans-serif'],
-                    }
-                }
-            }
+        if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark')
         }
     </script>
-    <!-- Vazirmatn Font from CDN -->
-    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.0.0/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
-    <style>
-        body { font-family: 'Vazirmatn', sans-serif; }
-        /* Smooth scrolling for anchor links */
-        html { scroll-behavior: smooth; }
-    </style>
 </head>
-<body class="bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-300">
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-300 min-h-screen flex flex-col">
 
     <!-- Navbar -->
-    <nav class="fixed w-full z-50 bg-white/80 dark:bg-gray-800/80 backdrop-blur border-b border-gray-200 dark:border-gray-700 shadow-sm">
+    <nav class="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-            <div class="flex items-center space-x-reverse space-x-4">
-                <!-- Replace with your actual logo in static folder later -->
-                <img src="/static/journal/images/logo.png" alt="Logo" class="w-10 h-10 object-contain" onerror="this.src='https://via.placeholder.com/40'">
-                <span class="font-bold text-xl text-blue-600 dark:text-blue-400">نشریه CEIT-SSC</span>
+            <a href="{% url 'journal_home' %}" class="flex items-center space-x-reverse space-x-3">
+                <img src="{% static 'journal/images/logo.png' %}" alt="Logo" class="w-10 h-10 object-contain">
+                <span class="font-bold text-xl text-blue-700 dark:text-blue-500">نشریه CEIT-SSC</span>
+            </a>
+            
+            <div class="hidden md:flex space-x-reverse space-x-8 items-center">
+                <a href="{% url 'journal_home' %}#releases" class="hover:text-blue-600 dark:hover:text-blue-400 font-medium transition">نسخه‌ها</a>
+                <a href="{% url 'journal_home' %}#about" class="hover:text-blue-600 dark:hover:text-blue-400 font-medium transition">درباره ما</a>
+                <a href="{% url 'journal_submit' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium transition shadow-md shadow-blue-500/30">ارسال مقاله</a>
             </div>
-            <div class="hidden md:flex space-x-reverse space-x-8">
-                <a href="#releases" class="hover:text-blue-500 font-medium transition">نسخه‌های منتشر شده</a>
-                <a href="#submit" class="hover:text-blue-500 font-medium transition">ارسال مقاله</a>
-                <a href="#about" class="hover:text-blue-500 font-medium transition">درباره ما</a>
-            </div>
-            <button id="theme-toggle" class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition">
-                <span id="theme-icon-dark" class="hidden">🌙</span>
-                <span id="theme-icon-light">☀️</span>
+
+            <!-- Theme Toggle -->
+            <button id="theme-toggle" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition ring-1 ring-slate-900/5 dark:ring-white/10 text-slate-500 dark:text-slate-400">
+                <!-- Moon icon (for dark mode) -->
+                <svg id="theme-toggle-dark-icon" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
+                <!-- Sun icon (for light mode) -->
+                <svg id="theme-toggle-light-icon" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path></svg>
             </button>
         </div>
     </nav>
 
-    <!-- Main Content -->
-    <main class="pt-16">
+    <!-- Alert Messages -->
+    {% if messages %}
+    <div class="fixed top-20 right-4 left-4 z-50 flex flex-col space-y-2 pointer-events-none max-w-sm mx-auto">
+        {% for message in messages %}
+        <div class="p-4 rounded-xl shadow-lg pointer-events-auto text-sm font-medium
+            {% if message.tags == 'error' %} bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200 border border-red-200 dark:border-red-800
+            {% elif message.tags == 'success' %} bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800
+            {% else %} bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 border border-blue-200 dark:border-blue-800 {% endif %}">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Main -->
+    <main class="flex-grow flex flex-col">
         {% block content %}{% endblock %}
     </main>
 
     <!-- Footer -->
-    <footer class="bg-gray-800 dark:bg-gray-950 text-white py-8 text-center border-t dark:border-gray-800 mt-12">
-        <p>تمامی حقوق برای انجمن علمی مهندسی کامپیوتر دانشگاه صنعتی امیرکبیر محفوظ است.</p>
+    <footer class="bg-slate-900 text-slate-400 py-8 text-center border-t border-slate-800 mt-auto">
+        <p class="text-sm">تمامی حقوق برای انجمن علمی مهندسی کامپیوتر دانشگاه صنعتی امیرکبیر محفوظ است.</p>
     </footer>
 
-    <!-- Theme Toggle Script -->
+    <!-- Theme JS -->
     <script>
         const themeToggleBtn = document.getElementById('theme-toggle');
-        const htmlElement = document.documentElement;
-        
-        themeToggleBtn.addEventListener('click', () => {
-            htmlElement.classList.toggle('dark');
-            document.getElementById('theme-icon-dark').classList.toggle('hidden');
-            document.getElementById('theme-icon-light').classList.toggle('hidden');
+        const darkIcon = document.getElementById('theme-toggle-dark-icon');
+        const lightIcon = document.getElementById('theme-toggle-light-icon');
+
+        if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            lightIcon.classList.remove('hidden');
+        } else {
+            darkIcon.classList.remove('hidden');
+        }
+
+        themeToggleBtn.addEventListener('click', function() {
+            darkIcon.classList.toggle('hidden');
+            lightIcon.classList.toggle('hidden');
+            
+            if (localStorage.getItem('color-theme')) {
+                if (localStorage.getItem('color-theme') === 'light') {
+                    document.documentElement.classList.add('dark');
+                    localStorage.setItem('color-theme', 'dark');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                    localStorage.setItem('color-theme', 'light');
+                }
+            } else {
+                if (document.documentElement.classList.contains('dark')) {
+                    document.documentElement.classList.remove('dark');
+                    localStorage.setItem('color-theme', 'light');
+                } else {
+                    document.documentElement.classList.add('dark');
+                    localStorage.setItem('color-theme', 'dark');
+                }
+            }
         });
     </script>
 </body>
