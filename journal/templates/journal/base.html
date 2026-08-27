@@ -1,0 +1,73 @@
+CSS<!DOCTYPE html>
+<html lang="fa" dir="rtl" class="dark"> <!-- Remove 'class="dark"' to make light mode default -->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نشریه CEIT-SSC</title>
+    <!-- Tailwind CSS (CDN for standalone UI) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Vazirmatn', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Vazirmatn Font from CDN -->
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.0.0/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+    <style>
+        body { font-family: 'Vazirmatn', sans-serif; }
+        /* Smooth scrolling for anchor links */
+        html { scroll-behavior: smooth; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-100 transition-colors duration-300">
+
+    <!-- Navbar -->
+    <nav class="fixed w-full z-50 bg-white/80 dark:bg-gray-800/80 backdrop-blur border-b border-gray-200 dark:border-gray-700 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+            <div class="flex items-center space-x-reverse space-x-4">
+                <!-- Replace with your actual logo in static folder later -->
+                <img src="/static/journal/images/logo.png" alt="Logo" class="w-10 h-10 object-contain" onerror="this.src='https://via.placeholder.com/40'">
+                <span class="font-bold text-xl text-blue-600 dark:text-blue-400">نشریه CEIT-SSC</span>
+            </div>
+            <div class="hidden md:flex space-x-reverse space-x-8">
+                <a href="#releases" class="hover:text-blue-500 font-medium transition">نسخه‌های منتشر شده</a>
+                <a href="#submit" class="hover:text-blue-500 font-medium transition">ارسال مقاله</a>
+                <a href="#about" class="hover:text-blue-500 font-medium transition">درباره ما</a>
+            </div>
+            <button id="theme-toggle" class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition">
+                <span id="theme-icon-dark" class="hidden">🌙</span>
+                <span id="theme-icon-light">☀️</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-16">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 dark:bg-gray-950 text-white py-8 text-center border-t dark:border-gray-800 mt-12">
+        <p>تمامی حقوق برای انجمن علمی مهندسی کامپیوتر دانشگاه صنعتی امیرکبیر محفوظ است.</p>
+    </footer>
+
+    <!-- Theme Toggle Script -->
+    <script>
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        const htmlElement = document.documentElement;
+        
+        themeToggleBtn.addEventListener('click', () => {
+            htmlElement.classList.toggle('dark');
+            document.getElementById('theme-icon-dark').classList.toggle('hidden');
+            document.getElementById('theme-icon-light').classList.toggle('hidden');
+        });
+    </script>
+</body>
+</html>
