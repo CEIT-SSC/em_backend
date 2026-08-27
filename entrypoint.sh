@@ -10,6 +10,7 @@ done
 echo "✅  database is up"
 
 python manage.py migrate --noinput
+python manage.py tailwind build         
 python manage.py collectstatic --noinput
 
 exec "$@"

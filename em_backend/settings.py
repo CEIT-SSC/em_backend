@@ -47,11 +47,15 @@ DEBUG = os.getenv("DEBUG", default="False") == "True"
 
 # Custom
 AUTH_USER_MODEL = 'accounts.CustomUser'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
 STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_DIRS = [
+    BASE_DIR / 'static', 
+]
 
 MEDIA_ROOT = BASE_DIR / 'media'
-MEDIA_URL = 'media/'
+MEDIA_URL = '/media/'
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
 FRONTEND_LOGIN_URL = os.getenv("FRONTEND_LOGIN_URL", default="http://localhost:3000/login")
@@ -66,6 +70,7 @@ CSRF_TRUSTED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "https
 CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "http://localhost:8002", "https://" + DOMAIN,
                         "https://gamecraft.ir", "https://aut-ssc.ir", "https://ceit-ssc.ir", "http://localhost:3001",
                         "http://localhost:3002", "https://levelup.ceit-ssc.ir"]
+
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -223,6 +228,8 @@ INSTALLED_APPS = [
     'accounts',
     'shop',
     'events',
+    "django_tailwind_cli",
+    'journal',
     'rest_framework',
     'rest_framework.authtoken',
     'django.contrib.sites',
@@ -336,6 +343,6 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# STATICFILES_DIRS = [
-#     os.path.join(BASE_DIR, "static"),
-# ]
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 20 MB limit for file uploads
+TAILWIND_CLI_SRC_CSS = 'static/journal/css/input.css'
+TAILWIND_CLI_DIST_CSS = 'journal/css/output.css'

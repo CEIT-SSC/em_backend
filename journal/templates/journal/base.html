@@ -1,0 +1,98 @@
+{% load static tailwind_cli %}
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}نشریه علمی دانشکده مهندسی کامپیوتر امیرکبیر{% endblock %}</title>
+    
+    <link rel="stylesheet" href="{% static 'journal/css/fonts.css' %}">
+    {% tailwind_css %}
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen flex flex-col selection:bg-indigo-500 selection:text-white">
+
+    <!-- Header Navigation -->
+    <header class="sticky top-0 z-40 w-full backdrop-blur-md bg-white/90 border-b border-slate-200/80 shadow-sm transition-all">
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16 sm:h-20">
+                
+                <!-- Logo & Title -->
+                <a href="{% url 'journal_home' %}" class="flex items-center gap-2 sm:gap-4 group shrink-0">
+                    <div class="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-indigo-50 border border-indigo-100 group-hover:scale-105 transition-transform duration-300">
+                        <img src="{% static 'journal/images/logo.png' %}" alt="CEIT Logo" class="w-7 h-7 sm:w-10 sm:h-10 object-contain">
+                    </div>
+                    <div class="flex flex-col justify-center">
+                        <span class="font-extrabold text-sm sm:text-xl tracking-tight text-slate-900 group-hover:text-indigo-600 transition-colors leading-tight">
+                            نشریه علمی فرهنگی
+                        </span>
+                        <span class="text-[10px] sm:text-sm font-semibold text-slate-500 hidden xs:block sm:block leading-tight mt-0.5">
+                            دانشکده مهندسی کامپیوتر
+                        </span>
+                    </div>
+                </a>
+                
+                <!-- Nav Links & Controls -->
+                <div class="flex items-center gap-3 sm:gap-6 shrink-0">
+                    <nav class="hidden md:flex items-center gap-8 text-sm font-bold text-slate-600">
+                        <a href="{% url 'journal_home' %}#releases" class="hover:text-indigo-600 transition-colors">شماره‌های نشریه</a>
+                        <a href="{% url 'journal_home' %}#about" class="hover:text-indigo-600 transition-colors">درباره ما</a>
+                    </nav>
+
+                    <a href="{% url 'journal_submit' %}" class="inline-flex items-center justify-center px-3 py-2 sm:px-5 sm:py-2.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition-all transform active:scale-95 whitespace-nowrap">
+                        ارسال مقاله
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Alerts Notification -->
+    {% if messages %}
+    <div id="toast-container" class="fixed top-20 sm:top-24 left-4 right-4 sm:left-auto sm:right-6 z-50 flex flex-col gap-3 max-w-md w-full">
+        {% for message in messages %}
+        <!-- Added "toast-alert" and "duration-500" for smooth fading -->
+        <div class="toast-alert p-4 rounded-2xl shadow-xl backdrop-blur-lg border text-sm font-semibold transition-all transform duration-500 animate-bounce-once
+            {% if message.tags == 'error' %} bg-rose-50/95 text-rose-900 border-rose-200 
+            {% elif message.tags == 'success' %} bg-emerald-50/95 text-emerald-900 border-emerald-200 
+            {% else %} bg-indigo-50/95 text-indigo-900 border-indigo-200 {% endif %}">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Main Content -->
+    <main class="flex-grow">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 pt-12 pb-8 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 text-center flex flex-col items-center gap-4">
+            <a href="https://ceit-ssc.ir/" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-semibold hover:bg-slate-100 hover:text-indigo-600 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                وب‌سایت انجمن علمی (CEIT-SSC)
+            </a>
+            <p class="text-slate-500 font-medium text-xs sm:text-sm mt-4 leading-relaxed">
+                &copy; تمامی حقوق مادی و معنوی این سامانه متعلق به انجمن علمی دانشکده مهندسی کامپیوتر دانشگاه صنعتی امیرکبیر می‌باشد.
+            </p>
+        </div>
+    </footer>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const alerts = document.querySelectorAll('.toast-alert');
+            
+            alerts.forEach((alert, index) => {
+                // Wait 5 seconds before starting the fade out
+                setTimeout(() => {
+                    alert.classList.add('opacity-0', 'translate-x-8');
+                    setTimeout(() => {
+                        alert.remove();
+                    }, 500);
+                    
+                }, 5000 + (index * 500));
+            });
+        });
+    </script>
+</body>
+</html>

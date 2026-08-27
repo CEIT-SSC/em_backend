@@ -22,6 +22,7 @@ from . import settings
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('journal/', include('journal.urls')),
     path('api/', include('accounts.urls')),
     path('api/', include('events.urls')),
     path('api/', include('shop.urls')),
@@ -32,5 +33,4 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
-    urlpatterns += (static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT) +
-                    static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT))
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

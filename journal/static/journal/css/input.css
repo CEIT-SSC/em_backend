@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@import "fonts.css";
+
+@theme {
+  --font-sans: "Vazirmatn", sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+}
