@@ -5,88 +5,80 @@
 {% block content %}
 <div class="max-w-3xl mx-auto px-4 py-12 w-full flex-grow">
     
-    <div class="mb-8 border-b border-slate-200 dark:border-slate-700 pb-6">
-        <h1 class="text-3xl font-black text-slate-900 dark:text-white mb-2">ارسال مقاله جدید</h1>
-        <p class="text-slate-600 dark:text-slate-400">
-            فراخوان فعال: <strong class="text-blue-600 dark:text-blue-400">{{ active_call.title }}</strong>
+    <div class="mb-8 pb-6 border-b border-slate-200 dark:border-slate-800">
+        <h1 class="text-3xl font-black text-slate-900 dark:text-white mb-2">ارسال مقاله علمی</h1>
+        <p class="text-slate-600 dark:text-slate-400 text-sm">
+            فراخوان فعال: <strong class="text-indigo-600 dark:text-indigo-400">{{ active_call.title }}</strong>
         </p>
     </div>
 
-    <form method="post" enctype="multipart/form-data" class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 md:p-8 space-y-8" onsubmit="return validateFileSize(this)">
+    <form method="post" enctype="multipart/form-data" class="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 sm:p-10 space-y-6" onsubmit="return validateFileSize(this)">
         {% csrf_token %}
         
-        <!-- Render form fields safely -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
             <div class="col-span-1">
-                <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">نام و نام خانوادگی <span class="text-red-500">*</span></label>
-                <input type="text" name="full_name" required class="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">نام و نام خانوادگی <span class="text-rose-500">*</span></label>
+                <input type="text" name="full_name" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
             </div>
 
             <div class="col-span-1">
-                <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">ایمیل <span class="text-red-500">*</span></label>
-                <input type="email" name="email" required class="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" dir="ltr" placeholder="example@email.com">
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">پست الکترونیکی <span class="text-rose-500">*</span></label>
+                <input type="email" name="email" required dir="ltr" placeholder="name@example.com" class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
             </div>
 
             <div class="col-span-1">
-                <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">شماره تماس <span class="text-red-500">*</span></label>
-                <!-- HTML5 Regex Validation for Iranian phone -->
-                <input type="text" name="phone_number" required pattern="09[0-9]{9}" title="شماره تماس باید با 09 شروع شده و 11 رقم باشد" class="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" dir="ltr" placeholder="09123456789">
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">شماره همراه <span class="text-rose-500">*</span></label>
+                <input type="text" name="phone_number" required pattern="09[0-9]{9}" title="شماره موبایل معتبر ۱۱ رقمی با ۰۹" dir="ltr" placeholder="09123456789" class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
             </div>
 
             <div class="col-span-1">
-                <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">دانشگاه <span class="text-red-500">*</span></label>
-                <input type="text" name="university" required class="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">دانشگاه محل تحصیل <span class="text-rose-500">*</span></label>
+                <input type="text" name="university" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
             </div>
 
             <div class="col-span-1 md:col-span-2">
-                <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">رشته تحصیلی <span class="text-red-500">*</span></label>
-                <input type="text" name="major" required class="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">رشته تحصیلی <span class="text-rose-500">*</span></label>
+                <input type="text" name="major" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
             </div>
 
             <div class="col-span-1 md:col-span-2">
-                <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">متن یا چکیده مقاله <span class="text-red-500">*</span></label>
-                <textarea name="article_text" rows="5" required class="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition resize-y"></textarea>
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">چکیده / متن مقاله <span class="text-rose-500">*</span></label>
+                <textarea name="article_text" rows="5" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition resize-y"></textarea>
             </div>
 
-            <div class="col-span-1 md:col-span-2 mt-4">
-                <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-4">پیوست‌ها (حداکثر ۵ مگابایت)</h3>
+            <!-- Uploads -->
+            <div class="col-span-1 md:col-span-2 pt-4">
+                <h3 class="text-base font-bold text-slate-900 dark:text-white mb-4">فایل‌های پیوست</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    
-                    <div class="border border-dashed border-slate-400 dark:border-slate-600 p-4 rounded-xl">
-                        <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">فایل PDF مقاله <span class="text-red-500">*</span></label>
-                        <input type="file" name="pdf_file" accept=".pdf" id="pdf_file" required class="block w-full text-sm text-slate-500 dark:text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400">
+                    <div class="border border-dashed border-slate-300 dark:border-slate-700 p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-950/50">
+                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">فایل PDF مقاله <span class="text-rose-500">*</span></label>
+                        <input type="file" name="pdf_file" accept=".pdf" required class="block w-full text-xs text-slate-500 dark:text-slate-400 file:mr-0 file:ml-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-950 dark:file:text-indigo-300">
                     </div>
 
-                    <div class="border border-dashed border-slate-400 dark:border-slate-600 p-4 rounded-xl">
-                        <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">تصویر پیوست 1 (اختیاری)</label>
-                        <input type="file" name="image_1" accept="image/jpeg, image/png" id="image_1" class="block w-full text-sm text-slate-500 dark:text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 dark:file:bg-slate-700 dark:file:text-slate-300">
+                    <div class="border border-dashed border-slate-300 dark:border-slate-700 p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-950/50">
+                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">تصویر پیوست (اختیاری)</label>
+                        <input type="file" name="image_1" accept="image/jpeg, image/png" class="block w-full text-xs text-slate-500 dark:text-slate-400 file:mr-0 file:ml-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300 dark:file:bg-slate-800 dark:file:text-slate-300">
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end">
-            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-blue-500/30 transition transform hover:-translate-y-1 w-full md:w-auto">
+        <div class="pt-6 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-8 rounded-xl shadow-lg shadow-indigo-500/25 transition transform active:scale-95 w-full md:w-auto">
                 ثبت و ارسال مقاله
             </button>
         </div>
     </form>
 </div>
 
-<!-- Client-side size validation logic -->
 <script>
     function validateFileSize(form) {
-        const maxSize = 5 * 1024 * 1024; // 5MB
+        const maxSize = 10 * 1024 * 1024; // 10MB
         const fileInputs = form.querySelectorAll('input[type="file"]');
-        
         for (let i = 0; i < fileInputs.length; i++) {
-            if (fileInputs[i].files.length > 0) {
-                const fileSize = fileInputs[i].files[0].size;
-                if (fileSize > maxSize) {
-                    alert('حجم فایل انتخاب شده بیشتر از 5 مگابایت است. لطفاً فایل کم‌حجم‌تری انتخاب کنید.');
-                    return false;
-                }
+            if (fileInputs[i].files.length > 0 && fileInputs[i].files[0].size > maxSize) {
+                alert('حجم فایل انتخابی نباید بیشتر از ۱۰ مگابایت باشد.');
+                return false;
             }
         }
         return true;

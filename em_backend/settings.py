@@ -344,5 +344,5 @@ USE_TZ = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 20 MB limit for file uploads
-TAILWIND_CLI_SRC_CSS = 'journal/static/journal/css/input.css'
+TAILWIND_CLI_SRC_CSS = 'static/journal/css/input.css'
 TAILWIND_CLI_DIST_CSS = 'journal/css/output.css'

@@ -1,101 +1,114 @@
 {% load static tailwind_cli %}
 <!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="fa" dir="rtl" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}نشریه بینام{% endblock %}</title>
+    <title>{% block title %}سامانه نشریات CEIT-SSC{% endblock %}</title>
     
-    <!-- Local Fonts -->
     <link rel="stylesheet" href="{% static 'journal/css/fonts.css' %}">
-    
-    <!-- tailwind-->
     {% tailwind_css %}
-    
-    <!-- Dark Mode Initializer to prevent flicker -->
+
     <script>
         if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
             document.documentElement.classList.add('dark');
         } else {
-            document.documentElement.classList.remove('dark')
+            document.documentElement.classList.remove('dark');
         }
     </script>
 </head>
-<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-300 min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 font-sans antialiased transition-colors duration-300 min-h-screen flex flex-col selection:bg-indigo-500 selection:text-white">
 
-    <!-- Navbar -->
-    <nav class="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-            <a href="{% url 'journal_home' %}" class="flex items-center space-x-reverse space-x-3">
-                <img src="{% static 'journal/images/logo.png' %}" alt="Logo" class="w-10 h-10 object-contain">
-                <span class="font-bold text-xl text-blue-700 dark:text-blue-500">نشریه CEIT-SSC</span>
-            </a>
-            
-            <div class="hidden md:flex space-x-reverse space-x-8 items-center">
-                <a href="{% url 'journal_home' %}#releases" class="hover:text-blue-600 dark:hover:text-blue-400 font-medium transition">نسخه‌ها</a>
-                <a href="{% url 'journal_home' %}#about" class="hover:text-blue-600 dark:hover:text-blue-400 font-medium transition">درباره ما</a>
-                <a href="{% url 'journal_submit' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-medium transition shadow-md shadow-blue-500/30">ارسال مقاله</a>
+    <!-- Header Navigation -->
+    <header class="sticky top-0 z-40 w-full backdrop-blur-md bg-white/80 dark:bg-slate-900/80 border-b border-slate-200/80 dark:border-slate-800/80 transition-colors">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                
+                <!-- Logo & Title -->
+                <a href="{% url 'journal_home' %}" class="flex items-center gap-3 group">
+                    <div class="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 group-hover:scale-105 transition-transform">
+                        <img src="{% static 'journal/images/logo.png' %}" alt="CEIT Logo" class="w-8 h-8 object-contain">
+                    </div>
+                    <span class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-400 bg-clip-text text-transparent">
+                        نشریه علمی CEIT
+                    </span>
+                </a>
+                
+                <!-- Nav Links & Controls -->
+                <div class="flex items-center gap-4 sm:gap-6">
+                    <nav class="hidden md:flex items-center gap-6 text-sm font-semibold">
+                        <a href="{% url 'journal_home' %}#releases" class="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition">شماره‌های نشریه</a>
+                        <a href="{% url 'journal_home' %}#about" class="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition">درباره ما</a>
+                    </nav>
+
+                    <a href="{% url 'journal_submit' %}" class="inline-flex items-center justify-center px-4 py-2 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 shadow-md shadow-indigo-500/20 transition transform active:scale-95">
+                        ارسال مقاله
+                    </a>
+
+                    <!-- Theme Toggle Button -->
+                    <button id="theme-toggle" type="button" aria-label="تغییر تم" class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700/60 transition active:scale-95">
+                        <svg id="theme-toggle-dark-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
+                        </svg>
+                        <svg id="theme-toggle-light-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 100 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
-
-            <!-- Theme Toggle -->
-            <button id="theme-toggle" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition ring-1 ring-slate-900/5 dark:ring-white/10 text-slate-500 dark:text-slate-400">
-                <!-- Moon icon (for dark mode) -->
-                <svg id="theme-toggle-dark-icon" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
-                <!-- Sun icon (for light mode) -->
-                <svg id="theme-toggle-light-icon" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path></svg>
-            </button>
         </div>
-    </nav>
+    </header>
 
-    <!-- Alert Messages -->
+    <!-- Alerts Notification -->
     {% if messages %}
-    <div class="fixed top-20 right-4 left-4 z-50 flex flex-col space-y-2 pointer-events-none max-w-sm mx-auto">
+    <div class="fixed top-20 left-4 right-4 sm:left-auto sm:right-6 z-50 flex flex-col gap-2 max-w-md w-full">
         {% for message in messages %}
-        <div class="p-4 rounded-xl shadow-lg pointer-events-auto text-sm font-medium
-            {% if message.tags == 'error' %} bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200 border border-red-200 dark:border-red-800
-            {% elif message.tags == 'success' %} bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800
-            {% else %} bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 border border-blue-200 dark:border-blue-800 {% endif %}">
+        <div class="p-4 rounded-2xl shadow-xl backdrop-blur-lg border text-sm font-medium transition transform animate-bounce-once
+            {% if message.tags == 'error' %} bg-rose-50/90 text-rose-900 border-rose-200 dark:bg-rose-950/80 dark:text-rose-200 dark:border-rose-900
+            {% elif message.tags == 'success' %} bg-emerald-50/90 text-emerald-900 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-900
+            {% else %} bg-indigo-50/90 text-indigo-900 border-indigo-200 dark:bg-indigo-950/80 dark:text-indigo-200 dark:border-indigo-900 {% endif %}">
             {{ message }}
         </div>
         {% endfor %}
     </div>
     {% endif %}
 
-    <!-- Main -->
-    <main class="flex-grow flex flex-col">
+    <!-- Main Content -->
+    <main class="flex-grow">
         {% block content %}{% endblock %}
     </main>
 
     <!-- Footer -->
-    <footer class="bg-slate-900 text-slate-400 py-8 text-center border-t border-slate-800 mt-auto">
-        <p class="text-sm">تمامی حقوق برای انجمن علمی مهندسی کامپیوتر دانشگاه صنعتی امیرکبیر محفوظ است.</p>
+    <footer class="bg-slate-900 border-t border-slate-800 text-slate-400 py-8 text-center text-sm">
+        <div class="max-w-7xl mx-auto px-4">
+            <p>© تمامی حقوق برای انجمن علمی دانشکده مهندسی کامپیوتر (CEIT-SSC) محفوظ است.</p>
+        </div>
     </footer>
 
-    <!-- Theme JS -->
     <script>
-        const themeToggleBtn = document.getElementById('theme-toggle');
-        const darkIcon = document.getElementById('theme-toggle-dark-icon');
-        const lightIcon = document.getElementById('theme-toggle-light-icon');
+        document.addEventListener('DOMContentLoaded', () => {
+            const themeToggleBtn = document.getElementById('theme-toggle');
+            const darkIcon = document.getElementById('theme-toggle-dark-icon');
+            const lightIcon = document.getElementById('theme-toggle-light-icon');
 
-        if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            lightIcon.classList.remove('hidden');
-        } else {
-            darkIcon.classList.remove('hidden');
-        }
+            if (!themeToggleBtn) return;
 
-        themeToggleBtn.addEventListener('click', function() {
-            darkIcon.classList.toggle('hidden');
-            lightIcon.classList.toggle('hidden');
-            
-            if (localStorage.getItem('color-theme')) {
-                if (localStorage.getItem('color-theme') === 'light') {
-                    document.documentElement.classList.add('dark');
-                    localStorage.setItem('color-theme', 'dark');
-                } else {
-                    document.documentElement.classList.remove('dark');
-                    localStorage.setItem('color-theme', 'light');
+            function syncThemeUI() {
+                const isDark = document.documentElement.classList.contains('dark');
+                if (darkIcon && lightIcon) {
+                    if (isDark) {
+                        lightIcon.classList.remove('hidden');
+                        darkIcon.classList.add('hidden');
+                    } else {
+                        darkIcon.classList.remove('hidden');
+                        lightIcon.classList.add('hidden');
+                    }
                 }
-            } else {
+            }
+
+            syncThemeUI();
+
+            themeToggleBtn.addEventListener('click', () => {
                 if (document.documentElement.classList.contains('dark')) {
                     document.documentElement.classList.remove('dark');
                     localStorage.setItem('color-theme', 'light');
@@ -103,7 +116,8 @@
                     document.documentElement.classList.add('dark');
                     localStorage.setItem('color-theme', 'dark');
                 }
-            }
+                syncThemeUI();
+            });
         });
     </script>
 </body>

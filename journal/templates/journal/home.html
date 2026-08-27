@@ -2,73 +2,79 @@
 {% load static %}
 
 {% block content %}
-<section class="relative overflow-hidden pt-12 pb-24 lg:pt-20 lg:pb-32 bg-slate-50 dark:bg-slate-900">
+<!-- Hero Section -->
+<section class="relative overflow-hidden pt-12 pb-20 lg:pt-20 lg:pb-28">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div class="grid lg:grid-cols-2 gap-12 items-center">
-            <div class="text-center lg:text-right">
-                <h1 class="text-4xl lg:text-5xl font-black text-slate-900 dark:text-white leading-tight mb-6">
-                    پورتال رسمی <span class="text-transparent bg-clip-text bg-gradient-to-l from-blue-600 to-indigo-500">نشریه تخصصی</span> CEIT
+            
+            <div class="text-center lg:text-right space-y-6">
+                <span class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
+                    <span class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                    نشریه علمی تخصصی کامپیوتر
+                </span>
+
+                <h1 class="text-4xl lg:text-6xl font-black text-slate-900 dark:text-white leading-tight tracking-tight">
+                    مرجع مقالات و دستاوردهای دانشکده <span class="bg-gradient-to-r from-indigo-600 to-violet-500 bg-clip-text text-transparent">CEIT</span>
                 </h1>
-                <p class="text-lg text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
-                    بستری برای انتشار جدیدترین مقالات، پژوهش‌ها و دستاوردهای علمی دانشجویان و اساتید دانشکده مهندسی کامپیوتر.
+
+                <p class="text-base lg:text-lg text-slate-600 dark:text-slate-400 leading-relaxed max-w-xl mx-auto lg:mx-0">
+                    بستری برای انتشار پژوهش‌های دانشجویی، مقالات علمی-تخصصی و یافته‌های نوین در حوزه مهندسی کامپیوتر و فناوری اطلاعات.
                 </p>
-                
-                <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+
+                <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start pt-2">
                     {% if has_active_call %}
-                    <a href="{% url 'journal_submit' %}" class="inline-flex justify-center items-center px-8 py-3.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/30 transition transform hover:-translate-y-1">
+                    <a href="{% url 'journal_submit' %}" class="inline-flex justify-center items-center px-7 py-3.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-500/25 transition active:scale-95">
                         ارسال مقاله جدید
                     </a>
                     {% endif %}
-                    <a href="#releases" class="inline-flex justify-center items-center px-8 py-3.5 rounded-xl font-bold text-slate-700 bg-white dark:bg-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition">
-                        مشاهده نسخه‌ها
+                    <a href="#releases" class="inline-flex justify-center items-center px-7 py-3.5 rounded-xl font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                        مشاهده شماره‌ها
                     </a>
                 </div>
             </div>
-            
+
+            <!-- Hero Image Concept -->
             <div class="relative hidden lg:block">
-                <img src="{% static 'journal/images/portal.png' %}" alt="Portal Concept" class="w-full max-w-lg mx-auto drop-shadow-2xl animate-fade-in-up">
+                <div class="absolute inset-0 bg-indigo-500/10 dark:bg-indigo-500/20 blur-3xl rounded-full"></div>
+                <img src="{% static 'journal/images/portal.png' %}" alt="Portal Concept" class="relative z-10 w-full max-w-md mx-auto drop-shadow-2xl">
             </div>
         </div>
-    </div>
-    
-    <!-- Abstract Background Shape -->
-    <div class="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-        <div class="absolute -top-[20%] -left-[10%] w-[50%] h-[70%] rounded-full bg-gradient-to-br from-blue-100/50 to-indigo-50/50 dark:from-blue-900/20 dark:to-indigo-900/20 blur-3xl"></div>
     </div>
 </section>
 
 <!-- Releases Section -->
-<section id="releases" class="py-20 bg-white dark:bg-slate-950">
+<section id="releases" class="py-16 bg-white dark:bg-slate-900/50 border-y border-slate-200/60 dark:border-slate-800/60">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="mb-12 text-center">
-            <h2 class="text-3xl font-bold text-slate-900 dark:text-white inline-block relative">
-                نسخه‌های منتشر شده
-                <span class="absolute -bottom-3 left-1/2 transform -translate-x-1/2 w-16 h-1 bg-blue-600 rounded-full"></span>
-            </h2>
+        
+        <div class="mb-12 text-center space-y-2">
+            <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white">شماره‌های منتشر شده</h2>
+            <p class="text-slate-500 dark:text-slate-400 text-sm">آرشیو کامل مجلات و ویژه‌نامه‌های علمی</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {% for release in releases %}
-            <div class="group flex flex-col bg-slate-50 dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-xl transition-all duration-300">
-                <div class="aspect-[3/4] overflow-hidden relative">
+            <div class="group flex flex-col bg-slate-50 dark:bg-slate-900 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-800 shadow-sm hover:shadow-xl transition-all duration-300">
+                <div class="aspect-[4/3] overflow-hidden relative bg-slate-200 dark:bg-slate-800">
                     <img src="{{ release.cover_image.url }}" alt="{{ release.title }}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-                    <div class="absolute top-4 right-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur text-sm font-bold px-3 py-1 rounded-full text-slate-800 dark:text-slate-200">
+                    <span class="absolute top-3 right-3 bg-slate-900/80 backdrop-blur-md text-white text-xs font-bold px-3 py-1 rounded-full border border-white/10">
                         جلد {{ release.volume }}
-                    </div>
+                    </span>
                 </div>
+
                 <div class="p-6 flex flex-col flex-grow">
-                    <h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">{{ release.title }}</h3>
-                    <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">{{ release.publish_date|date:"Y/m/d" }}</p>
-                    <p class="text-slate-600 dark:text-slate-300 line-clamp-3 mb-6">{{ release.abstract }}</p>
-                    <a href="{{ release.pdf_file.url }}" target="_blank" class="mt-auto flex items-center justify-center space-x-reverse space-x-2 w-full py-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                        <span>دانلود PDF</span>
+                    <h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{{ release.title }}</h3>
+                    <p class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-3">{{ release.publish_date|date:"Y/m/d" }}</p>
+                    <p class="text-sm text-slate-600 dark:text-slate-400 line-clamp-3 mb-6 leading-relaxed">{{ release.abstract }}</p>
+
+                    <a href="{{ release.pdf_file.url }}" target="_blank" class="mt-auto inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-sm font-bold hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        <span>دانلود نسخه PDF</span>
                     </a>
                 </div>
             </div>
             {% empty %}
-            <div class="col-span-full text-center py-12 text-slate-500 dark:text-slate-400">
-                هنوز نسخه‌ای منتشر نشده است.
+            <div class="col-span-full text-center py-16 text-slate-500 dark:text-slate-400">
+                هنوز هیچ شماره‌ای منتشر نشده است.
             </div>
             {% endfor %}
         </div>
@@ -76,10 +82,10 @@
 </section>
 
 <!-- About Section -->
-<section id="about" class="py-20 bg-slate-50 dark:bg-slate-900">
-    <div class="max-w-4xl mx-auto px-4 text-center">
-        <h2 class="text-3xl font-bold text-slate-900 dark:text-white mb-8">درباره نشریه</h2>
-        <p class="text-lg text-slate-600 dark:text-slate-300 leading-loose mb-12">
+<section id="about" class="py-20">
+    <div class="max-w-4xl mx-auto px-4 text-center space-y-6">
+        <h2 class="text-3xl font-bold text-slate-900 dark:text-white">درباره نشریه</h2>
+        <p class="text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-loose">
             {{ about_data.description }}
         </p>
     </div>
