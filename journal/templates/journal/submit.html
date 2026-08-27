@@ -1,87 +1,190 @@
 {% extends 'journal/base.html' %}
 
-{% block title %}ارسال مقاله | CEIT-SSC{% endblock %}
+{% block title %}ارسال مقاله | نشریه علمی مهندسی کامپیوتر امیرکبیر{% endblock %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto px-4 py-12 w-full flex-grow">
+<!-- Include Quill.js CSS -->
+<link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
+
+<!-- Custom overrides to match your Tailwind theme and Farsi RTL -->
+<style>
+    .editor-wrapper {
+        position: relative;
+        z-index: 20; 
+    }
+    .ql-toolbar.ql-snow {
+        border: 2px solid #f1f5f9 !important;
+        border-bottom: none !important;
+        border-top-left-radius: 0.75rem;
+        border-top-right-radius: 0.75rem;
+        background-color: #f8fafc;
+        direction: ltr;
+        text-align: left;
+    }
+    .ql-container.ql-snow {
+        border: 2px solid #f1f5f9 !important;
+        border-bottom-left-radius: 0.75rem;
+        border-bottom-right-radius: 0.75rem;
+        background-color: #f8fafc;
+        font-family: inherit !important;
+        height: auto !important; 
+        min-height: 250px;       
+    }
+    .ql-editor {
+        min-height: 250px;
+        font-family: 'Vazirmatn', sans-serif !important;
+        font-size: 1rem;
+        direction: rtl;
+        text-align: right;
+        color: #0f172a;
+        line-height: 2;
+    }
+    .ql-editor.ql-blank::before {
+        right: 15px;
+        left: auto;
+        font-style: normal;
+        color: #94a3b8;
+    }
+    .editor-wrapper:focus-within .ql-toolbar.ql-snow,
+    .editor-wrapper:focus-within .ql-container.ql-snow {
+        border-color: #6366f1 !important;
+    }
+</style>
+
+<div class="max-w-4xl mx-auto px-4 py-16 w-full flex-grow">
     
-    <div class="mb-8 pb-6 border-b border-slate-200 dark:border-slate-800">
-        <h1 class="text-3xl font-black text-slate-900 dark:text-white mb-2">ارسال مقاله علمی</h1>
-        <p class="text-slate-600 dark:text-slate-400 text-sm">
-            فراخوان فعال: <strong class="text-indigo-600 dark:text-indigo-400">{{ active_call.title }}</strong>
+    <div class="mb-10 text-center">
+        <h1 class="text-3xl lg:text-4xl font-black text-slate-900 mb-4">ثبت و ارسال مقاله علمی</h1>
+        <p class="text-slate-600 font-medium">
+            در حال دریافت مقالات برای فراخوان: <strong class="text-indigo-600 px-2 py-1 bg-indigo-50 rounded-lg">{{ active_call.title }}</strong>
         </p>
     </div>
 
-    <form method="post" enctype="multipart/form-data" class="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 sm:p-10 space-y-6" onsubmit="return validateFileSize(this)">
+    <form method="post" enctype="multipart/form-data" id="submission-form" class="bg-white rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 p-6 sm:p-8 md:p-12 space-y-8">
         {% csrf_token %}
         
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div class="col-span-1">
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">نام و نام خانوادگی <span class="text-rose-500">*</span></label>
-                <input type="text" name="full_name" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                <label class="block text-sm font-extrabold text-slate-700 mb-2">نام و نام خانوادگی <span class="text-rose-500">*</span></label>
+                <input type="text" name="full_name" required class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium">
             </div>
 
             <div class="col-span-1">
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">پست الکترونیکی <span class="text-rose-500">*</span></label>
-                <input type="email" name="email" required dir="ltr" placeholder="name@example.com" class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                <label class="block text-sm font-extrabold text-slate-700 mb-2">پست الکترونیکی <span class="text-rose-500">*</span></label>
+                <input type="email" name="email" required dir="ltr" placeholder="name@aut.ac.ir" class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium text-left placeholder:text-slate-400">
             </div>
 
             <div class="col-span-1">
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">شماره همراه <span class="text-rose-500">*</span></label>
-                <input type="text" name="phone_number" required pattern="09[0-9]{9}" title="شماره موبایل معتبر ۱۱ رقمی با ۰۹" dir="ltr" placeholder="09123456789" class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                <label class="block text-sm font-extrabold text-slate-700 mb-2">شماره همراه <span class="text-rose-500">*</span></label>
+                <input type="text" name="phone_number" required pattern="09[0-9]{9}" title="شماره موبایل معتبر ۱۱ رقمی با ۰۹" dir="ltr" placeholder="09123456789" class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium text-left placeholder:text-slate-400">
             </div>
 
             <div class="col-span-1">
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">دانشگاه محل تحصیل <span class="text-rose-500">*</span></label>
-                <input type="text" name="university" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                <label class="block text-sm font-extrabold text-slate-700 mb-2">دانشگاه محل تحصیل <span class="text-rose-500">*</span></label>
+                <input type="text" name="university" required placeholder="دانشگاه صنعتی امیرکبیر" class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium placeholder:text-slate-400">
             </div>
 
             <div class="col-span-1 md:col-span-2">
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">رشته تحصیلی <span class="text-rose-500">*</span></label>
-                <input type="text" name="major" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                <label class="block text-sm font-extrabold text-slate-700 mb-2">رشته و مقطع تحصیلی <span class="text-rose-500">*</span></label>
+                <input type="text" name="major" required placeholder="کارشناسی مهندسی کامپیوتر" class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium placeholder:text-slate-400">
             </div>
 
-            <div class="col-span-1 md:col-span-2">
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">چکیده / متن مقاله <span class="text-rose-500">*</span></label>
-                <textarea name="article_text" rows="5" required class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition resize-y"></textarea>
+            <!-- Rich Text Editor Section -->
+            <div class="col-span-1 md:col-span-2 editor-wrapper transition-all">
+                <label class="block text-sm font-extrabold text-slate-700 mb-2">چکیده مقاله <span class="text-rose-500">*</span></label>
+                
+                <!-- Hidden input to store HTML for Django to process -->
+                <input type="hidden" name="article_text" id="article_text_input" required>
+                
+                <!-- Removed the fixed height classes here -->
+                <div id="editor-container"></div>
             </div>
 
             <!-- Uploads -->
-            <div class="col-span-1 md:col-span-2 pt-4">
-                <h3 class="text-base font-bold text-slate-900 dark:text-white mb-4">فایل‌های پیوست</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="border border-dashed border-slate-300 dark:border-slate-700 p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-950/50">
-                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">فایل PDF مقاله <span class="text-rose-500">*</span></label>
-                        <input type="file" name="pdf_file" accept=".pdf" required class="block w-full text-xs text-slate-500 dark:text-slate-400 file:mr-0 file:ml-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-950 dark:file:text-indigo-300">
+            <div class="col-span-1 md:col-span-2 pt-6">
+                <h3 class="text-lg font-black text-slate-900 mb-4 border-b border-slate-100 pb-2">فایل‌های پیوست</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="border-2 border-dashed border-indigo-200 hover:border-indigo-400 p-6 rounded-2xl bg-indigo-50/30 transition-colors">
+                        <label class="block text-sm font-extrabold text-slate-700 mb-3">فایل PDF مقاله <span class="text-rose-500">*</span></label>
+                        <input type="file" name="pdf_file" accept=".pdf" required class="block w-full text-sm text-slate-600 file:mr-0 file:ml-4 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 file:cursor-pointer transition-all">
+                        <p class="text-xs text-slate-500 font-medium mt-3">حداکثر حجم مجاز: ۱۰ مگابایت</p>
                     </div>
 
-                    <div class="border border-dashed border-slate-300 dark:border-slate-700 p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-950/50">
-                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">تصویر پیوست (اختیاری)</label>
-                        <input type="file" name="image_1" accept="image/jpeg, image/png" class="block w-full text-xs text-slate-500 dark:text-slate-400 file:mr-0 file:ml-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300 dark:file:bg-slate-800 dark:file:text-slate-300">
+                    <div class="border-2 border-dashed border-slate-200 hover:border-slate-400 p-6 rounded-2xl bg-slate-50/50 transition-colors">
+                        <label class="block text-sm font-extrabold text-slate-700 mb-3">تصویر پیوست (اختیاری)</label>
+                        <input type="file" name="image_1" accept="image/jpeg, image/png" class="block w-full text-sm text-slate-600 file:mr-0 file:ml-4 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300 file:cursor-pointer transition-all">
+                        <p class="text-xs text-slate-500 font-medium mt-3">فرمت‌های مجاز: JPG, PNG</p>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="pt-6 border-t border-slate-200 dark:border-slate-800 flex justify-end">
-            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-8 rounded-xl shadow-lg shadow-indigo-500/25 transition transform active:scale-95 w-full md:w-auto">
-                ثبت و ارسال مقاله
+        <div class="pt-8 border-t border-slate-100 flex justify-center md:justify-end">
+            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 px-10 rounded-xl shadow-lg shadow-indigo-600/30 transition-all transform active:scale-95 w-full md:w-auto text-lg">
+                تایید و ارسال نهایی
             </button>
         </div>
     </form>
 </div>
 
+<!-- Include Quill.js Script -->
+<script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
 <script>
-    function validateFileSize(form) {
-        const maxSize = 10 * 1024 * 1024; // 10MB
-        const fileInputs = form.querySelectorAll('input[type="file"]');
-        for (let i = 0; i < fileInputs.length; i++) {
-            if (fileInputs[i].files.length > 0 && fileInputs[i].files[0].size > maxSize) {
-                alert('حجم فایل انتخابی نباید بیشتر از ۱۰ مگابایت باشد.');
+    document.addEventListener("DOMContentLoaded", function() {
+        
+        // 1. Initialize Quill Editor with extensive formatting options
+        var quill = new Quill('#editor-container', {
+            theme: 'snow',
+            placeholder: 'متن مقاله یا چکیده خود را اینجا بنویسید و ویرایش کنید...',
+            modules: {
+                toolbar: [
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'], 
+                    [{ 'color': [] }, { 'background': [] }],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'script': 'sub'}, { 'script': 'super' }],
+                    [{ 'align': [] }],
+                    [{ 'direction': 'rtl' }],
+                    ['link', 'blockquote', 'code-block'],
+                    ['clean']
+                ]
+            }
+        });
+
+        // 2. Format alignment explicitly for Farsi (RTL) by default
+        quill.format('direction', 'rtl');
+        quill.format('align', 'right');
+
+        // 3. Handle Form Submission
+        const form = document.getElementById('submission-form');
+        const hiddenInput = document.getElementById('article_text_input');
+
+        form.addEventListener('submit', function(e) {
+            
+            // Validate File Sizes
+            const maxSize = 10 * 1024 * 1024; // 10MB
+            const fileInputs = form.querySelectorAll('input[type="file"]');
+            
+            for (let i = 0; i < fileInputs.length; i++) {
+                if (fileInputs[i].files.length > 0 && fileInputs[i].files[0].size > maxSize) {
+                    alert('حجم فایل انتخابی نباید بیشتر از ۱۰ مگابایت باشد.');
+                    e.preventDefault(); // Stop submission
+                    return false;
+                }
+            }
+
+            // Extract HTML content from Quill and inject it into the hidden input for Django
+            const htmlContent = quill.root.innerHTML;
+            
+            // check if editor is empty
+            if (quill.getText().trim().length === 0) {
+                alert('لطفا متن مقاله یا چکیده را وارد کنید.');
+                e.preventDefault();
                 return false;
             }
-        }
-        return true;
-    }
+
+            hiddenInput.value = htmlContent;
+        });
+    });
 </script>
 {% endblock %}

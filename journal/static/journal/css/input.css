@@ -1,8 +1,9 @@
-@import 'fonts.css'; 
+@import "tailwindcss";
+@import "fonts.css";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@theme {
+  --font-sans: "Vazirmatn", sans-serif;
+}
 
 @layer base {
   html {

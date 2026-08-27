@@ -4,56 +4,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}سامانه نشریات CEIT-SSC{% endblock %}</title>
+    <title>{% block title %}نشریه علمی دانشکده مهندسی کامپیوتر امیرکبیر{% endblock %}</title>
     
     <link rel="stylesheet" href="{% static 'journal/css/fonts.css' %}">
     {% tailwind_css %}
-
-    <script>
-        if (localStorage.getItem('color-theme') === 'dark' || (!('color-theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-    </script>
 </head>
-<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 font-sans antialiased transition-colors duration-300 min-h-screen flex flex-col selection:bg-indigo-500 selection:text-white">
+<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen flex flex-col selection:bg-indigo-500 selection:text-white">
 
     <!-- Header Navigation -->
-    <header class="sticky top-0 z-40 w-full backdrop-blur-md bg-white/80 dark:bg-slate-900/80 border-b border-slate-200/80 dark:border-slate-800/80 transition-colors">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-16">
+    <header class="sticky top-0 z-40 w-full backdrop-blur-md bg-white/90 border-b border-slate-200/80 shadow-sm transition-all">
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16 sm:h-20">
                 
                 <!-- Logo & Title -->
-                <a href="{% url 'journal_home' %}" class="flex items-center gap-3 group">
-                    <div class="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 group-hover:scale-105 transition-transform">
-                        <img src="{% static 'journal/images/logo.png' %}" alt="CEIT Logo" class="w-8 h-8 object-contain">
+                <a href="{% url 'journal_home' %}" class="flex items-center gap-2 sm:gap-4 group shrink-0">
+                    <div class="p-1.5 sm:p-2 rounded-xl sm:rounded-2xl bg-indigo-50 border border-indigo-100 group-hover:scale-105 transition-transform duration-300">
+                        <img src="{% static 'journal/images/logo.png' %}" alt="CEIT Logo" class="w-7 h-7 sm:w-10 sm:h-10 object-contain">
                     </div>
-                    <span class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-400 bg-clip-text text-transparent">
-                        نشریه علمی CEIT
-                    </span>
+                    <div class="flex flex-col justify-center">
+                        <span class="font-extrabold text-sm sm:text-xl tracking-tight text-slate-900 group-hover:text-indigo-600 transition-colors leading-tight">
+                            نشریه علمی فرهنگی
+                        </span>
+                        <span class="text-[10px] sm:text-sm font-semibold text-slate-500 hidden xs:block sm:block leading-tight mt-0.5">
+                            دانشکده مهندسی کامپیوتر
+                        </span>
+                    </div>
                 </a>
                 
                 <!-- Nav Links & Controls -->
-                <div class="flex items-center gap-4 sm:gap-6">
-                    <nav class="hidden md:flex items-center gap-6 text-sm font-semibold">
-                        <a href="{% url 'journal_home' %}#releases" class="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition">شماره‌های نشریه</a>
-                        <a href="{% url 'journal_home' %}#about" class="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition">درباره ما</a>
+                <div class="flex items-center gap-3 sm:gap-6 shrink-0">
+                    <nav class="hidden md:flex items-center gap-8 text-sm font-bold text-slate-600">
+                        <a href="{% url 'journal_home' %}#releases" class="hover:text-indigo-600 transition-colors">شماره‌های نشریه</a>
+                        <a href="{% url 'journal_home' %}#about" class="hover:text-indigo-600 transition-colors">درباره ما</a>
                     </nav>
 
-                    <a href="{% url 'journal_submit' %}" class="inline-flex items-center justify-center px-4 py-2 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 shadow-md shadow-indigo-500/20 transition transform active:scale-95">
+                    <a href="{% url 'journal_submit' %}" class="inline-flex items-center justify-center px-3 py-2 sm:px-5 sm:py-2.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition-all transform active:scale-95 whitespace-nowrap">
                         ارسال مقاله
                     </a>
-
-                    <!-- Theme Toggle Button -->
-                    <button id="theme-toggle" type="button" aria-label="تغییر تم" class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700/60 transition active:scale-95">
-                        <svg id="theme-toggle-dark-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
-                        </svg>
-                        <svg id="theme-toggle-light-icon" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 100 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path>
-                        </svg>
-                    </button>
                 </div>
             </div>
         </div>
@@ -61,12 +48,13 @@
 
     <!-- Alerts Notification -->
     {% if messages %}
-    <div class="fixed top-20 left-4 right-4 sm:left-auto sm:right-6 z-50 flex flex-col gap-2 max-w-md w-full">
+    <div id="toast-container" class="fixed top-20 sm:top-24 left-4 right-4 sm:left-auto sm:right-6 z-50 flex flex-col gap-3 max-w-md w-full">
         {% for message in messages %}
-        <div class="p-4 rounded-2xl shadow-xl backdrop-blur-lg border text-sm font-medium transition transform animate-bounce-once
-            {% if message.tags == 'error' %} bg-rose-50/90 text-rose-900 border-rose-200 dark:bg-rose-950/80 dark:text-rose-200 dark:border-rose-900
-            {% elif message.tags == 'success' %} bg-emerald-50/90 text-emerald-900 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-900
-            {% else %} bg-indigo-50/90 text-indigo-900 border-indigo-200 dark:bg-indigo-950/80 dark:text-indigo-200 dark:border-indigo-900 {% endif %}">
+        <!-- Added "toast-alert" and "duration-500" for smooth fading -->
+        <div class="toast-alert p-4 rounded-2xl shadow-xl backdrop-blur-lg border text-sm font-semibold transition-all transform duration-500 animate-bounce-once
+            {% if message.tags == 'error' %} bg-rose-50/95 text-rose-900 border-rose-200 
+            {% elif message.tags == 'success' %} bg-emerald-50/95 text-emerald-900 border-emerald-200 
+            {% else %} bg-indigo-50/95 text-indigo-900 border-indigo-200 {% endif %}">
             {{ message }}
         </div>
         {% endfor %}
@@ -79,44 +67,30 @@
     </main>
 
     <!-- Footer -->
-    <footer class="bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 py-8 text-center text-sm">
-        <div class="max-w-7xl mx-auto px-4">
-            <p>CEIT-SSC Journal Management</p>
+    <footer class="bg-white border-t border-slate-200 pt-12 pb-8 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 text-center flex flex-col items-center gap-4">
+            <a href="https://ceit-ssc.ir/" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-semibold hover:bg-slate-100 hover:text-indigo-600 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                وب‌سایت انجمن علمی (CEIT-SSC)
+            </a>
+            <p class="text-slate-500 font-medium text-xs sm:text-sm mt-4 leading-relaxed">
+                &copy; تمامی حقوق مادی و معنوی این سامانه متعلق به انجمن علمی دانشکده مهندسی کامپیوتر دانشگاه صنعتی امیرکبیر می‌باشد.
+            </p>
         </div>
     </footer>
-
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            const themeToggleBtn = document.getElementById('theme-toggle');
-            const darkIcon = document.getElementById('theme-toggle-dark-icon');
-            const lightIcon = document.getElementById('theme-toggle-light-icon');
-
-            if (!themeToggleBtn) return;
-
-            function syncThemeUI() {
-                const isDark = document.documentElement.classList.contains('dark');
-                if (darkIcon && lightIcon) {
-                    if (isDark) {
-                        lightIcon.classList.remove('hidden');
-                        darkIcon.classList.add('hidden');
-                    } else {
-                        darkIcon.classList.remove('hidden');
-                        lightIcon.classList.add('hidden');
-                    }
-                }
-            }
-
-            syncThemeUI();
-
-            themeToggleBtn.addEventListener('click', () => {
-                if (document.documentElement.classList.contains('dark')) {
-                    document.documentElement.classList.remove('dark');
-                    localStorage.setItem('color-theme', 'light');
-                } else {
-                    document.documentElement.classList.add('dark');
-                    localStorage.setItem('color-theme', 'dark');
-                }
-                syncThemeUI();
+            const alerts = document.querySelectorAll('.toast-alert');
+            
+            alerts.forEach((alert, index) => {
+                // Wait 5 seconds before starting the fade out
+                setTimeout(() => {
+                    alert.classList.add('opacity-0', 'translate-x-8');
+                    setTimeout(() => {
+                        alert.remove();
+                    }, 500);
+                    
+                }, 5000 + (index * 500));
             });
         });
     </script>

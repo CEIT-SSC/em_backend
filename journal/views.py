@@ -7,7 +7,13 @@ from .forms import SubmissionForm
 def journal_home(request):
     releases = Release.objects.all()
     about_config = AboutUsConfig.objects.first()
-    about_data = about_config.data if about_config else {"description": "", "members": []}
+    
+    raw_about_data = about_config.data if about_config and about_config.data else {}
+    
+    about_data = {
+        "description": raw_about_data.get("description", ""),
+        "members": raw_about_data.get("members", [])
+    }
     
     now = timezone.now()
     has_active_call = CallForPaper.objects.filter(is_active=True, start_date__lte=now, end_date__gte=now).exists()
