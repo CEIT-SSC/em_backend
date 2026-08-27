@@ -223,6 +223,7 @@ INSTALLED_APPS = [
     'accounts',
     'shop',
     'events',
+    'journal',
     'rest_framework',
     'rest_framework.authtoken',
     'django.contrib.sites',
