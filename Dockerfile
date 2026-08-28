@@ -19,17 +19,15 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir \
     gunicorn \
-    psycopg \
     -r requirements.txt
 
 # Copy project
 COPY . .
 
-# Entrypoint – runs DB migrations & collectstatic only once
+# Entrypoint
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 8000
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["gunicorn", "em_backend.wsgi:application", "--bind", "0.0.0.0:8000"]
-
