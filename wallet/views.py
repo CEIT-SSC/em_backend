@@ -106,10 +106,10 @@ class WalletTransactionViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(
     tags=['Wallet'],
-    summary="Start a wallet top-up via Zarinpal",
+    summary="Start a wallet top-up through payment core",
     description=(
-        "Creates a top-up intent and returns a gateway URL. The wallet remains unchanged until "
-        "Zarinpal verifies the stored authority and amount in the callback."
+        "Creates a payment-core intent and provider attempt. The wallet remains unchanged until "
+        "the provider adapter verifies the stored authority and amount."
     ),
     request=StartTopUpSerializer,
     responses={
@@ -136,6 +136,8 @@ class WalletTopUpStartView(views.APIView):
 
         payload = {
             'public_id': topup.public_id,
+            'payment_intent_id': topup.payment_intent_id,
+            'payment_attempt_id': topup.payment_attempt_id,
             'amount': topup.amount,
             'status': topup.status,
             'payment_url': topup.payment_url,
@@ -165,10 +167,10 @@ class WalletTopUpStatusView(views.APIView):
 
 @extend_schema(
     tags=['Wallet'],
-    summary="Handle the Zarinpal callback for a wallet top-up",
+    summary="Handle a provider callback for a wallet top-up",
     description=(
-        "Public redirect target for Zarinpal. It never trusts callback status as proof of payment; "
-        "the backend verifies the stored authority and amount with Zarinpal before crediting."
+        "Public provider redirect target. Browser status parameters are ignored; payment-core asks "
+        "the provider adapter to verify the stored authority and amount before wallet settlement."
     ),
     responses={302: None},
 )
@@ -178,28 +180,10 @@ class WalletTopUpCallbackView(views.APIView):
 
     def get(self, request, *args, **kwargs):
         authority = request.query_params.get('Authority')
-        gateway_status = request.query_params.get('Status')
         if not authority:
             return redirect(_frontend_topup_redirect({
                 'success': 'false',
                 'message': 'Invalid callback parameters',
-            }))
-
-        if gateway_status != 'OK':
-            try:
-                topup = WalletService.mark_topup_failed(
-                    authority,
-                    metadata={'note': 'gateway_cancelled'},
-                )
-            except TopUpNotFound:
-                return redirect(_frontend_topup_redirect({
-                    'success': 'false',
-                    'message': 'Top-up not found',
-                }))
-            return redirect(_frontend_topup_redirect({
-                'success': 'false',
-                'message': 'Payment cancelled or failed',
-                'topup_id': str(topup.public_id),
             }))
 
         try:
@@ -217,18 +201,19 @@ class WalletTopUpCallbackView(views.APIView):
             }))
 
         if topup.status == WalletTopUp.STATUS_CREDITED:
-            settlement = WalletService.settle_order_for_credited_topup(topup)
             params = {
                 'success': 'true',
                 'message': 'Wallet topped up',
                 'topup_id': str(topup.public_id),
             }
             if topup.order_id:
+                topup.order.refresh_from_db(fields=['status'])
+                order_paid = topup.order.status == Order.STATUS_COMPLETED
                 params.update({
                     'order_id': str(topup.order.order_id),
-                    'order_paid': 'true' if settlement is not None else 'false',
+                    'order_paid': 'true' if order_paid else 'false',
                 })
-                if settlement is None:
+                if not order_paid:
                     params['message'] = 'Wallet topped up, but the order could not be completed'
             return redirect(_frontend_topup_redirect(params))
         return redirect(_frontend_topup_redirect({
@@ -240,7 +225,7 @@ class WalletTopUpCallbackView(views.APIView):
 
 @extend_schema(
     tags=['Wallet'],
-    summary="Pay an order through the wallet, funding it through Zarinpal when needed",
+    summary="Pay an order through the wallet, funding it through payment core when needed",
     request=PayOrderSerializer,
     responses={
         200: get_api_response_serializer(WalletOrderPaymentResultSerializer),

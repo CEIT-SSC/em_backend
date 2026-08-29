@@ -32,10 +32,26 @@ LOGGING = {
         "console": {
             "class": "logging.StreamHandler",
         },
+        "payment_console": {
+            "class": "logging.StreamHandler",
+            "formatter": "payment_context",
+        },
+    },
+    "formatters": {
+        "payment_context": {
+            "format": "%(levelname)s %(name)s %(message)s intent_id=%(payment_intent_id)s attempt_id=%(payment_attempt_id)s",
+        },
     },
     "root": {
         "handlers": ["console"],
         "level": "INFO",  # or "DEBUG" if you want more details
+    },
+    "loggers": {
+        "payments": {
+            "handlers": ["payment_console"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
     },
 }
 
@@ -98,6 +114,11 @@ else:
     PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
 
 WALLET_PAYMENT_CALLBACK_URL = os.getenv("WALLET_PAYMENT_CALLBACK_URL", default="")
+WALLET_PAYMENT_PROVIDER = os.getenv("WALLET_PAYMENT_PROVIDER", default="zarinpal").strip().lower()
+
+PAYMENT_SETTLEMENT_HANDLERS = {
+    "wallet_top_up": "wallet.payment_settlement.settle_wallet_top_up",
+}
 
 CORS_ALLOW_CREDENTIALS = True
 SESSION_COOKIE_SECURE = not DEBUG
@@ -214,6 +235,7 @@ INSTALLED_APPS = [
     'shop',
     'events',
     'wallet',
+    'payment_core',
     'rest_framework',
     'rest_framework.authtoken',
     'django.contrib.sites',

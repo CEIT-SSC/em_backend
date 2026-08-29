@@ -288,6 +288,9 @@ class WalletAPITests(TestCase):
         first_topup = WalletTopUp.objects.get(public_id=first.data['topup_id'])
         second_topup = WalletTopUp.objects.get(public_id=second.data['topup_id'])
 
+        fake.queue_verify_result({
+            'status': 'failed', 'ref_id': None, 'error': 'Payment cancelled', 'card_pan': None,
+        })
         self.client.get('/api/wallet/top-ups/callback/', {
             'Authority': first_topup.gateway_authority,
             'Status': 'NOK',
@@ -440,6 +443,9 @@ class WalletAPITests(TestCase):
         self.assertEqual(first_topup.amount, Decimal('40.00'))
 
         self.client.force_authenticate(user=None)
+        fake.queue_verify_result({
+            'status': 'failed', 'ref_id': None, 'error': 'Payment cancelled', 'card_pan': None,
+        })
         failed = self.client.get('/api/wallet/top-ups/callback/', {
             'Authority': first_topup.gateway_authority,
             'Status': 'NOK',

@@ -71,6 +71,20 @@ class WalletTopUp(models.Model):
     ]
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    payment_intent = models.OneToOneField(
+        'payment_core.PaymentIntent',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='wallet_topup',
+    )
+    payment_attempt = models.OneToOneField(
+        'payment_core.PaymentAttempt',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='wallet_topup',
+    )
     wallet = models.ForeignKey(Wallet, on_delete=models.PROTECT, related_name='topups')
     order = models.ForeignKey(
         'shop.Order',

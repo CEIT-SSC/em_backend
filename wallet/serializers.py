@@ -49,6 +49,8 @@ class TopUpSerializer(serializers.ModelSerializer):
         model = WalletTopUp
         fields = (
             'public_id',
+            'payment_intent_id',
+            'payment_attempt_id',
             'amount',
             'status',
             'payment_url',
@@ -63,6 +65,8 @@ class TopUpSerializer(serializers.ModelSerializer):
 @ts_interface()
 class TopUpStartResponseSerializer(serializers.Serializer):
     public_id = serializers.UUIDField()
+    payment_intent_id = serializers.UUIDField()
+    payment_attempt_id = serializers.UUIDField()
     amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     status = serializers.CharField()
     payment_url = serializers.URLField(allow_null=True)
