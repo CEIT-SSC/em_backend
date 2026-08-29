@@ -9,6 +9,7 @@ from .views import (
     OrderHistoryViewSet,
     ProductListView,
     RemoveDiscountView,
+    TeamPaymentInitiateView,
     UserPurchasesView,
 )
 
@@ -25,6 +26,7 @@ urlpatterns = [
 
     path('orders/checkout/', OrderCheckoutView.as_view(), name='order-checkout'),
     path('orders/<uuid:order_id>/cancel/', OrderCancelView.as_view(), name='order-cancel-by-pk'),
+    path('teams/<int:team_id>/initiate-payment/', TeamPaymentInitiateView.as_view(), name='team-initiate-payment'),
 
     path('purchases/', UserPurchasesView.as_view(), name='user-purchases'),
     path('products/', ProductListView.as_view(), name='product-list'),
