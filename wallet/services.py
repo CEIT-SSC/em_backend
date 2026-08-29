@@ -1,12 +1,17 @@
 import logging
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 
+from django.conf import settings
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.contenttypes.models import ContentType
 from django.db import IntegrityError, transaction
 from django.db.models import Case, DecimalField, F, Sum, When
 from django.utils import timezone
 
+from payment_core.exceptions import PaymentError
+from payment_core.models import PaymentAttempt, PaymentIntent
+from payment_core.providers import CustomerData
+from payment_core.services import create_intent, start_payment_attempt, verify_callback
 from shop.fulfillment import process_successful_order
 from shop.eligibility import OrderPaymentEligibilityError, validate_order_items_for_payment
 from shop.models import Cart, CartItem, Order
@@ -24,6 +29,7 @@ from wallet.exceptions import (
 )
 from wallet.models import Wallet, WalletEntry, WalletTopUp
 from wallet.payments import ZarrinPal
+from wallet.payment_provider import ZarinpalPaymentProvider
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +55,25 @@ def _as_money(value):
     if quantized <= 0:
         raise InvalidAmount()
     return quantized
+
+
+def _as_rial(amount):
+    rial = amount * Decimal('10')
+    if rial != rial.to_integral_value():
+        raise InvalidAmount("Wallet amount cannot be represented as a whole number of Rials.")
+    value = int(rial)
+    if value <= 0:
+        raise InvalidAmount()
+    return value
+
+
+def _wallet_provider_adapter(provider_name, payment_client=None):
+    # payment_client is the backwards-compatible injection point for the legacy Zarinpal test/client.
+    if payment_client is not None:
+        return ZarinpalPaymentProvider(payment_client)
+    if provider_name == 'zarinpal':
+        return ZarinpalPaymentProvider(ZarrinPal())
+    return None  # payment-core resolves any other registered provider by name.
 
 
 def sanitize_metadata(metadata):
@@ -311,30 +336,49 @@ class WalletService:
                 metadata=sanitize_metadata(metadata),
             )
 
-        client = payment_client or ZarrinPal()
-        result = client.create_payment(
-            amount=amount,
-            mobile=getattr(user, 'phone_number', None) or '',
-            email=getattr(user, 'email', None) or '',
-            order_id=str(topup.public_id),
-            callback_url=callback_url,
-        )
-        if result.get('status') == 'success' and result.get('authority') and result.get('link'):
-            try:
-                with transaction.atomic():
-                    topup = WalletTopUp.objects.select_for_update().get(pk=topup.pk)
-                    topup.gateway_authority = result['authority']
-                    topup.payment_url = result['link']
-                    topup.status = WalletTopUp.STATUS_AWAITING_GATEWAY
-                    topup.save(update_fields=['gateway_authority', 'payment_url', 'status', 'updated_at'])
-            except IntegrityError as exc:
-                cls.mark_topup_failed(topup, metadata={'gateway_error': 'duplicate_gateway_authority'})
-                raise TopUpGatewayError("The payment gateway returned a duplicate authority.") from exc
-            return topup, True
+        try:
+            intent, _ = create_intent(
+                user=user,
+                amount_rial=_as_rial(amount),
+                purpose=PaymentIntent.PURPOSE_WALLET_TOP_UP,
+                reference_id=str(topup.public_id),
+                description=f'Wallet top-up {topup.public_id}',
+                idempotency_key=f'wallet-topup-intent:{topup.public_id}',
+                metadata={
+                    'source': (metadata or {}).get('source', 'wallet'),
+                    'wallet_topup_id': str(topup.public_id),
+                    'order_id': str(order.order_id) if order else None,
+                },
+            )
+            provider_name = getattr(settings, 'WALLET_PAYMENT_PROVIDER', 'zarinpal')
+            attempt, _ = start_payment_attempt(
+                intent=intent,
+                provider=provider_name,
+                idempotency_key=f'wallet-topup-attempt:{topup.public_id}',
+                callback_url=callback_url,
+                adapter=_wallet_provider_adapter(provider_name, payment_client),
+                customer=CustomerData(
+                    mobile=getattr(user, 'phone_number', None) or None,
+                    email=getattr(user, 'email', None) or None,
+                ),
+            )
+        except PaymentError as exc:
+            gateway_error = str(exc)[:MAX_METADATA_VALUE_LENGTH]
+            cls.mark_topup_failed(topup, metadata={'gateway_error': gateway_error})
+            raise TopUpGatewayError(gateway_error) from exc
 
-        gateway_error = str(result.get('error') or 'Payment request failed.')[:MAX_METADATA_VALUE_LENGTH]
-        cls.mark_topup_failed(topup, metadata={'gateway_error': gateway_error})
-        raise TopUpGatewayError(gateway_error)
+        with transaction.atomic():
+            topup = WalletTopUp.objects.select_for_update().get(pk=topup.pk)
+            topup.payment_intent = attempt.intent
+            topup.payment_attempt = attempt
+            topup.gateway_authority = attempt.gateway_authority
+            topup.payment_url = attempt.payment_url
+            topup.status = WalletTopUp.STATUS_AWAITING_GATEWAY
+            topup.save(update_fields=[
+                'payment_intent', 'payment_attempt', 'gateway_authority', 'payment_url',
+                'status', 'updated_at',
+            ])
+        return topup, True
 
     @classmethod
     def get_topup(cls, user, public_id):
@@ -368,38 +412,79 @@ class WalletService:
 
     @classmethod
     def credit_verified_topup(cls, authority, *, payment_client=None):
-        """Verify a stored gateway authority and credit its top-up exactly once."""
+        """Verify through payment-core, which coordinates idempotent wallet settlement."""
         topup = WalletTopUp.objects.filter(gateway_authority=authority).first()
         if topup is None:
             raise TopUpNotFound()
         if topup.status == WalletTopUp.STATUS_CREDITED:
             return topup, False
 
-        client = payment_client or ZarrinPal()
-        result = client.verify_payment(authority=authority, amount=topup.amount)
-        with transaction.atomic():
-            topup = WalletTopUp.objects.select_for_update().select_related('wallet').get(pk=topup.pk)
-            if topup.status == WalletTopUp.STATUS_CREDITED:
-                return topup, False
+        if topup.payment_attempt_id is None:
+            raise TopUpGatewayError("This legacy top-up has no payment-core attempt.")
+        was_credited = topup.status == WalletTopUp.STATUS_CREDITED
+        try:
+            provider_name = topup.payment_attempt.provider
+            attempt, settlement = verify_callback(
+                provider=provider_name,
+                authority=authority,
+                adapter=_wallet_provider_adapter(provider_name, payment_client),
+            )
+        except PaymentError as exc:
+            cls.mark_topup_failed(topup, metadata={'gateway_error': str(exc)})
+            raise TopUpGatewayError(str(exc)) from exc
 
-            if result.get('status') != 'success':
-                topup.status = WalletTopUp.STATUS_FAILED
-                extra = dict(topup.metadata or {})
-                extra['gateway_error'] = str(
-                    result.get('error') or 'Payment verification failed.'
-                )[:MAX_METADATA_VALUE_LENGTH]
-                topup.metadata = extra
-                topup.save(update_fields=['status', 'metadata', 'updated_at'])
-                return topup, False
+        topup.refresh_from_db()
+        if attempt.status != PaymentAttempt.STATUS_VERIFIED:
+            error = attempt.error_message or 'Payment verification failed.'
+            cls.mark_topup_failed(topup, metadata={'gateway_error': error})
+            topup.refresh_from_db()
+            return topup, False
+        if settlement is None or settlement.status != settlement.STATUS_SUCCEEDED:
+            return topup, False
+        return topup, not was_credited and topup.status == WalletTopUp.STATUS_CREDITED
+
+    @classmethod
+    def settle_verified_payment_topup(cls, request):
+        """Credit a provider-verified top-up; called only by payment-core settlement."""
+        with transaction.atomic():
+            try:
+                topup = (
+                    WalletTopUp.objects.select_for_update()
+                    .select_related('wallet', 'order')
+                    .get(public_id=request.reference_id)
+                )
+            except (WalletTopUp.DoesNotExist, ValueError) as exc:
+                raise TopUpNotFound() from exc
+            if topup.wallet.user_id is None or topup.wallet.user_id != request.user_id:
+                raise TopUpGatewayError("Payment intent does not belong to this wallet owner.")
+            if topup.payment_intent_id and str(topup.payment_intent_id) != request.payment_intent_id:
+                raise TopUpGatewayError("Wallet top-up is linked to a different payment intent.")
+            if _as_rial(topup.amount) != request.amount_rial:
+                raise TopUpGatewayError("Verified payment amount does not match the wallet top-up.")
+
+            attempt = (
+                PaymentAttempt.objects.filter(
+                    intent_id=request.payment_intent_id,
+                    status=PaymentAttempt.STATUS_VERIFIED,
+                )
+                .order_by('-verified_at')
+                .first()
+            )
+            if attempt is None:
+                raise TopUpGatewayError("No verified payment attempt exists for this top-up.")
+
+            topup.payment_intent_id = request.payment_intent_id
+            topup.payment_attempt = attempt
+            topup.gateway_authority = attempt.gateway_authority
+            topup.gateway_ref_id = attempt.gateway_reference_id
+            topup.payment_url = attempt.payment_url
 
             extra_meta = {
                 'source': 'topup_callback',
-                'gateway': 'zarinpal',
-                'authority': authority,
-                'ref_id': result.get('ref_id'),
-                'card_pan': result.get('card_pan'),
+                'gateway': attempt.provider,
+                'authority': attempt.gateway_authority,
+                'ref_id': attempt.gateway_reference_id,
             }
-
             _entry, created = cls._apply_entry(
                 wallet=topup.wallet,
                 entry_type=WalletEntry.TYPE_TOPUP,
@@ -411,15 +496,17 @@ class WalletService:
             )
             if created or topup.status != WalletTopUp.STATUS_CREDITED:
                 topup.status = WalletTopUp.STATUS_CREDITED
-                topup.gateway_ref_id = result.get('ref_id')
-                topup.credited_at = timezone.now()
+                topup.credited_at = topup.credited_at or timezone.now()
                 extra = dict(topup.metadata or {})
                 extra.update(extra_meta)
                 topup.metadata = extra
-                topup.save(update_fields=[
-                    'status', 'gateway_ref_id', 'credited_at', 'metadata', 'updated_at',
-                ])
-            return topup, created
+            topup.save(update_fields=[
+                'payment_intent', 'payment_attempt', 'gateway_authority', 'gateway_ref_id',
+                'payment_url', 'status', 'credited_at', 'metadata', 'updated_at',
+            ])
+
+        cls.settle_order_for_credited_topup(topup)
+        return topup
 
     @staticmethod
     def _clear_purchased_cart_items(order):

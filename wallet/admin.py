@@ -61,17 +61,17 @@ class WalletEntryAdmin(admin.ModelAdmin):
 @admin.register(WalletTopUp)
 class WalletTopUpAdmin(admin.ModelAdmin):
     list_display = (
-        'public_id', 'wallet', 'order', 'amount', 'status', 'gateway_authority',
+        'public_id', 'wallet', 'order', 'payment_intent', 'payment_attempt', 'amount', 'status', 'gateway_authority',
         'gateway_ref_id', 'created_at', 'credited_at',
     )
     list_filter = ('status', 'created_at')
     search_fields = ('public_id', 'gateway_authority', 'wallet__user__email', 'order__order_id')
     readonly_fields = (
-        'public_id', 'wallet', 'order', 'amount', 'status',
+        'public_id', 'wallet', 'order', 'payment_intent', 'payment_attempt', 'amount', 'status',
         'gateway_authority', 'gateway_ref_id', 'payment_url', 'metadata',
         'created_at', 'updated_at', 'credited_at',
     )
-    list_select_related = ('wallet__user', 'order')
+    list_select_related = ('wallet__user', 'order', 'payment_intent', 'payment_attempt')
 
     def has_add_permission(self, request):
         return False

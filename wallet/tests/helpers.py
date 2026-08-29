@@ -12,6 +12,7 @@ User = get_user_model()
 class FakePaymentClient:
     def __init__(self, create_result=None, verify_result=None):
         self._auto_create_result = create_result is None
+        self._auto_verify_result = verify_result is None
         self.create_result = create_result or {
             'status': 'success',
             'authority': 'AUTH123456',
@@ -26,6 +27,8 @@ class FakePaymentClient:
         }
         self.create_calls = 0
         self.verify_calls = 0
+        self.verify_results = []
+        self._authority_refs = {}
 
     def create_payment(self, amount, mobile, email, order_id=None, callback_url=None):
         self.create_calls += 1
@@ -45,7 +48,18 @@ class FakePaymentClient:
     def verify_payment(self, authority, amount):
         self.verify_calls += 1
         self.last_verify = {'authority': authority, 'amount': amount}
-        return dict(self.verify_result)
+        if self.verify_results:
+            return dict(self.verify_results.pop(0))
+        result = dict(self.verify_result)
+        if self._auto_verify_result and result.get('status') == 'success':
+            if authority not in self._authority_refs:
+                sequence = len(self._authority_refs) + 1
+                self._authority_refs[authority] = 'REF999' if sequence == 1 else f'REF999-{sequence}'
+            result['ref_id'] = self._authority_refs[authority]
+        return result
+
+    def queue_verify_result(self, result):
+        self.verify_results.append(dict(result))
 
 
 def make_user(email, *, staff=False, superuser=False):
