@@ -1,13 +1,12 @@
-from django.contrib import admin
+import csv
 from django import forms
-from .models import Cart, CartItem, Order, OrderItem, DiscountCode, PaymentApp, Product
-from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
+from django.contrib import admin
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.contrib import messages
-from django.utils.html import format_html
-from django.utils.safestring import mark_safe
-from django.db import models
+from django.http import HttpResponse
+
+from .models import Cart, CartItem, DiscountCode, Order, OrderItem, PaymentApp, Product
 
 ITEM_SOURCES = [
     ('Presentation', ('events', 'Presentation'), 'title'),
@@ -15,6 +14,7 @@ ITEM_SOURCES = [
     ('Competition Team', ('events', 'CompetitionTeam'), 'name'),
     ('Product', ('shop', 'Product'), 'name'),
 ]
+
 
 def build_generic_item_choices(limit_per_type=500):
     """
@@ -32,12 +32,8 @@ def build_generic_item_choices(limit_per_type=500):
         ct = ContentType.objects.get_for_model(Model)
         qs = Model.objects.all().order_by('id')[:limit_per_type]
         for obj in qs:
-            display = getattr(obj, display_field, None)
-            if not display:
-                display = str(obj)
-            value = f"{ct.pk}:{obj.pk}"
-            label = f"[{type_label}] {display}"
-            choices.append((value, label))
+            display = getattr(obj, display_field, None) or str(obj)
+            choices.append((f"{ct.pk}:{obj.pk}", f"[{type_label}] {display}"))
     return choices
 
 
@@ -57,12 +53,10 @@ class DiscountCodeAdminForm(forms.ModelForm):
         self.fields['target_item'].choices = build_generic_item_choices()
 
         if self.instance and self.instance.pk and self.instance.content_type_id and self.instance.object_id:
-            initial_value = f"{self.instance.content_type_id}:{self.instance.object_id}"
-            self.fields['target_item'].initial = initial_value
+            self.fields['target_item'].initial = f"{self.instance.content_type_id}:{self.instance.object_id}"
 
     def clean(self):
         cleaned = super().clean()
-
         pct = cleaned.get('percentage') or 0
         amt = cleaned.get('amount') or 0
         if (pct > 0 and amt > 0) or (pct <= 0 and amt <= 0):
@@ -72,18 +66,14 @@ class DiscountCodeAdminForm(forms.ModelForm):
         if raw:
             try:
                 ct_id_str, obj_id_str = raw.split(':', 1)
-                ct_id = int(ct_id_str)
-                obj_id = int(obj_id_str)
+                ct = ContentType.objects.get_for_id(int(ct_id_str))
+                Model = ct.model_class()
+                if not Model.objects.filter(pk=int(obj_id_str)).exists():
+                    raise ValidationError("Chosen target item no longer exists.")
+                cleaned['content_type'] = ct
+                cleaned['object_id'] = int(obj_id_str)
             except Exception:
                 raise ValidationError("Invalid target item selection.")
-
-            ct = ContentType.objects.get_for_id(ct_id)
-            Model = ct.model_class()
-            if not Model.objects.filter(pk=obj_id).exists():
-                raise ValidationError("Chosen target item no longer exists.")
-
-            cleaned['content_type'] = ct
-            cleaned['object_id'] = obj_id
         else:
             cleaned['content_type'] = None
             cleaned['object_id'] = None
@@ -137,8 +127,6 @@ class CartItemInline(admin.TabularInline):
     extra = 0
     readonly_fields = ('content_object', 'added_at')
 
-    def get_queryset(self, request):
-        return super().get_queryset(request)
 
 @admin.register(Cart)
 class CartAdmin(admin.ModelAdmin):
@@ -163,126 +151,28 @@ class OrderItemInline(admin.TabularInline):
     extra = 0
     readonly_fields = ('content_object', 'description', 'price')
 
-    def get_queryset(self, request):
-        return super().get_queryset(request)
 
-class HasAuthorityFilter(admin.SimpleListFilter):
-    title = "Has gateway authority"
-    parameter_name = "has_authority"
-    def lookups(self, request, model_admin):
-        return (("yes", "Yes"), ("no", "No"))
-    def queryset(self, request, queryset):
-        val = self.value()
-        if val == "yes":
-            return queryset.exclude(payment_gateway_authority__isnull=True).exclude(payment_gateway_authority__exact="")
-        if val == "no":
-            return queryset.filter(models.Q(payment_gateway_authority__isnull=True) | models.Q(payment_gateway_authority=""))
-        return queryset
-
-class HasTxnFilter(admin.SimpleListFilter):
-    title = "Has gateway txn_id"
-    parameter_name = "has_txn"
-    def lookups(self, request, model_admin):
-        return (("yes", "Yes"), ("no", "No"))
-    def queryset(self, request, queryset):
-        val = self.value()
-        if val == "yes":
-            return queryset.exclude(payment_gateway_txn_id__isnull=True).exclude(payment_gateway_txn_id__exact="")
-        if val == "no":
-            return queryset.filter(models.Q(payment_gateway_txn_id__isnull=True) | models.Q(payment_gateway_txn_id=""))
-        return queryset
-    
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
-        'order_id', 'user', 'event', 'redirect_app',
-        'total_amount', 'status',
-        'payment_gateway_authority', 'payment_gateway_txn_id',
-        'created_at', 'paid_at',
+        'order_id', 'user', 'event', 'total_amount', 'status', 'created_at', 'paid_at',
     )
-    search_fields = (
-        'order_id',
-        'user__email', 'user__first_name', 'user__last_name',
-        'payment_gateway_authority', 'payment_gateway_txn_id',
-    )
-    list_filter = (
-        'status', 'created_at', 'paid_at', 'event', 'redirect_app',
-        HasAuthorityFilter, HasTxnFilter,
-    )
+    search_fields = ('order_id', 'user__email', 'user__first_name', 'user__last_name')
+    list_filter = ('status', 'created_at', 'paid_at', 'event')
     readonly_fields = (
-        'order_id', 'created_at', 'paid_at',
-        'subtotal_amount', 'discount_amount', 'total_amount',
-        'payment_gateway_authority', 'payment_gateway_txn_id',
-        'gateway_inquiry_readonly',
+        'order_id', 'created_at', 'paid_at', 'subtotal_amount', 'discount_amount', 'total_amount',
     )
     autocomplete_fields = ['user', 'discount_code_applied']
     inlines = [OrderItemInline]
     date_hierarchy = 'created_at'
     list_select_related = ('user', 'event')
-
-    actions = ['export_orders_csv', 'inquiry_gateway_status']
-
-    def gateway_inquiry_readonly(self, obj):
-        from .payments import ZarrinPal
-        if not obj.payment_gateway_authority:
-            return "—"
-        z = ZarrinPal()
-        res = z.inquiry(authority=obj.payment_gateway_authority)
-        parts = []
-        for k in ('status', 'error'):
-            v = res.get(k)
-            if v:
-                parts.append(f"<b>{k}</b>: {v}")
-        html = "<br>".join(parts) if parts else "No data"
-        return mark_safe(html)
-    gateway_inquiry_readonly.short_description = "Gateway inquiry (live)"
-
-    def gateway_inquiry_badge(self, obj):
-        from .payments import ZarrinPal
-        if not obj.payment_gateway_authority:
-            return "-"
-        z = ZarrinPal()
-        res = z.inquiry(authority=obj.payment_gateway_authority)
-        st = (res.get('status') or '').lower()
-        color = {
-            'failed': '#c0392b',
-            'in_bank': '#f39c12',
-            'not_found': '#7f8c8d',
-        }.get(st, '#2ecc71')
-        label = st.upper() if st else 'N/A'
-        return format_html('<span style="padding:2px 6px;border-radius:10px;background:{};color:#fff;">{}</span>', color, label)
-    gateway_inquiry_badge.short_description = "Gateway status"
-
-    def inquiry_gateway_status(self, request, queryset):
-        from .payments import ZarrinPal
-        z = ZarrinPal()
-
-        MAX_CHECK = 20
-        qs = queryset.exclude(payment_gateway_authority__isnull=True)\
-                    .exclude(payment_gateway_authority__exact="")[:MAX_CHECK]
-
-        total = queryset.count()
-        checked = 0
-        for o in qs:
-            res = z.inquiry(authority=o.payment_gateway_authority)
-            checked += 1
-            messages.info(request, f"[{o.order_id}] inquiry → {res}")
-
-        if total > MAX_CHECK:
-            messages.warning(request, f"Selected {total} orders; limited to first {MAX_CHECK} to avoid load.")
-
-        if checked == 0:
-            messages.warning(request, "No selected orders had an Authority to check.")
-    inquiry_gateway_status.short_description = "Gateway inquiry (show results in messages)"
+    actions = ['export_orders_csv']
 
     def export_orders_csv(self, request, queryset):
-        import csv
-        from django.http import HttpResponse
         fieldnames = [
-            'order_id', 'user_email', 'event_id', 'redirect_app',
+            'order_id', 'user_email', 'event_id',
             'subtotal_amount', 'discount_amount', 'total_amount',
-            'status', 'payment_gateway_authority', 'payment_gateway_txn_id',
-            'created_at', 'paid_at',
+            'status', 'created_at', 'paid_at',
         ]
         resp = HttpResponse(content_type='text/csv; charset=utf-8')
         resp['Content-Disposition'] = 'attachment; filename="orders_export.csv"'
@@ -293,13 +183,10 @@ class OrderAdmin(admin.ModelAdmin):
                 'order_id': str(o.order_id),
                 'user_email': getattr(o.user, 'email', ''),
                 'event_id': getattr(o.event, 'id', '') if o.event_id else '',
-                'redirect_app': o.redirect_app or '',
                 'subtotal_amount': o.subtotal_amount,
                 'discount_amount': o.discount_amount,
                 'total_amount': o.total_amount,
                 'status': o.status,
-                'payment_gateway_authority': o.payment_gateway_authority or '',
-                'payment_gateway_txn_id': o.payment_gateway_txn_id or '',
                 'created_at': o.created_at.isoformat(),
                 'paid_at': o.paid_at.isoformat() if o.paid_at else '',
             })

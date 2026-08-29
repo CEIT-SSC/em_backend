@@ -1,11 +1,10 @@
-from django.shortcuts import redirect, get_object_or_404
-from django.conf import settings
-from django.utils import timezone
-from django.db import transaction, models
+from decimal import Decimal
+
+from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.db.models import Q
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
-from urllib.parse import urlencode
-import logging
 from rest_framework import viewsets, status, generics, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -13,14 +12,20 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from drf_spectacular.types import OpenApiTypes
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
     get_paginated_response_serializer
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem, DiscountRedemption, Product
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, Product
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
-    OrderSerializer, OrderListSerializer, PaymentInitiateResponseSerializer,
-    UserPurchasesSerializer, OrderPaymentInitiateSerializer, CartItemSerializer, ProductSerializer
+    OrderSerializer, OrderCheckoutResultSerializer, OrderListSerializer,
+    UserPurchasesSerializer, CartItemSerializer, ProductSerializer
 )
-from .payments import ZarrinPal
-from decimal import Decimal
+from .fulfillment import process_successful_order
+from .eligibility import (
+    has_capacity as _has_capacity,
+    is_already_owned as _is_already_owned,
+    is_cart_item_active as _is_cart_item_active,
+    is_content_available as _is_content_available,
+    is_registration_open as _is_registration_open,
+)
 
 Presentation = apps.get_model('events', 'Presentation')
 SoloCompetition = apps.get_model('events', 'SoloCompetition')
@@ -28,9 +33,7 @@ CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
 PresentationEnrollment = apps.get_model('events', 'PresentationEnrollment')
 SoloCompetitionRegistration = apps.get_model('events', 'SoloCompetitionRegistration')
 TeamMembership = apps.get_model('events', 'TeamMembership')
-CustomUser = apps.get_model(settings.AUTH_USER_MODEL)
 Event = apps.get_model('events', 'Event')
-logger = logging.getLogger(__name__)
 
 
 def _release_reservations_for_orders(order_qs_or_list):
@@ -47,124 +50,6 @@ def _release_reservations_for_orders(order_qs_or_list):
                     obj.save(update_fields=["status"])
 
 
-def _is_content_available(obj) -> bool:
-    if obj is None:
-        return False
-
-    if hasattr(obj, "is_active") and obj.is_active is False:
-        return False
-
-    ev = getattr(obj, "event", None)
-    if ev is not None and hasattr(ev, "is_active") and ev.is_active is False:
-        return False
-
-    try:
-        from events.models import CompetitionTeam
-        if isinstance(obj, CompetitionTeam):
-            gc = getattr(obj, "group_competition", None)
-            if gc is not None:
-                if hasattr(gc, "is_active") and gc.is_active is False:
-                    return False
-                ev2 = getattr(gc, "event", None)
-                if ev2 is not None and hasattr(ev2, "is_active") and ev2.is_active is False:
-                    return False
-    except Exception:
-        pass
-
-    return True
-
-
-def _is_cart_item_active(ci) -> bool:
-    try:
-        return _is_content_available(ci.content_object)
-    except Exception:
-        return False
-
-
-def _is_already_owned_or_pending(user, item_object) -> bool:
-    return _is_already_owned(user, item_object) or _is_pending(user, item_object)
-
-
-def _is_already_owned(user, item_object) -> bool:
-    user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
-
-    if isinstance(item_object, Presentation):
-        if PresentationEnrollment.objects.filter(
-                user=user_to_check, presentation=item_object,
-                status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE
-        ).exists():
-            return True
-
-    elif isinstance(item_object, SoloCompetition):
-        if SoloCompetitionRegistration.objects.filter(
-                user=user_to_check, solo_competition=item_object,
-                status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
-        ).exists():
-            return True
-
-    elif isinstance(item_object, CompetitionTeam):
-        if item_object.status == CompetitionTeam.STATUS_ACTIVE and (
-                item_object.leader_id == user.id or
-                TeamMembership.objects.filter(team=item_object, user=user).exists()
-        ):
-            return True
-
-    ct = ContentType.objects.get_for_model(item_object)
-    if OrderItem.objects.filter(
-            content_type=ct,
-            object_id=item_object.pk,
-            order__user=user_to_check,
-            order__status__in=[Order.STATUS_COMPLETED],
-    ).exists():
-        return True
-
-    return False
-
-
-def _is_pending(user, item_object) -> bool:
-    user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
-    ct = ContentType.objects.get_for_model(item_object)
-    return OrderItem.objects.filter(
-        content_type=ct,
-        object_id=item_object.pk,
-        order__user=user_to_check,
-        order__status__in=[
-            Order.STATUS_PENDING_PAYMENT,
-            Order.STATUS_AWAITING_GATEWAY_REDIRECT,
-            Order.STATUS_PROCESSING_ENROLLMENT,
-        ],
-    ).exists()
-
-
-def _has_capacity(item_object):
-    if isinstance(item_object, Presentation):
-        if item_object.capacity is None: return True
-        return item_object.enrollments.filter(
-            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE).count() < item_object.capacity
-
-    if isinstance(item_object, SoloCompetition):
-        if item_object.max_participants is None: return True
-        return item_object.registrations.filter(
-            status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE).count() < item_object.max_participants
-
-    if isinstance(item_object, CompetitionTeam):
-        group_comp = item_object.group_competition
-        if group_comp.max_teams is None: return True
-        return group_comp.teams.filter(status=CompetitionTeam.STATUS_ACTIVE).count() < group_comp.max_teams
-
-    if isinstance(item_object, Product):
-        if item_object.capacity is None: return True
-        content_type = ContentType.objects.get_for_model(Product)
-        sold_count = OrderItem.objects.filter(
-            content_type=content_type,
-            object_id=item_object.pk,
-            order__status=Order.STATUS_COMPLETED
-        ).count()
-        return sold_count < item_object.capacity
-
-    return True
-
-
 def _add_to_cart_and_update_status(user, item_object):
     cart, _ = Cart.objects.get_or_create(user=user)
     content_type = ContentType.objects.get_for_model(item_object)
@@ -177,17 +62,64 @@ def _add_to_cart_and_update_status(user, item_object):
     return True, "Item added to your cart."
 
 
-def _is_registration_open(item_object) -> bool:
-    start_time = None
-    if isinstance(item_object, (Presentation, SoloCompetition)):
-        start_time = getattr(item_object, 'start_time', None) or getattr(item_object, 'start_datetime', None)
-    elif isinstance(item_object, CompetitionTeam):
-        start_time = getattr(item_object.group_competition, 'start_datetime', None)
+def _find_matching_pending_order(*, user, event, cart_item_prices, subtotal, discount_code, discount, total):
+    candidates = (
+        Order.objects.filter(
+            user=user,
+            event=event,
+            status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED],
+            subtotal_amount=subtotal,
+            discount_code_applied=discount_code,
+            discount_amount=discount,
+            total_amount=total,
+        )
+        .select_for_update()
+        .prefetch_related('items')
+        .order_by('-created_at')
+    )[:20]
 
-    if start_time and timezone.now() > start_time:
-        return False
+    expected = {
+        (item.content_type_id, item.object_id, Decimal(str(price)))
+        for item, price in cart_item_prices
+    }
+    for candidate in candidates:
+        actual = {
+            (item.content_type_id, item.object_id, item.price)
+            for item in candidate.items.all()
+        }
+        if actual == expected and len(actual) == len(cart_item_prices):
+            return candidate
+    return None
 
-    return True
+
+def _supersede_overlapping_pending_orders(*, user, cart_item_prices):
+    """Cancel older payable orders sharing any item with a new cart snapshot."""
+    overlap = Q()
+    for item, _price in cart_item_prices:
+        overlap |= Q(
+            items__content_type_id=item.content_type_id,
+            items__object_id=item.object_id,
+        )
+
+    if not overlap:
+        return
+
+    older_orders = list(
+        Order.objects.select_for_update()
+        .filter(
+            user=user,
+            status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED],
+        )
+        .filter(overlap)
+        .distinct()
+    )
+    if not older_orders:
+        return
+
+    Order.objects.filter(pk__in=[order.pk for order in older_orders]).update(
+        status=Order.STATUS_CANCELLED,
+    )
+    _release_reservations_for_orders(older_orders)
 
 
 @extend_schema(
@@ -201,6 +133,7 @@ def _is_registration_open(item_object) -> bool:
 )
 class OrderCancelView(views.APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = OrderSerializer
 
     def post(self, request, order_id, *args, **kwargs):
         order = get_object_or_404(Order, order_id=order_id, user=request.user)
@@ -448,9 +381,9 @@ class RemoveDiscountView(views.APIView):
 
 @extend_schema(
     tags=['Shop - Orders & Payment'],
-    summary="Checkout cart and create an order",
+    summary="Checkout and pay the cart through the wallet",
     responses={
-        201: get_api_response_serializer(OrderSerializer),
+        201: get_api_response_serializer(OrderCheckoutResultSerializer),
         400: ApiErrorResponseSerializer,
     },
     parameters=[
@@ -459,45 +392,7 @@ class RemoveDiscountView(views.APIView):
 )
 class OrderCheckoutView(views.APIView):
     permission_classes = [IsAuthenticated]
-
-    def _process_successful_order(self, order):
-        logger.info(f"Processing successful order: {order.order_id}")
-        with transaction.atomic():
-            for order_item in order.items.all():
-                content_object = order_item.content_object
-                if not content_object:
-                    continue
-
-                if isinstance(content_object, Presentation):
-                    PresentationEnrollment.objects.update_or_create(
-                        user=order.user, presentation=content_object,
-                        defaults={
-                            'status': PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
-                            'order_item': order_item
-                        }
-                    )
-                elif isinstance(content_object, SoloCompetition):
-                    SoloCompetitionRegistration.objects.update_or_create(
-                        user=order.user, solo_competition=content_object,
-                        defaults={
-                            'status': SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
-                            'order_item': order_item
-                        }
-                    )
-                elif isinstance(content_object, CompetitionTeam):
-                    team = content_object
-                    team.status = CompetitionTeam.STATUS_ACTIVE
-                    team.save(update_fields=['status'])
-
-            order.status = Order.STATUS_COMPLETED
-            if order.discount_code_applied:
-                discount = order.discount_code_applied
-                DiscountRedemption.objects.get_or_create(code=discount, user=order.user, order=order)
-                discount.times_used = models.F('times_used') + 1
-                discount.save(update_fields=['times_used'])
-            order.save(update_fields=['status'])
-
-        logger.info(f"Finished processing order: {order.order_id}")
+    serializer_class = OrderCheckoutResultSerializer
 
     def post(self, request, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
@@ -514,570 +409,117 @@ class OrderCheckoutView(views.APIView):
             event = None
             cart_items = cart.items.filter(event_id__isnull=True)
 
-        if not cart_items.exists():
+        cart_item_list = list(cart_items.select_related('content_type'))
+        if not cart_item_list:
             return Response({"error": "Your cart is empty for this event."}, status=status.HTTP_400_BAD_REQUEST)
 
-        inactive = [ci.id for ci in cart_items if not _is_cart_item_active(ci)]
+        inactive = [ci.id for ci in cart_item_list if not _is_cart_item_active(ci)]
         if inactive:
             return Response(
                 {"error": "Some items are no longer available.", "cart_item_ids": inactive},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        subtotal = cart._subtotal_for_items(cart_items)
+        subtotal = cart._subtotal_for_items(cart_item_list)
         discount_amount = cart.get_discount_amount()
         total_amount = subtotal - discount_amount
         if total_amount < 0:
             return Response({"error": "Order total cannot be negative."}, status=status.HTTP_400_BAD_REQUEST)
 
+        cart_item_prices = [
+            (item, CartItemSerializer().get_price(item))
+            for item in cart_item_list
+        ]
+
         with transaction.atomic():
-            prev = (
-                Order.objects
-                .filter(
-                    user=request.user, event=event,
-                    status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_AWAITING_GATEWAY_REDIRECT]
-                )
-                .order_by("-created_at")
-                .first()
+            Cart.objects.select_for_update().get(pk=cart.pk)
+            expected_cart_item_ids = {item.pk for item in cart_item_list}
+            current_items = (
+                cart.items.filter(event=event)
+                if event is not None
+                else cart.items.filter(event__isnull=True)
             )
-
-            if prev and prev.payment_gateway_authority:
-                z = ZarrinPal()
-                unverified = set(z.list_unverified() or [])
-                if prev.payment_gateway_authority in unverified:
-                    vr = z.verify_payment(authority=prev.payment_gateway_authority, amount=prev.total_amount)
-                    if vr.get("status") == "success":
-                        prev.status = Order.STATUS_PROCESSING_ENROLLMENT
-                        prev.payment_gateway_txn_id = vr.get("ref_id")
-                        prev.paid_at = timezone.now()
-                        prev.save(update_fields=["status", "payment_gateway_txn_id", "paid_at"])
-                        OrderCheckoutView()._process_successful_order(prev)
-                        return Response(
-                            {
-                                "error": "previous_order_captured",
-                                "message": "Your previous payment just completed. Please refresh your cart.",
-                                "order_id": str(prev.order_id),
-                            },
-                            status=status.HTTP_409_CONFLICT,
-                        )
-                else:
-                    prev.status = Order.STATUS_PAYMENT_FAILED_BY_NEW_LINK
-                    prev.save(update_fields=["status"])
-
-            order = Order.objects.create(
+            if set(current_items.values_list('pk', flat=True)) != expected_cart_item_ids:
+                return Response(
+                    {"error": "Your cart changed while checkout was being prepared. Please try again."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order = _find_matching_pending_order(
                 user=request.user,
                 event=event,
-                subtotal_amount=subtotal,
-                discount_code_applied=cart.applied_discount_code,
-                discount_amount=discount_amount,
-                total_amount=total_amount,
-                status=Order.STATUS_PENDING_PAYMENT,
+                cart_item_prices=cart_item_prices,
+                subtotal=subtotal,
+                discount_code=cart.applied_discount_code,
+                discount=discount_amount,
+                total=total_amount,
             )
-            for ci in cart_items.select_related('content_type'):
-                OrderItem.objects.create(
-                    order=order,
-                    content_type=ci.content_type,
-                    object_id=ci.object_id,
-                    description=str(ci.content_object),
-                    price=CartItemSerializer().get_price(ci),
+            if order is None:
+                _supersede_overlapping_pending_orders(
+                    user=request.user,
+                    cart_item_prices=cart_item_prices,
                 )
+                # A callback may have completed an older overlapping order while
+                # this checkout was waiting for that order's row lock.
+                if set(current_items.values_list('pk', flat=True)) != expected_cart_item_ids:
+                    return Response(
+                        {"error": "Your cart changed while checkout was being prepared. Please try again."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                order = Order.objects.create(
+                    user=request.user,
+                    event=event,
+                    subtotal_amount=subtotal,
+                    discount_code_applied=cart.applied_discount_code,
+                    discount_amount=discount_amount,
+                    total_amount=total_amount,
+                    status=Order.STATUS_PENDING_PAYMENT,
+                )
+                for item, price in cart_item_prices:
+                    OrderItem.objects.create(
+                        order=order,
+                        content_type=item.content_type,
+                        object_id=item.object_id,
+                        description=str(item.content_object),
+                        price=price,
+                    )
 
-        if total_amount < 1:
-            self._process_successful_order(order)
-            cart_items.delete()
+        if total_amount == 0:
+            process_successful_order(order)
+            CartItem.objects.filter(pk__in=[item.pk for item in cart_item_list]).delete()
             if cart.applied_discount_code:
                 cart.applied_discount_code = None
                 cart.save(update_fields=['applied_discount_code'])
+            from wallet.services import WalletService
 
-        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
-
-
-@extend_schema(
-    tags=['Shop - Orders & Payment'],
-    summary="Initiate payment for an order via Zarinpal",
-    request=OrderPaymentInitiateSerializer,
-    responses={
-        200: get_api_response_serializer(PaymentInitiateResponseSerializer),
-        400: ApiErrorResponseSerializer,
-        404: ApiErrorResponseSerializer,
-        500: ApiErrorResponseSerializer,
-    },
-)
-class OrderPaymentInitiateView(views.APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, order_id, *args, **kwargs):
-        ser = OrderPaymentInitiateSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        app_slug = (ser.validated_data.get("app") or "").strip().lower() or None
-
-        order = get_object_or_404(Order, order_id=order_id, user=request.user)
-
-        latest = (
-            Order.objects
-            .filter(user=request.user, event=order.event)
-            .order_by("-created_at")
-            .first()
-        )
-        if not latest or latest.pk != order.pk:
-            return Response(
-                {
-                    "error": "not_latest",
-                    "message": "A newer order exists for this event. Use the latest order.",
-                    "latest_order_id": str(latest.order_id) if latest else None,
-                },
-                status=status.HTTP_409_CONFLICT
-            )
-
-        if order.status not in [Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED]:
-            return Response({"error": f"Order not eligible for payment. Status: {order.get_status_display()}"},
-                            status=status.HTTP_400_BAD_REQUEST)
-        if order.total_amount <= 0:
-            return Response({"error": "Order total is zero or less. Payment not required via gateway."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        unavailable_items = []
-        for order_item in order.items.all():
-            item_object = order_item.content_object
-            if item_object and not _has_capacity(item_object):
-                unavailable_items.append(order_item.description)
-
-        if unavailable_items:
-            order.status = Order.STATUS_CANCELLED
-            order.save()
-            _release_reservations_for_orders(order)
-            return Response(
-                {
-                    "error": f"Some items are no longer available due to capacity limits: {', '.join(unavailable_items)}. Your order has been cancelled."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        already_fulfilled = False
-        for oi in order.items.select_related('content_type'):
-            obj = oi.content_object
-            if isinstance(obj, Presentation):
-                if PresentationEnrollment.objects.filter(
-                        user=order.user, presentation=obj,
-                        status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE
-                ).exists():
-                    already_fulfilled = True
-                    break
-            elif isinstance(obj, SoloCompetition):
-                if SoloCompetitionRegistration.objects.filter(
-                        user=order.user, solo_competition=obj,
-                        status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE
-                ).exists():
-                    already_fulfilled = True
-                    break
-            elif isinstance(obj, CompetitionTeam):
-                if (obj.leader_id == order.user_id and
-                        obj.status == CompetitionTeam.STATUS_ACTIVE):
-                    already_fulfilled = True
-                    break
-
-        if already_fulfilled:
-            return Response(
-                {"error": "This order contains item(s) already owned. Payment is blocked."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        inactive_order_items = []
-        for oi in order.items.select_related('content_type'):
-            if not _is_content_available(getattr(oi, "content_object", None)):
-                inactive_order_items.append(oi.id)
-
-        if inactive_order_items:
-            order.status = Order.STATUS_CANCELLED
-            order.save(update_fields=["status"])
-            _release_reservations_for_orders(order)
-            return Response(
-                {
-                    "success": False,
-                    "statusCode": 400,
-                    "message": "This order contains item(s) no longer available.",
-                    "errors": {"order_item_ids": inactive_order_items},
-                    "data": {},
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if app_slug and order.redirect_app != app_slug:
-            order.redirect_app = app_slug
-            order.save(update_fields=["redirect_app"])
-
-        zarrinpal_client = ZarrinPal()
-        if not zarrinpal_client.CALLBACK_URL:
-            logger.error("Zarinpal PAYMENT_CALLBACK_URL in settings is not a full URL or is a placeholder.")
-            return Response({"error": "Payment callback URL misconfiguration."},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        payment_result = zarrinpal_client.create_payment(
-            amount=float(order.total_amount),
-            mobile=order.user.phone_number or "",
-            email=order.user.email or "",
-            order_id=order.order_id
-        )
-
-        if payment_result.get('status') == 'success':
-            order.payment_gateway_authority = payment_result.get('authority')
-            order.status = Order.STATUS_AWAITING_GATEWAY_REDIRECT
-            order.save()
-            return Response({"payment_url": payment_result.get('link'), "authority": payment_result.get('authority')},
-                            status=status.HTTP_200_OK)
+            payment = {
+                'payment_required': False,
+                'payment_url': None,
+                'topup': None,
+                'balance': WalletService.get_balance(request.user),
+            }
         else:
-            error_msg = payment_result.get('error', 'Unknown payment gateway error during initiation.')
-            logger.error(f"ZarrinPal create_payment failed for order {order.order_id}: {error_msg}")
-            order.status = Order.STATUS_PAYMENT_FAILED
-            order.save()
-            return Response({"error": f"Payment gateway error: {error_msg}"}, status=status.HTTP_400_BAD_REQUEST)
+            from wallet.exceptions import WalletError
+            from wallet.payments import get_wallet_callback_url
+            from wallet.services import WalletService
 
-
-@extend_schema(
-    tags=['Shop - Orders & Payment'],
-    summary="Initiate payment directly from cart (create order + payment link)",
-    request=OrderPaymentInitiateSerializer,
-    parameters=[OpenApiParameter(name='event', description='Event ID', required=False, type=int)],
-    responses={200: get_api_response_serializer(PaymentInitiateResponseSerializer),
-               400: ApiErrorResponseSerializer, 500: ApiErrorResponseSerializer}
-)
-class CartPaymentInitiateView(views.APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, *args, **kwargs):
-        ser = OrderPaymentInitiateSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        app_slug = (ser.validated_data.get("app") or "").strip().lower() or None
-
-        cart, _ = Cart.objects.get_or_create(user=request.user)
-
-        event_param = request.query_params.get("event")
-        if event_param:
             try:
-                event_id = int(event_param)
-                event = Event.objects.get(pk=event_id)
-                cart_items = cart.items.filter(event_id=event_id)
-            except (TypeError, ValueError, Event.DoesNotExist):
-                return Response({"error": "Invalid event specified."}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            event = None
-            cart_items = cart.items.filter(event_id__isnull=True)
-
-        if not cart_items.exists():
-            return Response({"error": "Your cart is empty for this event."}, status=status.HTTP_400_BAD_REQUEST)
-
-        inactive = [ci.id for ci in cart_items if not _is_cart_item_active(ci)]
-        if inactive:
-            return Response({"error": "Some items are no longer available.", "cart_item_ids": inactive}, status=400)
-
-        subtotal = cart._subtotal_for_items(cart_items)
-        discount_amount = cart.get_discount_amount()
-        total_amount = subtotal - discount_amount
-        if total_amount <= 0:
-            return Response({"error": "Order total must be greater than zero for gateway payment."}, status=400)
-
-        with transaction.atomic():
-            stale_qs = Order.objects.filter(
-                user=request.user, event=event,
-                status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_AWAITING_GATEWAY_REDIRECT]
-            )
-            prev = (
-                Order.objects
-                .filter(user=request.user, event=event, status__in=[
-                    Order.STATUS_PENDING_PAYMENT,
-                    Order.STATUS_AWAITING_GATEWAY_REDIRECT,
-                ])
-                .order_by("-created_at")
-                .first()
-            )
-
-            if prev and prev.payment_gateway_authority:
-                z = ZarrinPal()
-                unverified = set(z.list_unverified() or [])
-                if prev.payment_gateway_authority in unverified:
-                    vr = z.verify_payment(authority=prev.payment_gateway_authority, amount=prev.total_amount)
-                    if vr.get("status") == "success":
-                        with transaction.atomic():
-                            prev.status = Order.STATUS_PROCESSING_ENROLLMENT
-                            prev.payment_gateway_txn_id = vr.get("ref_id")
-                            prev.paid_at = timezone.now()
-                            prev.save(update_fields=["status", "payment_gateway_txn_id", "paid_at"])
-                            OrderCheckoutView()._process_successful_order(prev)
-
-                        return Response(
-                            {
-                                "error": "previous_order_captured",
-                                "message": "Your previous payment just completed. Please refresh your cart.",
-                                "order_id": str(prev.order_id),
-                            },
-                            status=status.HTTP_409_CONFLICT,
-                        )
-                else:
-                    prev.status = Order.STATUS_PAYMENT_FAILED_BY_NEW_LINK
-                    prev.save(update_fields=["status"])
-
-            order = Order.objects.create(
-                user=request.user,
-                event=event,
-                subtotal_amount=subtotal,
-                discount_code_applied=cart.applied_discount_code,
-                discount_amount=discount_amount,
-                total_amount=total_amount,
-                status=Order.STATUS_PENDING_PAYMENT,
-                redirect_app=app_slug,
-            )
-            for ci in cart_items.select_related('content_type'):
-                OrderItem.objects.create(
-                    order=order,
-                    content_type=ci.content_type,
-                    object_id=ci.object_id,
-                    description=str(ci.content_object),
-                    price=CartItemSerializer().get_price(ci),
+                payment = WalletService.pay_or_start_order_payment(
+                    request.user,
+                    order,
+                    callback_url=get_wallet_callback_url(request),
+                    metadata={'source': 'cart_checkout'},
                 )
+            except WalletError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        z = ZarrinPal()
-        if not z.CALLBACK_URL:
-            return Response({"error": "Payment callback URL misconfiguration."}, status=500)
-
-        result = z.create_payment(
-            amount=float(order.total_amount),
-            mobile=order.user.phone_number or "",
-            email=order.user.email or "",
-            order_id=order.order_id
-        )
-        if result.get("status") != "success":
-            order.status = Order.STATUS_PAYMENT_FAILED
-            order.save(update_fields=["status"])
-            return Response({"error": f"Payment gateway error: {result.get('error')}"}, status=400)
-
-        order.payment_gateway_authority = result.get("authority")
-        order.status = Order.STATUS_AWAITING_GATEWAY_REDIRECT
-        order.save(update_fields=["payment_gateway_authority", "status"])
-
-        return Response({"payment_url": result.get("link"), "authority": result.get("authority")}, status=200)
-
-
-@extend_schema(
-    tags=['Shop - Orders & Payment'],
-    summary="Initiate payment for a team registration",
-    request=OrderPaymentInitiateSerializer,
-    responses={
-        200: get_api_response_serializer(PaymentInitiateResponseSerializer),
-        204: get_api_response_serializer(None)
-    }
-)
-class TeamPaymentInitiateView(views.APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, team_id, *args, **kwargs):
-        team = get_object_or_404(CompetitionTeam, pk=team_id)
-        user = request.user
-
-        if team.leader != user:
-            return Response({"error": "Only the team leader can pay for the team."}, status=status.HTTP_403_FORBIDDEN)
-
-        if team.status not in [CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-                               CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION]:
-            return Response({"error": "This team is not awaiting payment."}, status=status.HTTP_400_BAD_REQUEST)
-
-        competition = team.group_competition
-        if not competition:
-            return Response({"error": "This team is not registered in any competition."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not competition.is_active or (competition.event and not competition.event.is_active):
-            return Response({"error": "This competition is no longer active."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        if competition.max_teams is not None:
-            active_and_pending_teams = competition.teams.filter(
-                status__in=[
-                    CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
-                    CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-                    CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
-                    CompetitionTeam.STATUS_ACTIVE,
-                ]
-            ).exclude(pk=team.id).count()
-
-            if active_and_pending_teams >= competition.max_teams:
-                return Response(
-                    {
-                        "error": "This competition has reached its maximum capacity while you were preparing for payment."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        if not competition.is_paid or not competition.price_per_member or competition.price_per_member <= 0:
-            with transaction.atomic():
-                team.status = CompetitionTeam.STATUS_ACTIVE
-                team.save(update_fields=['status'])
-            return Response({"message": "Team is Registered for this competition."}, status=status.HTTP_204_NO_CONTENT)
-
-        ser = OrderPaymentInitiateSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        app_slug = (ser.validated_data.get("app") or "").strip().lower() or None
-
-        price = Decimal(competition.price_per_member) * team.memberships.count()
-
-        with transaction.atomic():
-            team_ct = ContentType.objects.get_for_model(CompetitionTeam)
-            Order.objects.filter(
-                user=user,
-                items__content_type=team_ct,
-                items__object_id=team.id,
-                status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_AWAITING_GATEWAY_REDIRECT]
-            ).update(status=Order.STATUS_PAYMENT_FAILED_BY_NEW_LINK)
-
-            order = Order.objects.create(
-                user=user,
-                event=competition.event,
-                subtotal_amount=price,
-                total_amount=price,
-                redirect_app=app_slug,
-            )
-            OrderItem.objects.create(
-                order=order,
-                content_type=team_ct,
-                object_id=team.id,
-                description=f"Team registration for '{team.name}' in '{competition.title}'",
-                price=price
-            )
-
-            team.status = CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION
-            team.save(update_fields=['status'])
-
-        z = ZarrinPal()
-        result = z.create_payment(
-            amount=float(order.total_amount),
-            mobile=user.phone_number or "",
-            email=user.email or "",
-            order_id=order.order_id
-        )
-
-        if result.get("status") == "success":
-            order.payment_gateway_authority = result.get("authority")
-            order.status = Order.STATUS_AWAITING_GATEWAY_REDIRECT
-            order.save()
-            return Response({"payment_url": result.get("link"), "authority": result.get("authority")},
-                            status=status.HTTP_200_OK)
-        else:
-            order.status = Order.STATUS_PAYMENT_FAILED
-            order.save()
-            team.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
-            team.save(update_fields=['status'])
-            return Response({"error": f"Payment gateway error: {result.get('error')}"},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-
-@extend_schema(
-    tags=['Shop - Orders & Payment'],
-    summary="Handles Zarinpal callback after payment attempt",
-    description="This endpoint does not return JSON. It redirects the user back to the frontend.",
-    responses={302: None},
-)
-class PaymentCallbackView(views.APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request, *args, **kwargs):
-        authority = request.GET.get('Authority')
-        status_param = request.GET.get('Status')
-
-        # --- Default Redirect URL ---
-        frontend_url = getattr(settings, 'FRONTEND_URL', '')
-        base_redirect_url = f"{frontend_url}/payment/callback"
-        # ---
-
-        if not authority:
-            logger.warning("Zarinpal callback: Authority missing.")
-            params = urlencode({'success': 'false', 'message': 'Invalid callback parameters'})
-            return redirect(f"{base_redirect_url}?{params}")
-
-        order = get_object_or_404(Order, payment_gateway_authority=authority)
-
-        # --- dynamic redirect logic, as requested ---
-        # app_slug = order.redirect_app
-        # redirects_map = getattr(settings, 'PAYMENT_APP_REDIRECTS', {})
-        # base_redirect_url = redirects_map.get(app_slug, redirects_map.get('web', f"{frontend_url}/payment/callback"))
-        # ---
-
-        z = ZarrinPal()
-
-        FINALIZABLE = {
-            Order.STATUS_PENDING_PAYMENT,
-            Order.STATUS_AWAITING_GATEWAY_REDIRECT,
-            Order.STATUS_PROCESSING_ENROLLMENT,
-        }
-
-        def _finalize_single_order(order):
-            with transaction.atomic():
-                order.status = Order.STATUS_PROCESSING_ENROLLMENT
-                order.save(update_fields=["status"])
-                OrderCheckoutView()._process_successful_order(order)
-
-        if status_param == "OK":
-            vr = z.verify_payment(authority=authority, amount=order.total_amount)
-            if vr.get('status') == 'success':
-                if order.status in {Order.STATUS_PAYMENT_FAILED_BY_NEW_LINK, Order.STATUS_PAYMENT_FAILED}:
-                    rv = z.reverse_payment(authority=authority)
-                    if rv.get("ok"):
-                        order.status = Order.STATUS_REFUNDED
-                        order.save(update_fields=["status"])
-                        params = urlencode({
-                            "success": "false",
-                            "message": "Payment was superseded by a newer link and has been reversed.",
-                            "order_id": str(order.order_id),
-                        })
-                    else:
-                        order.status = Order.STATUS_REFUND_FAILED
-                        order.save(update_fields=["status"])
-                        params = urlencode({
-                            "success": "false",
-                            "message": "Payment verified but superseded; reverse failed. Please contact support.",
-                            "order_id": str(order.order_id),
-                        })
-                    return redirect(f"{base_redirect_url}?{params}")
-
-                if order.status == Order.STATUS_COMPLETED:
-                    params = urlencode(
-                        {'success': 'true', 'message': 'Payment already completed', 'order_id': str(order.order_id)})
-                    return redirect(f"{base_redirect_url}?{params}")
-
-                if order.status in {Order.STATUS_REFUNDED, Order.STATUS_REFUND_FAILED, Order.STATUS_CANCELLED}:
-                    params = urlencode({'success': 'false', 'message': 'Order is not payable anymore',
-                                        'order_id': str(order.order_id)})
-                    return redirect(f"{base_redirect_url}?{params}")
-
-                if order.status in FINALIZABLE:
-                    with transaction.atomic():
-                        order.status = Order.STATUS_PROCESSING_ENROLLMENT
-                        order.payment_gateway_txn_id = vr.get('ref_id')
-                        order.paid_at = timezone.now()
-                        order.save()
-                        _finalize_single_order(order)
-                        try:
-                            cart = Cart.objects.get(user=order.user)
-                            for oi in order.items.all():
-                                CartItem.objects.filter(
-                                    cart=cart,
-                                    content_type=oi.content_type,
-                                    object_id=oi.object_id
-                                ).delete()
-                        except Cart.DoesNotExist:
-                            pass
-                    params = urlencode(
-                        {'success': 'true', 'message': 'Payment successful', 'order_id': str(order.order_id)})
-                    return redirect(f"{base_redirect_url}?{params}")
-            else:
-                order.status = Order.STATUS_PAYMENT_FAILED
-                order.save()
-                _release_reservations_for_orders(order)
-                params = urlencode(
-                    {'success': 'false', 'message': 'Payment verification failed', 'order_id': str(order.order_id)})
-                return redirect(f"{base_redirect_url}?{params}")
-        else:
-            order.status = Order.STATUS_PAYMENT_FAILED
-            order.save()
-            _release_reservations_for_orders(order)
-            params = urlencode(
-                {'success': 'false', 'message': 'Payment cancelled or failed', 'order_id': str(order.order_id)})
-            return redirect(f"{base_redirect_url}?{params}")
+        order.refresh_from_db()
+        return Response({
+            'order': OrderSerializer(order, context={'request': request}).data,
+            'payment_required': payment['payment_required'],
+            'payment_url': payment['payment_url'],
+            'topup_id': payment['topup'].public_id if payment['topup'] else None,
+            'wallet_balance': payment['balance'],
+        }, status=status.HTTP_201_CREATED)
 
 
 @extend_schema(tags=['Shop - Orders & Payment'])
