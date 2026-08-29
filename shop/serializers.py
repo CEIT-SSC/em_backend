@@ -199,6 +199,15 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 @ts_interface()
+class OrderCheckoutResultSerializer(serializers.Serializer):
+    order = OrderSerializer(read_only=True)
+    payment_required = serializers.BooleanField()
+    payment_url = serializers.URLField(allow_null=True)
+    topup_id = serializers.UUIDField(allow_null=True)
+    wallet_balance = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
+@ts_interface()
 class OrderListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order

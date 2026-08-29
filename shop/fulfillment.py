@@ -192,6 +192,12 @@ def fulfill_order(order):
     return order, True
 
 
+def process_successful_order(order):
+    """Compatibility wrapper for wallet payment services."""
+    fulfilled_order, _created = fulfill_order(order)
+    return fulfilled_order
+
+
 def release_order_reservations(order):
     """Release domain reservations held by an order that will not be fulfilled."""
 

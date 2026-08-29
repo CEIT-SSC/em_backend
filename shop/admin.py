@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 
-from .models import Cart, CartItem, DiscountCode, Order, OrderItem, Product
+from .models import Cart, CartItem, DiscountCode, Order, OrderItem, PaymentApp, Product
 
 ITEM_SOURCES = [
     ('Presentation', ('events', 'Presentation'), 'title'),
@@ -212,6 +212,12 @@ class CartItemAdmin(admin.ModelAdmin):
     def content_object_display(self, obj):
         return str(obj.content_object) if obj.content_object else "N/A"
     content_object_display.short_description = "Item in Cart"
+
+@admin.register(PaymentApp)
+class PaymentAppAdmin(admin.ModelAdmin):
+    list_display = ("slug", "name", "is_active")
+    list_filter  = ("is_active",)
+    search_fields = ("slug", "name")
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):

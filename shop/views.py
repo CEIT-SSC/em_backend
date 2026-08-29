@@ -1,35 +1,30 @@
-from django.apps import apps
-from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import generics, status, views, viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
+from decimal import Decimal
 
-from em_backend.schemas import (
-    ApiErrorResponseSerializer,
-    get_api_response_serializer,
-    get_paginated_response_serializer,
-)
-from .fulfillment import (
-    OrderCapacityError,
-    fulfill_order,
-    has_capacity,
-    release_order_reservations,
-)
-from .models import Cart, CartItem, DiscountCode, Order, OrderItem, Product
+from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.db.models import Q
+from django.contrib.contenttypes.models import ContentType
+from django.apps import apps
+from rest_framework import viewsets, status, generics, views
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
+from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
+    get_paginated_response_serializer
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, Product
 from .serializers import (
-    AddToCartSerializer,
-    ApplyDiscountSerializer,
-    CartItemSerializer,
-    CartSerializer,
-    OrderListSerializer,
-    OrderSerializer,
-    ProductSerializer,
-    UserPurchasesSerializer,
+    CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
+    OrderSerializer, OrderCheckoutResultSerializer, OrderListSerializer,
+    UserPurchasesSerializer, CartItemSerializer, ProductSerializer
+)
+from .fulfillment import process_successful_order
+from .eligibility import (
+    has_capacity as _has_capacity,
+    is_already_owned as _is_already_owned,
+    is_cart_item_active as _is_cart_item_active,
+    is_content_available as _is_content_available,
+    is_registration_open as _is_registration_open,
 )
 
 Presentation = apps.get_model('events', 'Presentation')
@@ -39,70 +34,20 @@ PresentationEnrollment = apps.get_model('events', 'PresentationEnrollment')
 SoloCompetitionRegistration = apps.get_model('events', 'SoloCompetitionRegistration')
 TeamMembership = apps.get_model('events', 'TeamMembership')
 Event = apps.get_model('events', 'Event')
-def _is_content_available(obj) -> bool:
-    if obj is None:
-        return False
-    if hasattr(obj, "is_active") and obj.is_active is False:
-        return False
-    ev = getattr(obj, "event", None)
-    if ev is not None and hasattr(ev, "is_active") and ev.is_active is False:
-        return False
-    try:
-        from events.models import CompetitionTeam
-        if isinstance(obj, CompetitionTeam):
-            gc = getattr(obj, "group_competition", None)
-            if gc is not None:
-                if hasattr(gc, "is_active") and gc.is_active is False:
-                    return False
-                ev2 = getattr(gc, "event", None)
-                if ev2 is not None and hasattr(ev2, "is_active") and ev2.is_active is False:
-                    return False
-    except Exception:
-        pass
-    return True
 
 
-def _is_cart_item_active(ci) -> bool:
-    try:
-        return _is_content_available(ci.content_object)
-    except Exception:
-        return False
+def _release_reservations_for_orders(order_qs_or_list):
+    CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
 
-
-def _is_already_owned(user, item_object) -> bool:
-    user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
-
-    if isinstance(item_object, Presentation):
-        if PresentationEnrollment.objects.filter(
-                user=user_to_check, presentation=item_object,
-                status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE
-        ).exists():
-            return True
-
-    elif isinstance(item_object, SoloCompetition):
-        if SoloCompetitionRegistration.objects.filter(
-                user=user_to_check, solo_competition=item_object,
-                status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
-        ).exists():
-            return True
-
-    elif isinstance(item_object, CompetitionTeam):
-        if item_object.status == CompetitionTeam.STATUS_ACTIVE and (
-                item_object.leader_id == user.id or
-                TeamMembership.objects.filter(team=item_object, user=user).exists()
-        ):
-            return True
-
-    ct = ContentType.objects.get_for_model(item_object)
-    if OrderItem.objects.filter(
-            content_type=ct,
-            object_id=item_object.pk,
-            order__user=user_to_check,
-            order__status__in=[Order.STATUS_COMPLETED],
-    ).exists():
-        return True
-
-    return False
+    orders = order_qs_or_list if hasattr(order_qs_or_list, '__iter__') else [order_qs_or_list]
+    with transaction.atomic():
+        for order in orders:
+            for item in order.items.all():
+                obj = item.content_object
+                if isinstance(obj, CompetitionTeam) and \
+                        obj.status == CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION:
+                    obj.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+                    obj.save(update_fields=["status"])
 
 
 def _add_to_cart_and_update_status(user, item_object):
@@ -113,20 +58,68 @@ def _add_to_cart_and_update_status(user, item_object):
         return False, "Item is already in your cart."
 
     CartItem.objects.create(cart=cart, content_type=content_type, object_id=item_object.pk)
+
     return True, "Item added to your cart."
 
 
-def _is_registration_open(item_object) -> bool:
-    start_time = None
-    if isinstance(item_object, (Presentation, SoloCompetition)):
-        start_time = getattr(item_object, 'start_time', None) or getattr(item_object, 'start_datetime', None)
-    elif isinstance(item_object, CompetitionTeam):
-        start_time = getattr(item_object.group_competition, 'start_datetime', None)
+def _find_matching_pending_order(*, user, event, cart_item_prices, subtotal, discount_code, discount, total):
+    candidates = (
+        Order.objects.filter(
+            user=user,
+            event=event,
+            status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED],
+            subtotal_amount=subtotal,
+            discount_code_applied=discount_code,
+            discount_amount=discount,
+            total_amount=total,
+        )
+        .select_for_update()
+        .prefetch_related('items')
+        .order_by('-created_at')
+    )[:20]
 
-    if start_time and timezone.now() > start_time:
-        return False
+    expected = {
+        (item.content_type_id, item.object_id, Decimal(str(price)))
+        for item, price in cart_item_prices
+    }
+    for candidate in candidates:
+        actual = {
+            (item.content_type_id, item.object_id, item.price)
+            for item in candidate.items.all()
+        }
+        if actual == expected and len(actual) == len(cart_item_prices):
+            return candidate
+    return None
 
-    return True
+
+def _supersede_overlapping_pending_orders(*, user, cart_item_prices):
+    """Cancel older payable orders sharing any item with a new cart snapshot."""
+    overlap = Q()
+    for item, _price in cart_item_prices:
+        overlap |= Q(
+            items__content_type_id=item.content_type_id,
+            items__object_id=item.object_id,
+        )
+
+    if not overlap:
+        return
+
+    older_orders = list(
+        Order.objects.select_for_update()
+        .filter(
+            user=user,
+            status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED],
+        )
+        .filter(overlap)
+        .distinct()
+    )
+    if not older_orders:
+        return
+
+    Order.objects.filter(pk__in=[order.pk for order in older_orders]).update(
+        status=Order.STATUS_CANCELLED,
+    )
+    _release_reservations_for_orders(older_orders)
 
 
 @extend_schema(
@@ -140,27 +133,25 @@ def _is_registration_open(item_object) -> bool:
 )
 class OrderCancelView(views.APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = OrderSerializer
 
     def post(self, request, order_id, *args, **kwargs):
-        with transaction.atomic():
-            order = get_object_or_404(
-                Order.objects.select_for_update(),
-                order_id=order_id,
-                user=request.user,
-            )
-            cancellable_statuses = {
-                Order.STATUS_PENDING_PAYMENT,
-                Order.STATUS_PAYMENT_FAILED,
-            }
-            if order.status not in cancellable_statuses:
-                return Response(
-                    {"error": f"Order cannot be cancelled in status '{order.get_status_display()}'."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        order = get_object_or_404(Order, order_id=order_id, user=request.user)
 
+        cancellable_statuses = {
+            Order.STATUS_PENDING_PAYMENT,
+            Order.STATUS_PAYMENT_FAILED,
+        }
+        if order.status not in cancellable_statuses:
+            return Response(
+                {"error": f"Order cannot be cancelled in status '{order.get_status_display()}'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
             order.status = Order.STATUS_CANCELLED
             order.save(update_fields=["status"])
-            release_order_reservations(order)
+            _release_reservations_for_orders(order)
 
         return Response(OrderSerializer(order).data, status=status.HTTP_200_OK)
 
@@ -177,6 +168,7 @@ class CartItemView(views.APIView):
             200: get_api_response_serializer(CartSerializer),
             201: get_api_response_serializer(None),
             400: ApiErrorResponseSerializer,
+            403: ApiErrorResponseSerializer,
             404: ApiErrorResponseSerializer,
         },
     )
@@ -212,7 +204,7 @@ class CartItemView(views.APIView):
             return Response({"message": "You already own this item."},
                             status=status.HTTP_200_OK)
 
-        if not has_capacity(item_object):
+        if not _has_capacity(item_object):
             return Response({"error": "This item is sold out or has reached full capacity."},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -248,10 +240,11 @@ class CartItemView(views.APIView):
 
     @extend_schema(
         summary="Remove an item from the cart",
+        description="Removes an item from the cart by its type and ID, provided as query parameters.",
         parameters=[
-            OpenApiParameter(name='item_type', description='Type of item to remove', required=True, type=str,
+            OpenApiParameter(name='item_type', description='Type of the item to remove', required=True, type=str,
                              enum=['presentation', 'solo_competition', 'product']),
-            OpenApiParameter(name='item_id', description='ID of item to remove', required=True, type=str),
+            OpenApiParameter(name='item_id', description='ID of the item to remove', required=True, type=str),
         ],
         responses={
             200: get_api_response_serializer(CartSerializer),
@@ -289,6 +282,8 @@ class CartItemView(views.APIView):
             )
         except CartItem.DoesNotExist:
             return Response({"error": "Item not found in cart."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception:
+            return Response({"error": "Invalid item ID format."}, status=status.HTTP_400_BAD_REQUEST)
 
         cart_item.delete()
 
@@ -320,6 +315,7 @@ class CartView(generics.RetrieveAPIView):
 
     @extend_schema(
         summary="View user's shopping cart",
+        request=None,
         responses={200: get_api_response_serializer(CartSerializer)},
         parameters=[
             OpenApiParameter(name='event', description='Filter cart items by event ID', required=False, type=int),
@@ -385,9 +381,9 @@ class RemoveDiscountView(views.APIView):
 
 @extend_schema(
     tags=['Shop - Orders & Payment'],
-    summary="Checkout cart and create an order",
+    summary="Checkout and pay the cart through the wallet",
     responses={
-        201: get_api_response_serializer(OrderSerializer),
+        201: get_api_response_serializer(OrderCheckoutResultSerializer),
         400: ApiErrorResponseSerializer,
     },
     parameters=[
@@ -396,6 +392,7 @@ class RemoveDiscountView(views.APIView):
 )
 class OrderCheckoutView(views.APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = OrderCheckoutResultSerializer
 
     def post(self, request, *args, **kwargs):
         cart, _ = Cart.objects.get_or_create(user=request.user)
@@ -412,64 +409,117 @@ class OrderCheckoutView(views.APIView):
             event = None
             cart_items = cart.items.filter(event_id__isnull=True)
 
-        if not cart_items.exists():
+        cart_item_list = list(cart_items.select_related('content_type'))
+        if not cart_item_list:
             return Response({"error": "Your cart is empty for this event."}, status=status.HTTP_400_BAD_REQUEST)
 
-        inactive = [ci.id for ci in cart_items if not _is_cart_item_active(ci)]
+        inactive = [ci.id for ci in cart_item_list if not _is_cart_item_active(ci)]
         if inactive:
             return Response(
                 {"error": "Some items are no longer available.", "cart_item_ids": inactive},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        unavailable = [ci.id for ci in cart_items if not has_capacity(ci.content_object)]
-        if unavailable:
-            return Response(
-                {"error": "Some items have reached capacity.", "cart_item_ids": unavailable},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        already_owned = [ci.id for ci in cart_items if _is_already_owned(request.user, ci.content_object)]
-        if already_owned:
-            return Response(
-                {"error": "Some items are already owned.", "cart_item_ids": already_owned},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        subtotal = cart._subtotal_for_items(cart_items)
+        subtotal = cart._subtotal_for_items(cart_item_list)
         discount_amount = cart.get_discount_amount()
         total_amount = subtotal - discount_amount
         if total_amount < 0:
             return Response({"error": "Order total cannot be negative."}, status=status.HTTP_400_BAD_REQUEST)
 
+        cart_item_prices = [
+            (item, CartItemSerializer().get_price(item))
+            for item in cart_item_list
+        ]
+
         with transaction.atomic():
-            order = Order.objects.create(
+            Cart.objects.select_for_update().get(pk=cart.pk)
+            expected_cart_item_ids = {item.pk for item in cart_item_list}
+            current_items = (
+                cart.items.filter(event=event)
+                if event is not None
+                else cart.items.filter(event__isnull=True)
+            )
+            if set(current_items.values_list('pk', flat=True)) != expected_cart_item_ids:
+                return Response(
+                    {"error": "Your cart changed while checkout was being prepared. Please try again."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order = _find_matching_pending_order(
                 user=request.user,
                 event=event,
-                subtotal_amount=subtotal,
-                discount_code_applied=cart.applied_discount_code,
-                discount_amount=discount_amount,
-                total_amount=total_amount,
-                status=Order.STATUS_PENDING_PAYMENT,
+                cart_item_prices=cart_item_prices,
+                subtotal=subtotal,
+                discount_code=cart.applied_discount_code,
+                discount=discount_amount,
+                total=total_amount,
             )
-            for ci in cart_items.select_related('content_type'):
-                OrderItem.objects.create(
-                    order=order,
-                    content_type=ci.content_type,
-                    object_id=ci.object_id,
-                    description=str(ci.content_object),
-                    price=CartItemSerializer().get_price(ci),
+            if order is None:
+                _supersede_overlapping_pending_orders(
+                    user=request.user,
+                    cart_item_prices=cart_item_prices,
                 )
+                # A callback may have completed an older overlapping order while
+                # this checkout was waiting for that order's row lock.
+                if set(current_items.values_list('pk', flat=True)) != expected_cart_item_ids:
+                    return Response(
+                        {"error": "Your cart changed while checkout was being prepared. Please try again."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                order = Order.objects.create(
+                    user=request.user,
+                    event=event,
+                    subtotal_amount=subtotal,
+                    discount_code_applied=cart.applied_discount_code,
+                    discount_amount=discount_amount,
+                    total_amount=total_amount,
+                    status=Order.STATUS_PENDING_PAYMENT,
+                )
+                for item, price in cart_item_prices:
+                    OrderItem.objects.create(
+                        order=order,
+                        content_type=item.content_type,
+                        object_id=item.object_id,
+                        description=str(item.content_object),
+                        price=price,
+                    )
 
         if total_amount == 0:
-            try:
-                order, _ = fulfill_order(order)
-            except OrderCapacityError as exc:
-                order.status = Order.STATUS_CANCELLED
-                order.save(update_fields=['status'])
-                return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            process_successful_order(order)
+            CartItem.objects.filter(pk__in=[item.pk for item in cart_item_list]).delete()
+            if cart.applied_discount_code:
+                cart.applied_discount_code = None
+                cart.save(update_fields=['applied_discount_code'])
+            from wallet.services import WalletService
 
-        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+            payment = {
+                'payment_required': False,
+                'payment_url': None,
+                'topup': None,
+                'balance': WalletService.get_balance(request.user),
+            }
+        else:
+            from wallet.exceptions import WalletError
+            from wallet.payments import get_wallet_callback_url
+            from wallet.services import WalletService
+
+            try:
+                payment = WalletService.pay_or_start_order_payment(
+                    request.user,
+                    order,
+                    callback_url=get_wallet_callback_url(request),
+                    metadata={'source': 'cart_checkout'},
+                )
+            except WalletError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        order.refresh_from_db()
+        return Response({
+            'order': OrderSerializer(order, context={'request': request}).data,
+            'payment_required': payment['payment_required'],
+            'payment_url': payment['payment_url'],
+            'topup_id': payment['topup'].public_id if payment['topup'] else None,
+            'wallet_balance': payment['balance'],
+        }, status=status.HTTP_201_CREATED)
 
 
 @extend_schema(tags=['Shop - Orders & Payment'])
@@ -514,14 +564,14 @@ class OrderHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(
     tags=['Shop - Orders & Payment'],
-    summary="List all purchases of the current user",
+    summary="List all purchases of the current user (presentations, solo competitions, teams, products). Optionally filter by event.",
     parameters=[
         OpenApiParameter(
             name="event",
             type=OpenApiTypes.INT,
             location=OpenApiParameter.QUERY,
             required=False,
-            description="Event ID to filter purchases by. If omitted, returns non-event purchases."
+            description="Event ID to filter purchases by. If omitted, returns all purchases."
         ),
     ],
     responses={200: get_api_response_serializer(UserPurchasesSerializer)}

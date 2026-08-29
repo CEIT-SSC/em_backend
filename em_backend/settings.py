@@ -90,7 +90,14 @@ EMAIL_PROVIDERS = [
 SMS_KEY = os.getenv("SMS_KEY", default="key")
 SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
+ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", default=False)
 
+if ZARINPAL_SANDBOX == 'True':
+    PAYMENT_API_KEY = os.getenv("ZARINPAL_MERCHANT_ID", "11111111-1111-1111-1111-111111111111")
+else:
+    PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
+
+WALLET_PAYMENT_CALLBACK_URL = os.getenv("WALLET_PAYMENT_CALLBACK_URL", default="")
 
 CORS_ALLOW_CREDENTIALS = True
 SESSION_COOKIE_SECURE = not DEBUG
@@ -155,7 +162,18 @@ SPECTACULAR_SETTINGS = {
         "read": "Read scope",
         "write": "Write scope"
     },
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'BearerAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'Opaque',
+            }
+        }
+    },
+
     'SECURITY': [
+        {'BearerAuth': []},
         {'oauth2': ['read', 'write']},
     ],
 }
@@ -195,6 +213,7 @@ INSTALLED_APPS = [
     'accounts',
     'shop',
     'events',
+    'wallet',
     'rest_framework',
     'rest_framework.authtoken',
     'django.contrib.sites',
