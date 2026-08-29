@@ -200,7 +200,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
 @ts_interface()
 class OrderCheckoutResultSerializer(serializers.Serializer):
-    order = OrderSerializer(read_only=True)
+    order = OrderSerializer(read_only=True, allow_null=True)
     payment_required = serializers.BooleanField()
     payment_url = serializers.URLField(allow_null=True)
     topup_id = serializers.UUIDField(allow_null=True)
