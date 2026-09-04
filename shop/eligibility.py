@@ -48,11 +48,13 @@ def is_already_owned(user, item_object):
     user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
 
     if isinstance(item_object, Presentation):
-        if PresentationEnrollment.objects.filter(
+        enrollment_status = PresentationEnrollment.objects.filter(
             user=user_to_check,
             presentation=item_object,
-            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
-        ).exists():
+        ).values_list('status', flat=True).first()
+        if enrollment_status == PresentationEnrollment.STATUS_CANCELLED:
+            return False
+        if enrollment_status == PresentationEnrollment.STATUS_COMPLETED_OR_FREE:
             return True
     elif isinstance(item_object, SoloCompetition):
         if SoloCompetitionRegistration.objects.filter(
