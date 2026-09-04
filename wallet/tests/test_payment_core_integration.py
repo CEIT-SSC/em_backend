@@ -6,7 +6,7 @@ from rest_framework.test import APITestCase
 from payment_core.models import PaymentAttempt, PaymentIntent, PaymentSettlement
 from wallet.models import WalletEntry, WalletTopUp
 from wallet.services import WalletService
-from wallet.tests.helpers import FakePaymentClient, make_user
+from wallet.tests.helpers import FakePaymentClient, make_user, register_fake_zarinpal
 
 
 @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
@@ -51,17 +51,15 @@ class WalletPaymentCoreIntegrationTests(APITestCase):
         self.assertEqual(WalletService.get_balance(self.user), Decimal('12.50'))
 
     def test_wallet_callback_ignores_browser_status_and_uses_provider_verification(self):
-        from unittest.mock import patch
-
         provider = FakePaymentClient()
-        with patch('wallet.services.ZarrinPal', return_value=provider):
-            response = self.client.post('/api/wallet/top-ups/', {'amount': '20.00'}, format='json')
-            topup = WalletTopUp.objects.get(public_id=response.data['public_id'])
-            self.client.force_authenticate(user=None)
-            callback = self.client.get('/api/wallet/top-ups/callback/', {
-                'Authority': topup.gateway_authority,
-                'Status': 'NOK',
-            })
+        register_fake_zarinpal(self, provider)
+        response = self.client.post('/api/wallet/top-ups/', {'amount': '20.00'}, format='json')
+        topup = WalletTopUp.objects.get(public_id=response.data['public_id'])
+        self.client.force_authenticate(user=None)
+        callback = self.client.get('/api/wallet/top-ups/callback/', {
+            'Authority': topup.gateway_authority,
+            'Status': 'NOK',
+        })
 
         self.assertEqual(callback.status_code, 302)
         topup.refresh_from_db()
