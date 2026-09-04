@@ -581,6 +581,33 @@ class PresentationEnrollmentAdmin(admin.ModelAdmin):
     autocomplete_fields = ['user', 'presentation', 'order_item']
     readonly_fields = ('enrolled_at',)
     list_select_related = ('user', 'presentation')
+    actions = ('revoke_enrollments',)
+
+    @admin.action(description='Revoke selected presentation enrollments')
+    def revoke_enrollments(self, request, queryset):
+        enrollments = list(queryset.exclude(status=PresentationEnrollment.STATUS_CANCELLED))
+        if not enrollments:
+            self.message_user(request, 'The selected enrollments are already revoked.', messages.INFO)
+            return
+
+        PresentationEnrollment.objects.filter(
+            pk__in=[enrollment.pk for enrollment in enrollments]
+        ).update(status=PresentationEnrollment.STATUS_CANCELLED)
+
+        for enrollment in enrollments:
+            enrollment.status = PresentationEnrollment.STATUS_CANCELLED
+            self.log_change(request, enrollment, 'Enrollment revoked.')
+
+        self.message_user(
+            request,
+            f'{len(enrollments)} presentation enrollment(s) revoked.',
+            messages.SUCCESS,
+        )
+
+    def has_delete_permission(self, request, obj=None):
+        # Keep paid-order history linked to a durable enrollment record. Admins
+        # should revoke access through the explicit action instead of hard-delete.
+        return False
 
 
 @admin.register(SoloCompetitionRegistration)

@@ -7,7 +7,14 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from events.models import CompetitionTeam, Event, GroupCompetition, TeamMembership
+from events.models import (
+    CompetitionTeam,
+    Event,
+    GroupCompetition,
+    Presentation,
+    PresentationEnrollment,
+    TeamMembership,
+)
 
 from .fulfillment import fulfill_order
 from .models import CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Product
@@ -55,6 +62,22 @@ class ShopBusinessBehaviorTests(APITestCase):
         }
         values.update(overrides)
         return GroupCompetition.objects.create(**values)
+
+    def _create_presentation(self, **overrides):
+        now = timezone.now()
+        values = {
+            'event': self._create_event(),
+            'title': 'Test Presentation',
+            'description': 'Test presentation',
+            'start_time': now + timedelta(days=1),
+            'end_time': now + timedelta(days=2),
+            'is_active': True,
+            'is_paid': True,
+            'price': Decimal('100'),
+            'capacity': 10,
+        }
+        values.update(overrides)
+        return Presentation.objects.create(**values)
 
     def _create_payable_team(self, *, competition=None, team_status=None, accepted=(), rejected=()):
         competition = competition or self._create_group_competition(
@@ -315,3 +338,44 @@ class ShopBusinessBehaviorTests(APITestCase):
         self.assertFalse(Order.objects.exists())
         team.refresh_from_db()
         self.assertEqual(team.status, CompetitionTeam.STATUS_FORMING)
+
+    def test_revoked_presentation_can_be_added_again_without_deleting_completed_order(self):
+        presentation = self._create_presentation()
+        order = Order.objects.create(
+            user=self.user,
+            event=presentation.event,
+            subtotal_amount=Decimal('100'),
+            discount_amount=Decimal('0'),
+            total_amount=Decimal('100'),
+            status=Order.STATUS_COMPLETED,
+            paid_at=timezone.now(),
+        )
+        content_type = ContentType.objects.get_for_model(Presentation)
+        order_item = OrderItem.objects.create(
+            order=order,
+            content_type=content_type,
+            object_id=presentation.pk,
+            description=str(presentation),
+            price=Decimal('100'),
+        )
+        enrollment = PresentationEnrollment.objects.create(
+            user=self.user,
+            presentation=presentation,
+            order_item=order_item,
+            status=PresentationEnrollment.STATUS_CANCELLED,
+        )
+
+        response = self.client.post('/api/cart/items/', {
+            'item_type': 'presentation',
+            'item_id': presentation.pk,
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(CartItem.objects.filter(
+            cart__user=self.user,
+            content_type=content_type,
+            object_id=presentation.pk,
+        ).exists())
+        self.assertTrue(Order.objects.filter(pk=order.pk, status=Order.STATUS_COMPLETED).exists())
+        enrollment.refresh_from_db()
+        self.assertEqual(enrollment.status, PresentationEnrollment.STATUS_CANCELLED)
