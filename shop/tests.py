@@ -1,7 +1,5 @@
 from datetime import timedelta
 from decimal import Decimal
-from unittest.mock import patch
-
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import override_settings
@@ -15,7 +13,7 @@ from .fulfillment import fulfill_order
 from .models import CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Product
 from wallet.models import WalletEntry, WalletTopUp
 from wallet.services import WalletService
-from wallet.tests.helpers import FakePaymentClient, credit
+from wallet.tests.helpers import FakePaymentClient, credit, register_fake_zarinpal
 
 
 class ShopBusinessBehaviorTests(APITestCase):
@@ -242,10 +240,9 @@ class ShopBusinessBehaviorTests(APITestCase):
         )
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_paid_team_checkout_returns_topup_and_callback_activates_team(self, mock_client_cls):
+    def test_paid_team_checkout_returns_topup_and_callback_activates_team(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         team = self._create_payable_team()
 
         response = self.client.post(
@@ -277,10 +274,9 @@ class ShopBusinessBehaviorTests(APITestCase):
         self.assertEqual(WalletService.get_balance(self.user), Decimal('0.00'))
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_retrying_team_checkout_reuses_order_and_creates_a_fresh_topup(self, mock_client_cls):
+    def test_retrying_team_checkout_reuses_order_and_creates_a_fresh_topup(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         team = self._create_payable_team()
 
         first = self.client.post(f'/api/teams/{team.pk}/initiate-payment/', {}, format='json')

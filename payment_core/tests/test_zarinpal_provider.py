@@ -1,7 +1,7 @@
 """Comprehensive unit tests for ZarinpalProvider in payment_core."""
 
 from unittest.mock import MagicMock, patch
-from django.test import TestCase
+from django.test import SimpleTestCase, override_settings
 import requests
 
 from payment_core.providers.types import (
@@ -23,7 +23,7 @@ from payment_core.providers.zarinpal import ZarinpalProvider
 VALID_MERCHANT_ID = "11111111-2222-3333-4444-555555555555"
 
 
-class ZarinpalProviderTests(TestCase):
+class ZarinpalProviderTests(SimpleTestCase):
     def setUp(self):
         self.provider = ZarinpalProvider(
             merchant_id=VALID_MERCHANT_ID,
@@ -57,6 +57,42 @@ class ZarinpalProviderTests(TestCase):
         invalid_provider = ZarinpalProvider(merchant_id="invalid")
         health = invalid_provider.check_health()
         self.assertEqual(health.status, ProviderHealthStatus.UNAVAILABLE)
+
+    @patch("requests.post")
+    def test_invalid_configuration_does_not_call_zarinpal(self, mock_post):
+        provider = ZarinpalProvider(merchant_id="invalid")
+        result = provider.create_payment(CreatePaymentRequest(
+            amount_rial=100000,
+            callback_url="https://example.com/callback",
+            description="Test payment",
+            client_reference="order-123",
+        ))
+
+        self.assertEqual(result.status, PaymentRequestStatus.ERROR)
+        self.assertEqual(result.error.category, ProviderErrorCategory.CONFIGURATION)
+        mock_post.assert_not_called()
+
+    @patch("requests.post")
+    def test_create_payment_rejects_amount_below_zarinpal_minimum(self, mock_post):
+        result = self.provider.create_payment(CreatePaymentRequest(
+            amount_rial=999,
+            callback_url="https://example.com/callback",
+            description="Test payment",
+            client_reference="order-123",
+        ))
+
+        self.assertEqual(result.status, PaymentRequestStatus.REJECTED)
+        self.assertEqual(result.error.code, "amount_below_minimum")
+        mock_post.assert_not_called()
+
+    @override_settings(ZARINPAL_MERCHANT_ID=VALID_MERCHANT_ID, ZARINPAL_SANDBOX="False")
+    def test_django_registration_factory_parses_string_boolean(self):
+        from payment_core.apps import build_zarinpal_provider
+
+        provider = build_zarinpal_provider()
+
+        self.assertEqual(provider._merchant_id, VALID_MERCHANT_ID)
+        self.assertFalse(provider._options.sandbox)
 
     # ── Redirect URL & Timeout Options ────────────────────────────────────────
 
@@ -168,6 +204,31 @@ class ZarinpalProviderTests(TestCase):
         self.assertEqual(res.error.category, ProviderErrorCategory.CONFIGURATION)
 
     @patch("requests.post")
+    def test_create_payment_reads_real_v4_error_envelope(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.json.return_value = {
+            "data": [],
+            "errors": {
+                "code": -11,
+                "message": "Merchant ID is invalid",
+                "validations": [],
+            },
+        }
+        mock_post.return_value = mock_response
+
+        res = self.provider.create_payment(CreatePaymentRequest(
+            amount_rial=100000,
+            callback_url="https://example.com/callback",
+            description="Test payment",
+            client_reference="order-123",
+        ))
+
+        self.assertEqual(res.status, PaymentRequestStatus.REJECTED)
+        self.assertEqual(res.error.code, "merchant_invalid")
+        self.assertEqual(res.error.provider_code, -11)
+
+    @patch("requests.post")
     def test_create_payment_timeout(self, mock_post):
         mock_post.side_effect = requests.Timeout("Connection timed out")
 
@@ -220,6 +281,40 @@ class ZarinpalProviderTests(TestCase):
         self.assertEqual(res.error.code, "malformed_response")
         self.assertEqual(res.error.category, ProviderErrorCategory.MALFORMED_RESPONSE)
 
+    @patch("requests.post")
+    def test_create_payment_non_object_response_is_malformed(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = []
+        mock_post.return_value = mock_response
+
+        res = self.provider.create_payment(CreatePaymentRequest(
+            amount_rial=100000,
+            callback_url="https://example.com/callback",
+            description="Test payment",
+            client_reference="order-123",
+        ))
+
+        self.assertEqual(res.status, PaymentRequestStatus.ERROR)
+        self.assertEqual(res.error.category, ProviderErrorCategory.MALFORMED_RESPONSE)
+
+    @patch("requests.post")
+    def test_create_payment_retryable_http_error(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.json.return_value = {}
+        mock_post.return_value = mock_response
+
+        res = self.provider.create_payment(CreatePaymentRequest(
+            amount_rial=100000,
+            callback_url="https://example.com/callback",
+            description="Test payment",
+            client_reference="order-123",
+        ))
+
+        self.assertEqual(res.status, PaymentRequestStatus.ERROR)
+        self.assertEqual(res.error.code, "provider_http_error")
+        self.assertTrue(res.error.retryable)
+
     # ── Verify Payment ───────────────────────────────────────────────────────
 
     @patch("requests.post")
@@ -245,6 +340,23 @@ class ZarinpalProviderTests(TestCase):
         self.assertEqual(res.status, VerificationStatus.VERIFIED)
         self.assertEqual(res.transaction_reference, "20102030")
         self.assertEqual(res.verified_amount_rial, 100000)
+
+    @patch("requests.post")
+    def test_verify_payment_requires_transaction_reference(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": {"code": 100, "message": "Verified"},
+            "errors": [],
+        }
+        mock_post.return_value = mock_response
+
+        res = self.provider.verify_payment(VerificationRequest(
+            authority="A0000000000000000000000000000wwOGYpd",
+            expected_amount_rial=100000,
+        ))
+
+        self.assertEqual(res.status, VerificationStatus.ERROR)
+        self.assertEqual(res.error.category, ProviderErrorCategory.MALFORMED_RESPONSE)
 
     @patch("requests.post")
     def test_verify_payment_already_verified(self, mock_post):
@@ -375,6 +487,55 @@ class ZarinpalProviderTests(TestCase):
         res = self.provider.inquire_payment(req)
 
         self.assertEqual(res.status, PaymentInquiryStatus.FAILED)
+        self.assertIsNotNone(res.error)
+
+    @patch("requests.post")
+    def test_inquire_payment_paid_but_unverified_is_pending(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": {"code": 100, "status": "PAID", "amount": 100000},
+            "errors": [],
+        }
+        mock_post.return_value = mock_response
+
+        res = self.provider.inquire_payment(InquiryRequest(
+            authority="A0000000000000000000000000000wwOGYpd",
+            expected_amount_rial=100000,
+        ))
+
+        self.assertEqual(res.status, PaymentInquiryStatus.PENDING)
+
+    @patch("requests.post")
+    def test_inquire_payment_maps_reversed_state(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": {"code": 100, "status": "REVERSED", "amount": 100000},
+            "errors": [],
+        }
+        mock_post.return_value = mock_response
+
+        res = self.provider.inquire_payment(InquiryRequest(
+            authority="A0000000000000000000000000000wwOGYpd",
+        ))
+
+        self.assertEqual(res.status, PaymentInquiryStatus.REVERSED)
+
+    @patch("requests.post")
+    def test_inquire_payment_detects_amount_mismatch(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": {"code": 100, "status": "VERIFIED", "amount": 99999},
+            "errors": [],
+        }
+        mock_post.return_value = mock_response
+
+        res = self.provider.inquire_payment(InquiryRequest(
+            authority="A0000000000000000000000000000wwOGYpd",
+            expected_amount_rial=100000,
+        ))
+
+        self.assertEqual(res.status, PaymentInquiryStatus.FAILED)
+        self.assertEqual(res.error.category, ProviderErrorCategory.AMOUNT_MISMATCH)
 
     # ── Reverse Payment ───────────────────────────────────────────────────────
 

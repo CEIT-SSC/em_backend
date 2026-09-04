@@ -1,6 +1,4 @@
 from decimal import Decimal
-from unittest.mock import patch
-
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase, override_settings
 from rest_framework import status
@@ -16,7 +14,7 @@ from shop.models import (
 )
 from wallet.models import Wallet, WalletEntry, WalletTopUp
 from wallet.services import WalletService
-from wallet.tests.helpers import FakePaymentClient, credit, make_order, make_user
+from wallet.tests.helpers import FakePaymentClient, credit, make_order, make_user, register_fake_zarinpal
 
 
 class WalletAPITests(TestCase):
@@ -56,10 +54,9 @@ class WalletAPITests(TestCase):
         self.assertNotIn('other-hist', keys)
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_start_topup_and_status(self, mock_client_cls):
+    def test_start_topup_and_status(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         self.client.force_authenticate(self.user)
         response = self.client.post(
             '/api/wallet/top-ups/',
@@ -85,17 +82,15 @@ class WalletAPITests(TestCase):
         self.assertNotEqual(str(another.data['public_id']), str(public_id))
         self.assertEqual(fake.create_calls, 2)
 
-    @patch('wallet.services.ZarrinPal')
-    def test_topup_callback_verifies_and_credits_once(self, mock_client_cls):
+    def test_topup_callback_verifies_and_credits_once(self):
         fake = FakePaymentClient()
+        register_fake_zarinpal(self, fake)
         topup, _ = WalletService.start_topup(
             self.user,
             '80.00',
             callback_url='https://example.com/callback',
             payment_client=fake,
         )
-        mock_client_cls.return_value = fake
-
         first = self.client.get('/api/wallet/top-ups/callback/', {
             'Authority': topup.gateway_authority,
             'Status': 'OK',
@@ -111,19 +106,17 @@ class WalletAPITests(TestCase):
         self.assertEqual(WalletEntry.objects.filter(topup=topup).count(), 1)
         self.assertEqual(fake.verify_calls, 1)
 
-    @patch('wallet.services.ZarrinPal')
-    def test_topup_callback_cannot_credit_an_unverified_payment(self, mock_client_cls):
+    def test_topup_callback_cannot_credit_an_unverified_payment(self):
         fake = FakePaymentClient(verify_result={
             'status': 'failed', 'ref_id': None, 'error': 'not paid', 'card_pan': None,
         })
+        register_fake_zarinpal(self, fake)
         topup, _ = WalletService.start_topup(
             self.user,
             '80.00',
             callback_url='https://example.com/callback',
             payment_client=fake,
         )
-        mock_client_cls.return_value = fake
-
         response = self.client.get('/api/wallet/top-ups/callback/', {
             'Authority': topup.gateway_authority,
             'Status': 'OK',
@@ -166,10 +159,9 @@ class WalletAPITests(TestCase):
         self.assertEqual(WalletService.get_balance(self.user), Decimal('50.00'))
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_pay_order_endpoint_returns_gateway_link_when_balance_is_short(self, mock_client_cls):
+    def test_pay_order_endpoint_returns_gateway_link_when_balance_is_short(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         order = make_order(self.user, '40.00')
         self.client.force_authenticate(self.user)
 
@@ -223,10 +215,9 @@ class WalletAPITests(TestCase):
         self.assertFalse(cart.items.exists())
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_cart_checkout_returns_link_then_callback_completes_order(self, mock_client_cls):
+    def test_cart_checkout_returns_link_then_callback_completes_order(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         cart = self._add_product_to_cart(price='40.00')
         self.client.force_authenticate(self.user)
 
@@ -254,10 +245,9 @@ class WalletAPITests(TestCase):
         self.assertFalse(cart.items.exists())
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_retrying_unchanged_cart_reuses_order_and_creates_fresh_shortfall_link(self, mock_client_cls):
+    def test_retrying_unchanged_cart_reuses_order_and_creates_fresh_shortfall_link(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         self._add_product_to_cart(price='50.00')
         credit(self.user, '20.00', 'retry-cart-seed', actor=self.staff)
         self.client.force_authenticate(self.user)
@@ -276,10 +266,9 @@ class WalletAPITests(TestCase):
         self.assertEqual(WalletService.get_balance(self.user), Decimal('20.00'))
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_one_failed_retry_link_does_not_block_another_successful_link(self, mock_client_cls):
+    def test_one_failed_retry_link_does_not_block_another_successful_link(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         self._add_product_to_cart(price='50.00')
         credit(self.user, '20.00', 'retry-failure-seed', actor=self.staff)
         self.client.force_authenticate(self.user)
@@ -310,10 +299,9 @@ class WalletAPITests(TestCase):
         self.assertEqual(WalletService.get_balance(self.user), Decimal('0.00'))
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_two_successful_retry_links_credit_twice_but_debit_shared_order_once(self, mock_client_cls):
+    def test_two_successful_retry_links_credit_twice_but_debit_shared_order_once(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         self._add_product_to_cart(price='50.00')
         credit(self.user, '20.00', 'retry-double-success-seed', actor=self.staff)
         self.client.force_authenticate(self.user)
@@ -340,10 +328,9 @@ class WalletAPITests(TestCase):
         )
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_new_overlapping_order_supersedes_old_order_even_if_old_link_verifies(self, mock_client_cls):
+    def test_new_overlapping_order_supersedes_old_order_even_if_old_link_verifies(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         products = [
             Product.objects.create(
                 name=name,
@@ -415,10 +402,9 @@ class WalletAPITests(TestCase):
         )
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_discount_is_redeemed_only_after_successful_retry(self, mock_client_cls):
+    def test_discount_is_redeemed_only_after_successful_retry(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         cart = self._add_product_to_cart(price='50.00')
         discount = DiscountCode.objects.create(
             code='SAVE10',

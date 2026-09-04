@@ -106,12 +106,14 @@ EMAIL_PROVIDERS = [
 SMS_KEY = os.getenv("SMS_KEY", default="key")
 SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
-ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", default=False)
-
-if ZARINPAL_SANDBOX == 'True':
-    PAYMENT_API_KEY = os.getenv("ZARINPAL_MERCHANT_ID", "11111111-1111-1111-1111-111111111111")
-else:
-    PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
+ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", "False").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+ZARINPAL_MERCHANT_ID = (
+    os.getenv("ZARINPAL_MERCHANT_ID") or os.getenv("PAYMENT_API_KEY", "")
+).strip()
+# Backwards compatibility for the legacy wallet gateway client.
+PAYMENT_API_KEY = ZARINPAL_MERCHANT_ID
 
 WALLET_PAYMENT_CALLBACK_URL = os.getenv("WALLET_PAYMENT_CALLBACK_URL", default="")
 WALLET_PAYMENT_PROVIDER = os.getenv("WALLET_PAYMENT_PROVIDER", default="zarinpal").strip().lower()

@@ -2,8 +2,6 @@ import threading
 from decimal import Decimal
 
 from unittest import skipUnless
-from unittest.mock import patch
-
 from django.contrib.contenttypes.models import ContentType
 from django.db import close_old_connections, connection
 from django.test import TransactionTestCase, override_settings
@@ -14,7 +12,7 @@ from shop.models import Cart, CartItem, Order, Product
 from wallet.exceptions import DuplicateIdempotencyKey, InsufficientFunds
 from wallet.models import Wallet, WalletEntry, WalletTopUp
 from wallet.services import WalletService
-from wallet.tests.helpers import FakePaymentClient, credit, make_order, make_user
+from wallet.tests.helpers import FakePaymentClient, credit, make_order, make_user, register_fake_zarinpal
 
 
 @skipUnless(connection.vendor == 'postgresql', 'Concurrent debit locking requires PostgreSQL.')
@@ -216,10 +214,9 @@ class ConcurrentWalletTests(TransactionTestCase):
         )
 
     @override_settings(WALLET_PAYMENT_CALLBACK_URL='https://example.com/api/wallet/top-ups/callback/')
-    @patch('wallet.services.ZarrinPal')
-    def test_overlapping_checkout_and_old_callback_never_complete_both_orders(self, mock_client_cls):
+    def test_overlapping_checkout_and_old_callback_never_complete_both_orders(self):
         fake = FakePaymentClient()
-        mock_client_cls.return_value = fake
+        register_fake_zarinpal(self, fake)
         user = make_user('overlap-race@example.com')
         products = [
             Product.objects.create(

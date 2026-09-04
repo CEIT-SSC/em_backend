@@ -28,7 +28,6 @@ from wallet.exceptions import (
     WalletError,
 )
 from wallet.models import Wallet, WalletEntry, WalletTopUp
-from wallet.payments import ZarrinPal
 from wallet.payment_provider import ZarinpalPaymentProvider
 
 logger = logging.getLogger(__name__)
@@ -71,9 +70,7 @@ def _wallet_provider_adapter(provider_name, payment_client=None):
     # payment_client is the backwards-compatible injection point for the legacy Zarinpal test/client.
     if payment_client is not None:
         return ZarinpalPaymentProvider(payment_client)
-    if provider_name == 'zarinpal':
-        return ZarinpalPaymentProvider(ZarrinPal())
-    return None  # payment-core resolves any other registered provider by name.
+    return None  # payment-core resolves configured providers by name.
 
 
 def sanitize_metadata(metadata):

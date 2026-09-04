@@ -2,6 +2,8 @@
 
 import logging
 import re
+from collections.abc import Mapping
+from urllib.parse import quote
 
 import requests
 
@@ -9,6 +11,8 @@ from .base import PaymentProvider
 from .redaction import sanitize_provider_data
 from .types import (
     ConfigurationValidationResult,
+    CreatePaymentRequest,
+    InquiryRequest,
     InquiryResult,
     NormalizedProviderError,
     PaymentInquiryStatus,
@@ -18,8 +22,10 @@ from .types import (
     ProviderHealthResult,
     ProviderHealthStatus,
     ProviderRuntimeOptions,
+    ReversalRequest,
     ReversalResult,
     ReversalStatus,
+    VerificationRequest,
     VerificationResult,
     VerificationStatus,
 )
@@ -29,6 +35,16 @@ logger = logging.getLogger("payments")
 # ── Zarinpal response codes ──────────────────────────────────────────────────
 _CODE_SUCCESS = 100
 _CODE_ALREADY_VERIFIED = 101
+_MINIMUM_AMOUNT_RIAL = 1_000
+
+_INQUIRY_STATUS_MAP = {
+    "SUCCESS": PaymentInquiryStatus.VERIFIED,
+    "VERIFIED": PaymentInquiryStatus.VERIFIED,
+    "PAID": PaymentInquiryStatus.PENDING,
+    "IN_BANK": PaymentInquiryStatus.PENDING,
+    "FAILED": PaymentInquiryStatus.FAILED,
+    "REVERSED": PaymentInquiryStatus.REVERSED,
+}
 
 # code → (error_code, message, category, retryable)
 _ZARINPAL_ERROR_MAP: dict[int, tuple[str, str, ProviderErrorCategory, bool]] = {
@@ -84,7 +100,16 @@ class ZarinpalProvider(PaymentProvider):
     def name(self) -> str:
         return "zarinpal"
 
-    def create_payment(self, request):
+    def create_payment(self, request: CreatePaymentRequest) -> PaymentRequestResult:
+        configuration_error = self._configuration_error()
+        if configuration_error:
+            return PaymentRequestResult(PaymentRequestStatus.ERROR, error=configuration_error)
+        if request.amount_rial < _MINIMUM_AMOUNT_RIAL:
+            return PaymentRequestResult(
+                PaymentRequestStatus.REJECTED,
+                error=self._minimum_amount_error(),
+            )
+
         payload = {
             "merchant_id": self._merchant_id,
             "amount": request.amount_rial,
@@ -101,62 +126,72 @@ class ZarinpalProvider(PaymentProvider):
         if request.client_reference:
             payload["metadata"]["order_id"] = request.client_reference
 
-        body = self._post(self._request_url, payload)
-        if body is None:
-            return self._last_transport_result
+        body, transport_error = self._post(self._request_url, payload)
+        if transport_error:
+            return PaymentRequestResult(PaymentRequestStatus.ERROR, error=transport_error)
 
-        data = body.get("data") or {}
-        code = data.get("code")
+        data, code, provider_message = self._response_parts(body)
 
-        if code == _CODE_SUCCESS and data.get("authority"):
-            authority = str(data["authority"])
+        if code == _CODE_SUCCESS:
+            authority = data.get("authority")
+            if not isinstance(authority, str) or not authority.strip():
+                return PaymentRequestResult(
+                    PaymentRequestStatus.ERROR,
+                    error=self._malformed_error("Zarinpal omitted the payment authority."),
+                    sanitized_provider_data=sanitize_provider_data(body),
+                )
             return PaymentRequestResult(
                 PaymentRequestStatus.CREATED,
-                authority=authority,
+                authority=authority.strip(),
                 sanitized_provider_data=sanitize_provider_data(body),
             )
 
         return PaymentRequestResult(
             PaymentRequestStatus.REJECTED,
-            error=self._normalize_error(code, "Payment request rejected by Zarinpal."),
+            error=self._normalize_error(
+                code, "Payment request rejected by Zarinpal.", provider_message,
+            ),
             sanitized_provider_data=sanitize_provider_data(body),
         )
 
     def generate_redirect_url(self, authority: str) -> str:
-        return f"{self._redirect_base}/{authority}"
+        if not isinstance(authority, str) or not authority.strip():
+            raise ValueError("Zarinpal authority must be a non-empty string.")
+        return f"{self._redirect_base}/{quote(authority.strip(), safe='')}"
 
-    def verify_payment(self, request):
+    def verify_payment(self, request: VerificationRequest) -> VerificationResult:
+        configuration_error = self._configuration_error()
+        if configuration_error:
+            return VerificationResult(VerificationStatus.ERROR, error=configuration_error)
+
         payload = {
             "merchant_id": self._merchant_id,
             "amount": request.expected_amount_rial,
             "authority": request.authority,
         }
 
-        body = self._post(self._verify_url, payload)
-        if body is None:
-            return self._last_transport_result
+        body, transport_error = self._post(self._verify_url, payload)
+        if transport_error:
+            return VerificationResult(VerificationStatus.ERROR, error=transport_error)
 
-        data = body.get("data") or {}
-        code = data.get("code")
+        data, code, provider_message = self._response_parts(body)
         ref_id = str(data["ref_id"]) if data.get("ref_id") is not None else None
 
-        if code == _CODE_SUCCESS:
+        if code in {_CODE_SUCCESS, _CODE_ALREADY_VERIFIED}:
+            if not ref_id:
+                return VerificationResult(
+                    VerificationStatus.ERROR,
+                    error=self._malformed_error("Zarinpal omitted the transaction reference."),
+                    sanitized_provider_data=sanitize_provider_data(body),
+                )
             return VerificationResult(
-                VerificationStatus.VERIFIED,
+                VerificationStatus.VERIFIED if code == _CODE_SUCCESS else VerificationStatus.ALREADY_VERIFIED,
                 transaction_reference=ref_id,
                 verified_amount_rial=request.expected_amount_rial,
                 sanitized_provider_data=sanitize_provider_data(body),
             )
 
-        if code == _CODE_ALREADY_VERIFIED:
-            return VerificationResult(
-                VerificationStatus.ALREADY_VERIFIED,
-                transaction_reference=ref_id,
-                verified_amount_rial=request.expected_amount_rial,
-                sanitized_provider_data=sanitize_provider_data(body),
-            )
-
-        error = self._normalize_error(code, "Payment verification failed.")
+        error = self._normalize_error(code, "Payment verification failed.", provider_message)
         if error.category == ProviderErrorCategory.AMOUNT_MISMATCH:
             status = VerificationStatus.AMOUNT_MISMATCH
         elif error.category == ProviderErrorCategory.NOT_FOUND:
@@ -168,31 +203,48 @@ class ZarinpalProvider(PaymentProvider):
             sanitized_provider_data=sanitize_provider_data(body),
         )
 
-    def inquire_payment(self, request):
+    def inquire_payment(self, request: InquiryRequest) -> InquiryResult:
+        configuration_error = self._configuration_error()
+        if configuration_error:
+            return InquiryResult(PaymentInquiryStatus.ERROR, error=configuration_error)
+
         payload = {
             "merchant_id": self._merchant_id,
             "authority": request.authority,
         }
 
-        body = self._post(self._inquiry_url, payload)
-        if body is None:
-            return self._last_transport_result
+        body, transport_error = self._post(self._inquiry_url, payload)
+        if transport_error:
+            return InquiryResult(PaymentInquiryStatus.ERROR, error=transport_error)
 
-        data = body.get("data") or {}
-        code = data.get("code")
+        data, code, provider_message = self._response_parts(body)
         ref_id = str(data["ref_id"]) if data.get("ref_id") is not None else None
-        raw_amount = data.get("amount")
-        amount = int(raw_amount) if raw_amount is not None and str(raw_amount).isdigit() else None
+        amount = self._positive_int(data.get("amount"))
 
         if code in (_CODE_SUCCESS, _CODE_ALREADY_VERIFIED):
+            if request.expected_amount_rial is not None and amount is not None and amount != request.expected_amount_rial:
+                error = NormalizedProviderError(
+                    "amount_mismatch",
+                    "Inquired amount does not match the expected payment amount.",
+                    ProviderErrorCategory.AMOUNT_MISMATCH,
+                    provider_code=code,
+                )
+                return InquiryResult(
+                    PaymentInquiryStatus.FAILED,
+                    transaction_reference=ref_id,
+                    amount_rial=amount,
+                    error=error,
+                    sanitized_provider_data=sanitize_provider_data(body),
+                )
+            provider_status = str(data.get("status") or "").strip().upper()
             return InquiryResult(
-                PaymentInquiryStatus.VERIFIED,
+                _INQUIRY_STATUS_MAP.get(provider_status, PaymentInquiryStatus.UNKNOWN),
                 transaction_reference=ref_id,
                 amount_rial=amount,
                 sanitized_provider_data=sanitize_provider_data(body),
             )
 
-        error = self._normalize_error(code, "Zarinpal inquiry failed.")
+        error = self._normalize_error(code, "Zarinpal inquiry failed.", provider_message)
         if error.category == ProviderErrorCategory.NOT_FOUND:
             return InquiryResult(
                 PaymentInquiryStatus.NOT_FOUND, error=error,
@@ -201,21 +253,25 @@ class ZarinpalProvider(PaymentProvider):
         return InquiryResult(
             PaymentInquiryStatus.FAILED,
             amount_rial=amount,
+            error=error,
             sanitized_provider_data=sanitize_provider_data(body),
         )
 
-    def reverse_payment(self, request):
+    def reverse_payment(self, request: ReversalRequest) -> ReversalResult:
+        configuration_error = self._configuration_error()
+        if configuration_error:
+            return ReversalResult(ReversalStatus.ERROR, error=configuration_error)
+
         payload = {
             "merchant_id": self._merchant_id,
             "authority": request.authority,
         }
 
-        body = self._post(self._reverse_url, payload)
-        if body is None:
-            return self._last_transport_result
+        body, transport_error = self._post(self._reverse_url, payload)
+        if transport_error:
+            return ReversalResult(ReversalStatus.ERROR, error=transport_error)
 
-        data = body.get("data") or {}
-        code = data.get("code")
+        _data, code, provider_message = self._response_parts(body)
 
         if code == _CODE_SUCCESS:
             return ReversalResult(
@@ -231,7 +287,7 @@ class ZarinpalProvider(PaymentProvider):
 
         return ReversalResult(
             ReversalStatus.ERROR,
-            error=self._normalize_error(code, "Zarinpal reversal failed."),
+            error=self._normalize_error(code, "Zarinpal reversal failed.", provider_message),
             sanitized_provider_data=sanitize_provider_data(body),
         )
 
@@ -240,7 +296,7 @@ class ZarinpalProvider(PaymentProvider):
         if not self._merchant_id:
             errors.append("Zarinpal merchant ID is not set.")
         elif not _UUID_RE.match(self._merchant_id):
-            errors.append(f"Zarinpal merchant ID is not a valid UUID.")
+            errors.append("Zarinpal merchant ID is not a valid UUID.")
         if errors:
             return ConfigurationValidationResult(False, errors=tuple(errors))
         return ConfigurationValidationResult(True)
@@ -263,66 +319,128 @@ class ZarinpalProvider(PaymentProvider):
     def _timeout(self):
         return (self._options.connect_timeout_seconds, self._options.read_timeout_seconds)
 
-    def _post(self, url, payload):
-        """POST JSON to Zarinpal, return parsed body or None on transport error.
+    def _configuration_error(self):
+        configuration = self.validate_configuration()
+        if configuration.valid:
+            return None
+        return NormalizedProviderError(
+            "configuration_error",
+            "; ".join(configuration.errors),
+            ProviderErrorCategory.CONFIGURATION,
+        )
 
-        On transport failure ``self._last_transport_result`` is set to a
-        pre-built result object the caller can return directly.
-        """
-        self._last_transport_result = None
+    @staticmethod
+    def _minimum_amount_error():
+        return NormalizedProviderError(
+            "amount_below_minimum",
+            f"Zarinpal requires an amount of at least {_MINIMUM_AMOUNT_RIAL} Rials.",
+            ProviderErrorCategory.REJECTED,
+        )
+
+    def _post(self, url, payload):
+        """POST JSON and return ``(body, error)`` without shared mutable state."""
         try:
             resp = requests.post(
                 url, json=payload,
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                headers={
+                    "User-Agent": "EM-Backend-Zarinpal/1.0",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
                 timeout=self._timeout(),
             )
-            return resp.json()
         except requests.Timeout:
             err = NormalizedProviderError(
                 "provider_timeout", "Zarinpal request timed out.",
                 ProviderErrorCategory.TIMEOUT, retryable=True,
             )
-        except requests.RequestException as exc:
+        except requests.RequestException:
             err = NormalizedProviderError(
-                "provider_network_error", f"Network error communicating with Zarinpal: {exc}",
+                "provider_network_error", "Network error communicating with Zarinpal.",
                 ProviderErrorCategory.NETWORK, retryable=True,
             )
-        except (ValueError, KeyError):
-            err = NormalizedProviderError(
-                "malformed_response", "Zarinpal returned invalid JSON.",
-                ProviderErrorCategory.MALFORMED_RESPONSE,
-            )
-        # Build a generic error result that the caller's return type can use.
-        # The caller inspects ``self._last_transport_result`` when we return None.
-        self._last_transport_result = self._transport_error_result(url, err)
+        else:
+            try:
+                body = resp.json()
+            except (ValueError, KeyError):
+                err = self._malformed_error("Zarinpal returned invalid JSON.")
+            else:
+                if not isinstance(body, Mapping):
+                    err = self._malformed_error("Zarinpal returned a non-object JSON response.")
+                else:
+                    _data, provider_code, _message = self._response_parts(body)
+                    status_code = getattr(resp, "status_code", 200)
+                    if isinstance(status_code, int) and status_code >= 400 and provider_code is None:
+                        retryable = status_code == 429 or status_code >= 500
+                        err = NormalizedProviderError(
+                            "provider_http_error",
+                            f"Zarinpal returned HTTP {status_code}.",
+                            ProviderErrorCategory.NETWORK if retryable else ProviderErrorCategory.REJECTED,
+                            retryable=retryable,
+                            provider_code=status_code,
+                        )
+                    else:
+                        return body, None
+
         logger.warning(
             "zarinpal.transport_error url=%s error=%s", url, err.code,
             extra={"payment_intent_id": "", "payment_attempt_id": ""},
         )
-        return None
-
-    def _transport_error_result(self, url, error):
-        """Return the correct result dataclass for the endpoint that failed."""
-        if "request.json" in url:
-            return PaymentRequestResult(PaymentRequestStatus.ERROR, error=error)
-        if "verify.json" in url:
-            return VerificationResult(VerificationStatus.ERROR, error=error)
-        if "inquiry.json" in url:
-            return InquiryResult(PaymentInquiryStatus.ERROR, error=error)
-        if "reverse.json" in url:
-            return ReversalResult(ReversalStatus.ERROR, error=error)
-        return PaymentRequestResult(PaymentRequestStatus.ERROR, error=error)
+        return None, err
 
     @staticmethod
-    def _normalize_error(code, fallback_message="Zarinpal returned an error."):
+    def _malformed_error(message):
+        return NormalizedProviderError(
+            "malformed_response", message,
+            ProviderErrorCategory.MALFORMED_RESPONSE,
+        )
+
+    @staticmethod
+    def _positive_int(value):
+        if isinstance(value, bool):
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    @classmethod
+    def _response_parts(cls, body):
+        data = body.get("data")
+        data = data if isinstance(data, Mapping) else {}
+        errors = body.get("errors")
+        error_data = errors if isinstance(errors, Mapping) else {}
+
+        code = data.get("code")
+        message = data.get("message")
+        if code is None:
+            code = error_data.get("code")
+            message = error_data.get("message") or message
+
+        if isinstance(code, str):
+            try:
+                code = int(code)
+            except ValueError:
+                pass
+        return data, code, str(message) if message else None
+
+    @staticmethod
+    def _normalize_error(code, fallback_message="Zarinpal returned an error.", provider_message=None):
+        if isinstance(code, str):
+            try:
+                code = int(code)
+            except ValueError:
+                pass
         if code in _ZARINPAL_ERROR_MAP:
             err_code, message, category, retryable = _ZARINPAL_ERROR_MAP[code]
             return NormalizedProviderError(
                 err_code, message, category, retryable=retryable, provider_code=code,
             )
+        detail = provider_message or fallback_message
         return NormalizedProviderError(
             "unknown_zarinpal_error",
-            f"{fallback_message} (code={code})",
+            f"{detail} (code={code})",
             ProviderErrorCategory.UNKNOWN,
             provider_code=code,
         )

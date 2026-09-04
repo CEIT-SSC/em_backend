@@ -2,8 +2,10 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 
+from payment_core.providers import provider_registry
 from shop.models import Order
 from wallet.models import WalletEntry
+from wallet.payment_provider import ZarinpalPaymentProvider
 from wallet.services import WalletService
 
 User = get_user_model()
@@ -60,6 +62,14 @@ class FakePaymentClient:
 
     def queue_verify_result(self, result):
         self.verify_results.append(dict(result))
+
+
+def register_fake_zarinpal(test_case, client):
+    """Install a legacy fake behind the payment-core contract for one test."""
+    previous = provider_registry.get("zarinpal")
+    provider_registry.register(ZarinpalPaymentProvider(client), replace=True)
+    test_case.addCleanup(provider_registry.register, previous, replace=True)
+    return client
 
 
 def make_user(email, *, staff=False, superuser=False):
