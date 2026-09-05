@@ -127,15 +127,19 @@
                 });
             }   
             
-            // Format UTC Dates to Jalali (Iran Time)
+            // 3. Format UTC Dates to Jalali (Iran Time)
+            const dateFormatter = new Intl.DateTimeFormat('fa-IR', {
+                year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Tehran'
+            });
+            const timeFormatter = new Intl.DateTimeFormat('fa-IR', {
+                hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran'
+            });
+
             document.querySelectorAll('.local-datetime').forEach(el => {
                 const utcDate = el.getAttribute('data-utc');
                 if (utcDate) {
                     const date = new Date(utcDate);
-                    el.textContent = new Intl.DateTimeFormat('fa-IR', {
-                        year: 'numeric', month: '2-digit', day: '2-digit',
-                        hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran'
-                    }).format(date);
+                    el.textContent = `${timeFormatter.format(date)} ${dateFormatter.format(date)}`;
                 }
             });
 
@@ -143,9 +147,7 @@
                 const utcDate = el.getAttribute('data-utc');
                 if (utcDate) {
                     const date = new Date(utcDate);
-                    el.textContent = new Intl.DateTimeFormat('fa-IR', {
-                        year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Tehran'
-                    }).format(date);
+                    el.textContent = dateFormatter.format(date);
                 }
             });
         });
