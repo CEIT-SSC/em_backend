@@ -39,20 +39,25 @@
         <div class="flex items-center justify-between border-b border-indigo-100 pb-4 mb-4">
             <h3 class="text-lg font-black text-indigo-900 flex items-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                قوانین و راهنمای ارسال
+                راهنمای ارسال
             </h3>
         </div>
         
         {% if active_call.rules %}
-        <ul class="list-disc list-inside space-y-2 text-indigo-800 text-sm font-medium leading-relaxed">
-            {% for rule in active_call.rules.splitlines %}
-                {% if rule.strip %}
-                <li>{{ rule }}</li>
-                {% endif %}
+            <div class="space-y-6">
+            {% for category, items in active_call.rules.items %}
+                <div>
+                    <h4 class="text-md font-extrabold text-indigo-900 mb-2">{{ category }}</h4>
+                    <ul class="list-disc list-inside space-y-1 text-indigo-800 text-sm font-medium leading-relaxed">
+                        {% for item in items %}
+                        <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
             {% endfor %}
-        </ul>
+            </div>
         {% else %}
-        <p class="text-indigo-800 text-sm font-medium">قوانین خاصی برای این فراخوان ثبت نشده است.</p>
+            <p class="text-indigo-800 text-sm font-medium">قوانین خاصی برای این فراخوان ثبت نشده است.</p>
         {% endif %}
     </div>
 
@@ -77,7 +82,135 @@
 
             <div class="col-span-1">
                 <label class="block text-sm font-extrabold text-slate-700 mb-2">دانشگاه محل تحصیل <span class="text-rose-500">*</span></label>
-                <input type="text" name="university" required placeholder="دانشگاه صنعتی امیرکبیر" class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium placeholder:text-slate-400">
+                <input type="text" name="university" list="iran-universities" required placeholder="دانشگاه صنعتی امیرکبیر" class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium placeholder:text-slate-400">
+                <datalist id="iran-universities">
+                    <option value="دانشگاه صنعتی شریف"></option>
+                    <option value="دانشگاه صنعتی امیرکبیر"></option>
+                    <option value="دانشگاه علم و صنعت ایران"></option>
+                    <option value="دانشگاه صنعتی خواجه نصیرالدین طوسی"></option>
+                    <option value="دانشگاه صنعتی اصفهان"></option>
+                    <option value="دانشگاه صنعتی بابل"></option>
+                    <option value="دانشگاه صنعتی سهند"></option>
+                    <option value="دانشگاه صنعتی شیراز"></option>
+                    <option value="دانشگاه صنعتی شاهرود"></option>
+                    <option value="دانشگاه صنعتی همدان"></option>
+                    <option value="دانشگاه صنعتی جندی‌شاپور دزفول"></option>
+                    <option value="دانشگاه صنعتی کرمانشاه"></option>
+                    <option value="دانشگاه صنعتی ارومیه"></option>
+                    <option value="دانشگاه صنعتی اراک"></option>
+                    <option value="دانشگاه صنعتی بیرجند"></option>
+                    <option value="دانشگاه صنعتی قم"></option>
+                    <option value="دانشگاه صنعتی سیرجان"></option>
+                    <option value="دانشگاه صنعتی قوچان"></option>
+                    <option value="دانشگاه تخصصی فناوری‌های نوین آمل"></option>
+                    <option value="دانشگاه فنی و مهندسی بوئین‌زهرا"></option>
+                    <option value="دانشگاه صنعتی مالک اشتر"></option>
+                    <option value="دانشگاه صنعت نفت"></option>
+                    <option value="مجتمع آموزش عالی فنی و مهندسی اسفراین"></option>
+                    <option value="دانشگاه شهید رجایی"></option>
+                    <option value="دانشگاه ملی مهارت"></option>
+                    <option value="دانشگاه تهران"></option>
+                    <option value="دانشگاه تربیت مدرس"></option>
+                    <option value="دانشگاه شهید بهشتی"></option>
+                    <option value="دانشگاه فردوسی مشهد"></option>
+                    <option value="دانشگاه تبریز"></option>
+                    <option value="دانشگاه شیراز"></option>
+                    <option value="دانشگاه اصفهان"></option>
+                    <option value="دانشگاه بوعلی سینا"></option>
+                    <option value="دانشگاه گیلان"></option>
+                    <option value="دانشگاه مازندران"></option>
+                    <option value="دانشگاه رازی"></option>
+                    <option value="دانشگاه شهید چمران اهواز"></option>
+                    <option value="دانشگاه شهید باهنر کرمان"></option>
+                    <option value="دانشگاه کاشان"></option>
+                    <option value="دانشگاه یزد"></option>
+                    <option value="دانشگاه سمنان"></option>
+                    <option value="دانشگاه زنجان"></option>
+                    <option value="دانشگاه ارومیه"></option>
+                    <option value="دانشگاه بین‌المللی امام خمینی"></option>
+                    <option value="دانشگاه خلیج فارس"></option>
+                    <option value="دانشگاه هرمزگان"></option>
+                    <option value="دانشگاه سیستان و بلوچستان"></option>
+                    <option value="دانشگاه کردستان"></option>
+                    <option value="دانشگاه لرستان"></option>
+                    <option value="دانشگاه اراک"></option>
+                    <option value="دانشگاه محقق اردبیلی"></option>
+                    <option value="دانشگاه بیرجند"></option>
+                    <option value="دانشگاه خوارزمی"></option>
+                    <option value="دانشگاه الزهرا"></option>
+                    <option value="دانشگاه شهید مدنی آذربایجان"></option>
+                    <option value="دانشگاه مراغه"></option>
+                    <option value="دانشگاه بناب"></option>
+                    <option value="دانشگاه شهرکرد"></option>
+                    <option value="دانشگاه یاسوج"></option>
+                    <option value="دانشگاه ایلام"></option>
+                    <option value="دانشگاه گلستان"></option>
+                    <option value="دانشگاه دریانوردی و علوم دریایی چابهار"></option>
+                    <option value="دانشگاه علوم و فنون دریایی خرمشهر"></option>
+                    <option value="دانشگاه ولایت"></option>
+                    <option value="دانشگاه بجنورد"></option>
+                    <option value="دانشگاه فسا"></option>
+                    <option value="دانشگاه جهرم"></option>
+                    <option value="دانشگاه سلمان فارسی کازرون"></option>
+                    <option value="دانشگاه نیشابور"></option>
+                    <option value="دانشگاه تربت حیدریه"></option>
+                    <option value="دانشگاه آیت‌الله العظمی بروجردی"></option>
+                    <option value="دانشگاه ملایر"></option>
+                    <option value="دانشگاه دامغان"></option>
+                    <option value="دانشگاه اردکان"></option>
+                    <option value="دانشگاه میبد"></option>
+                    <option value="دانشگاه تفرش"></option>
+                    <option value="دانشگاه بزرگمهر قائنات"></option>
+                    <option value="دانشگاه گنبد کاووس"></option>
+                    <option value="مرکز آموزش عالی فنی و مهندسی بوکان"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد علوم و تحقیقات"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد تهران جنوب"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد تهران مرکز"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد تهران شمال"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد تهران غرب"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد نجف‌آباد"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد کرج"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد قزوین"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد تبریز"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد مشهد"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد شیراز"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد اصفهان خوراسگان"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد خمینی‌شهر"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد اهواز"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد دزفول"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد ساری"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد رشت"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد یزد"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد کرمان"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد اراک"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد زنجان"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد ارومیه"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد کاشان"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد سنندج"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد خرم‌آباد"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد بندرعباس"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد بوشهر"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد مرودشت"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد شبستر"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد یادگار امام خمینی شهرری"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد پرند"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد رودهن"></option>
+                    <option value="دانشگاه آزاد اسلامی واحد دماوند"></option>
+                    <option value="دانشگاه علم و فرهنگ"></option>
+                    <option value="دانشگاه خاتم"></option>
+                    <option value="دانشگاه سجاد"></option>
+                    <option value="دانشگاه شمال"></option>
+                    <option value="دانشگاه علم و هنر"></option>
+                    <option value="دانشگاه خیام"></option>
+                    <option value="دانشگاه شهید اشرفی اصفهانی"></option>
+                    <option value="دانشگاه شیخ بهایی"></option>
+                    <option value="دانشگاه علامه محدث نوری"></option>
+                    <option value="دانشگاه غیرانتفاعی ایوان‌کی"></option>
+                    <option value="دانشگاه شهاب دانش"></option>
+                    <option value="دانشگاه بین‌المللی امام رضا"></option>
+                    <option value="مؤسسه آموزش عالی غیرانتفاعی احرار"></option>
+                    <option value="مؤسسه آموزش عالی روزبه"></option>
+                </datalist>
             </div>
 
             <div class="col-span-1 md:col-span-2">
