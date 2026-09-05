@@ -353,7 +353,11 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
             if competition.requires_admin_approval:
                 team.status = CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION
             else:
-                team.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+                team.status = (
+                    CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
+                    if competition.requires_payment()
+                    else CompetitionTeam.STATUS_ACTIVE
+                )
             team.save()
 
             return Response(CompetitionTeamDetailSerializer(team, context={'request': request}).data,

@@ -137,6 +137,9 @@ class GroupCompetition(BaseCompetition):
         verbose_name = "Group Competition"
         verbose_name_plural = "Group Competitions"
 
+    def requires_payment(self):
+        return bool(self.is_paid and self.price_per_member and self.price_per_member > 0)
+
 class CompetitionTeam(models.Model):
     STATUS_FORMING = "forming"
     STATUS_PENDING_ADMIN_VERIFICATION = "pending_admin_verification"
@@ -178,6 +181,9 @@ class CompetitionTeam(models.Model):
 
     def is_ready_for_competition(self):
         return self.memberships.filter(status=TeamMembership.STATUS_PENDING).count() == 0
+
+    def needs_admin_approval(self):
+        return bool(self.group_competition and self.group_competition.requires_admin_approval)
 
 class TeamMembership(models.Model):
     STATUS_PENDING = "pending"

@@ -32,10 +32,26 @@ LOGGING = {
         "console": {
             "class": "logging.StreamHandler",
         },
+        "payment_console": {
+            "class": "logging.StreamHandler",
+            "formatter": "payment_context",
+        },
+    },
+    "formatters": {
+        "payment_context": {
+            "format": "%(levelname)s %(name)s %(message)s intent_id=%(payment_intent_id)s attempt_id=%(payment_attempt_id)s",
+        },
     },
     "root": {
         "handlers": ["console"],
         "level": "INFO",  # or "DEBUG" if you want more details
+    },
+    "loggers": {
+        "payments": {
+            "handlers": ["payment_console"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
     },
 }
 
@@ -51,7 +67,7 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [
-    BASE_DIR / 'static', 
+    BASE_DIR / 'static',
 ]
 
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -93,7 +109,7 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER_1')
 
-# Primary Email Provider 
+# Primary Email Provider
 MAIL_HOST = os.getenv("MAIL_HOST", "smtp.c1.liara.email")
 MAIL_PORT = int(os.getenv("MAIL_PORT", 465))
 MAIL_USER = os.getenv("MAIL_USER")
@@ -122,14 +138,21 @@ EMAIL_PROVIDERS = [
 SMS_KEY = os.getenv("SMS_KEY", default="key")
 SMS_LINE_NUMBER = os.getenv("SMS_LINE_NUMBER", default="300")
 
-ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", default=False)
+ZARINPAL_SANDBOX = os.getenv("ZARINPAL_SANDBOX", "False").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+ZARINPAL_MERCHANT_ID = (
+    os.getenv("ZARINPAL_MERCHANT_ID") or os.getenv("PAYMENT_API_KEY", "")
+).strip()
+# Backwards compatibility for the legacy wallet gateway client.
+PAYMENT_API_KEY = ZARINPAL_MERCHANT_ID
 
-if ZARINPAL_SANDBOX == 'True':
-    PAYMENT_API_KEY = os.getenv("ZARINPAL_MERCHANT_ID", "11111111-1111-1111-1111-111111111111")
-else:
-    PAYMENT_API_KEY = os.getenv("PAYMENT_API_KEY", "auth")
+WALLET_PAYMENT_CALLBACK_URL = os.getenv("WALLET_PAYMENT_CALLBACK_URL", default="")
+WALLET_PAYMENT_PROVIDER = os.getenv("WALLET_PAYMENT_PROVIDER", default="zarinpal").strip().lower()
 
-PAYMENT_CALLBACK_URL = os.getenv("PAYMENT_CALLBACK_URL", default="callback")
+PAYMENT_SETTLEMENT_HANDLERS = {
+    "wallet_top_up": "wallet.payment_settlement.settle_wallet_top_up",
+}
 
 CORS_ALLOW_CREDENTIALS = True
 SESSION_COOKIE_SECURE = not DEBUG
@@ -194,18 +217,7 @@ SPECTACULAR_SETTINGS = {
         "read": "Read scope",
         "write": "Write scope"
     },
-    'APPEND_COMPONENTS': {
-        'securitySchemes': {
-            'BearerAuth': {
-                'type': 'http',
-                'scheme': 'bearer',
-                'bearerFormat': 'Opaque',
-            }
-        }
-    },
-
     'SECURITY': [
-        {'BearerAuth': []},
         {'oauth2': ['read', 'write']},
     ],
 }
@@ -245,6 +257,8 @@ INSTALLED_APPS = [
     'accounts',
     'shop',
     'events',
+    'wallet',
+    'payment_core',
     "django_tailwind_cli",
     'journal',
     'rest_framework',

@@ -1,5 +1,5 @@
-from django_typomatic import ts_interface
 from rest_framework import serializers
+from django_typomatic import ts_interface
 from events.models import Presentation, SoloCompetition, CompetitionTeam
 from events.serializers import PresentationSerializer, SoloCompetitionSerializer, CompetitionTeamDetailSerializer
 from .models import Cart, CartItem, Order, Product
@@ -167,14 +167,12 @@ class OrderSerializer(serializers.ModelSerializer):
             'presentations', 'solo_competitions', 'competition_teams', 'products',
             'subtotal_amount', 'discount_code_applied', 'discount_code_str',
             'discount_amount', 'total_amount', 'status',
-            'payment_gateway_authority', 'payment_gateway_txn_id',
             'created_at', 'paid_at',
         ]
         read_only_fields = [
             'order_id', 'user', 'user_email',
             'presentations', 'solo_competitions', 'competition_teams', 'products',
             'subtotal_amount', 'discount_code_str', 'discount_amount', 'total_amount',
-            'payment_gateway_authority', 'payment_gateway_txn_id',
             'created_at', 'paid_at',
         ]
 
@@ -201,6 +199,15 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 @ts_interface()
+class OrderCheckoutResultSerializer(serializers.Serializer):
+    order = OrderSerializer(read_only=True, allow_null=True)
+    payment_required = serializers.BooleanField()
+    payment_url = serializers.URLField(allow_null=True)
+    topup_id = serializers.UUIDField(allow_null=True)
+    wallet_balance = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
+@ts_interface()
 class OrderListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
@@ -213,17 +220,6 @@ class OrderListSerializer(serializers.ModelSerializer):
             'paid_at',
             'event'
         ]
-
-
-@ts_interface()
-class PaymentInitiateResponseSerializer(serializers.Serializer):
-    payment_url = serializers.URLField()
-    authority = serializers.CharField()
-
-
-@ts_interface()
-class OrderPaymentInitiateSerializer(serializers.Serializer):
-    app = serializers.SlugField(required=False, allow_blank=True, allow_null=True)
 
 
 @ts_interface()

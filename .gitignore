@@ -24,8 +24,9 @@ media/
 staticfiles/ # Typically, you don't version control collected static files
 *.mo # Compiled translation files
 /media
-/static
-!static/certificates/
+/static/*
+!/static/certificates/
+!/static/certificates/**
 
 # PyCharm
 .idea/
@@ -58,6 +59,11 @@ celerybeat.pid
 *.swp
 events/migrations/0002_groupcompetition_allow_content_submission_and_more.py
 accounts/migrations/0002_alter_customuser_profile_picture.py
+
+# AI/internal docs (not for repo)
+zarinbaldoc.txt
+TASKS_ROADMAP.md
+certificate/tests_audit.py
 
 # Other files
 node_modules/
