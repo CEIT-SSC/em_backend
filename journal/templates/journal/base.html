@@ -125,7 +125,31 @@
                         mobileMenu.classList.add('hidden');
                     });
                 });
-            }
+            }   
+            
+            // 3. Format UTC Dates to Jalali (Iran Time)
+            const dateFormatter = new Intl.DateTimeFormat('fa-IR', {
+                year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Tehran'
+            });
+            const timeFormatter = new Intl.DateTimeFormat('fa-IR', {
+                hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran'
+            });
+
+            document.querySelectorAll('.local-datetime').forEach(el => {
+                const utcDate = el.getAttribute('data-utc');
+                if (utcDate) {
+                    const date = new Date(utcDate);
+                    el.textContent = `${timeFormatter.format(date)} ${dateFormatter.format(date)}`;
+                }
+            });
+
+            document.querySelectorAll('.local-date').forEach(el => {
+                const utcDate = el.getAttribute('data-utc');
+                if (utcDate) {
+                    const date = new Date(utcDate);
+                    el.textContent = dateFormatter.format(date);
+                }
+            });
         });
     </script>
 </body>

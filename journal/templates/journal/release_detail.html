@@ -34,7 +34,7 @@
                     <span class="px-3 py-1 bg-indigo-50 text-indigo-700 text-sm font-bold rounded-lg border border-indigo-100">
                         جلد {{ release.volume }}
                     </span>
-                    <span class="text-sm font-bold text-slate-400">تاریخ انتشار: {{ release.publish_date|date:"Y/m/d" }}</span>
+                    <span class="text-sm font-bold text-slate-400">تاریخ انتشار: <span class="local-date" data-utc="{{ release.publish_date|date:'c' }}"></span></span>
                 </div>
                 
                 <h1 class="text-3xl sm:text-4xl font-black text-slate-900 mb-6 leading-tight">{{ release.title }}</h1>

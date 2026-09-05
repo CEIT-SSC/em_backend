@@ -2,7 +2,8 @@
 {% load static %}
 
 {% block content %}
-<section class="relative overflow-hidden pt-12 pb-20 lg:pt-24 lg:pb-32 bg-gradient-to-b from-white to-slate-50">
+<!-- Hero Section -->
+<section class="relative overflow-hidden py-16 sm:py-20 bg-white">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div class="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             
@@ -58,7 +59,7 @@
 </section>
 
 <!-- Active Calls Section -->
-<section id="calls" class="py-16 sm:py-20 bg-slate-50 border-t border-slate-100">
+<section id="calls" class="py-16 sm:py-20 bg-slate-50 border-t border-slate-200">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="mb-12 text-center space-y-3">
             <h2 class="text-3xl lg:text-4xl font-black text-slate-900">فراخوان‌های ارسال مقاله</h2>
@@ -70,7 +71,7 @@
             <div class="bg-white rounded-3xl p-6 sm:p-8 border-2 border-indigo-50 shadow-md hover:shadow-xl hover:border-indigo-200 transition-all duration-300 flex flex-col">
                 <div class="flex items-center justify-between mb-4">
                     <span class="px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-100">وضعیت: فعال</span>
-                    <span class="text-xs font-bold text-slate-400">مهلت تا: {{ call.end_date|date:"Y/m/d H:i" }}</span>
+                    <span class="text-xs font-bold text-slate-400">مهلت تا: <span class="local-datetime" data-utc="{{ call.end_date|date:'c' }}"></span></span>
                 </div>
                 <h3 class="text-xl sm:text-2xl font-black text-slate-900 mb-3">{{ call.title }}</h3>
                 <p class="text-slate-600 text-sm leading-loose mb-8 flex-grow">{{ call.description|truncatewords:30 }}</p>
@@ -88,7 +89,7 @@
 </section>
 
 <!-- Releases Section -->
-<section id="releases" class="py-16 sm:py-20 bg-white border-t border-slate-100">
+<section id="releases" class="py-16 sm:py-20 bg-white border-t border-slate-200">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="mb-12 text-center space-y-3">
             <h2 class="text-3xl lg:text-4xl font-black text-slate-900">شماره‌های منتشر شده</h2>
@@ -105,7 +106,7 @@
 
                 <div class="p-6 sm:p-8 flex flex-col flex-grow">
                     <h3 class="text-lg sm:text-xl font-black text-slate-900 mb-2 group-hover:text-indigo-600 transition-colors">{{ release.title }}</h3>
-                    <p class="text-xs font-bold text-indigo-600 mb-4">{{ release.publish_date|date:"Y/m/d" }}</p>
+                    <p class="text-xs font-bold text-indigo-600 mb-4"><span class="local-date" data-utc="{{ release.publish_date|date:'c' }}"></span></p>
                     <p class="text-sm text-slate-600 line-clamp-3 mb-8 leading-loose font-medium">{{ release.abstract }}</p>
                     <a href="{% url 'journal_release_detail' release.id %}" class="mt-auto inline-flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-slate-50 text-slate-700 border border-slate-200 text-sm font-bold hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all">
                         <span>مشاهده جزئیات مجله</span>

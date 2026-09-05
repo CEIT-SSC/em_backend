@@ -18,9 +18,15 @@ def release_pdf_path(instance, filename): return get_file_path(instance, filenam
 class CallForPaper(models.Model):
     title = models.CharField(max_length=255, verbose_name="Call Title")
     description = models.TextField(verbose_name="Description")
-    rules = models.TextField(verbose_name="Submission Rules", blank=True, help_text="Enter each rule on a new line.")
-    start_date = models.DateTimeField(verbose_name="Start Date")
-    end_date = models.DateTimeField(verbose_name="End Date")
+    rules = models.JSONField(
+        verbose_name="Submission Rules", 
+        blank=True, 
+        null=True, 
+        default=dict,
+        help_text='Enter JSON format. Example: {"قوانین": ["قانون 1", "قانون 2"], "هدف": ["هدف 1"]}'
+    )
+    start_date = models.DateTimeField(verbose_name="Start Date", help_text="Note: Inserted time is in UTC. Frontend will convert it to local Iran time.")
+    end_date = models.DateTimeField(verbose_name="End Date", help_text="Note: Inserted time is in UTC. Frontend will convert it to local Iran time.")
     is_active = models.BooleanField(default=True, verbose_name="Active")
 
     class Meta:
