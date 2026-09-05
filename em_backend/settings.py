@@ -63,11 +63,15 @@ DEBUG = os.getenv("DEBUG", default="False") == "True"
 
 # Custom
 AUTH_USER_MODEL = 'accounts.CustomUser'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
 STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
 
 MEDIA_ROOT = BASE_DIR / 'media'
-MEDIA_URL = 'media/'
+MEDIA_URL = '/media/'
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", default="http://localhost:3000")
 FRONTEND_LOGIN_URL = os.getenv("FRONTEND_LOGIN_URL", default="http://localhost:3000/login")
@@ -75,17 +79,45 @@ FORGOT_PASSWORD_MAX_AGE_SECONDS = int(os.getenv("FORGOT_PASSWORD_MAX_AGE_SECONDS
 DOMAIN = os.getenv("DOMAIN", default="domain.ir")
 LOGIN_URL = FRONTEND_URL + '/login/'
 
+
+def env_list(name, default):
+    """Read a comma-separated environment variable as a list."""
+    raw_value = os.getenv(name)
+    if not raw_value:
+        return default
+
+    values = [value.strip() for value in raw_value.split(',') if value.strip()]
+    return values or default
+
+
 CORS_ORIGIN_ALLOW_ALL = DEBUG
 USE_X_FORWARDED_HOST = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', DOMAIN]
-CSRF_TRUSTED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "https://" + DOMAIN]
+ALLOWED_HOSTS = env_list(
+    'ALLOWED_HOSTS',
+    ['127.0.0.1', 'localhost', DOMAIN],
+)
+CSRF_TRUSTED_ORIGINS = env_list(
+    'CSRF_TRUSTED_ORIGINS',
+    ['http://localhost:3000', 'http://localhost:8001', f'https://{DOMAIN}'],
+)
 CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:8001", "http://localhost:8002", "https://" + DOMAIN,
-                        "https://gamecraft.ir", "https://aut-ssc.ir", "https://ceit-ssc.ir", "http://localhost:3001",
-                        "http://localhost:3002", "https://levelup.ceit-ssc.ir"]
+                        "https://gamecraft.ir", "https://ceit-ssc.ir", "http://localhost:3001",
+                        "http://localhost:3002", "https://levelup.ceit-ssc.ir", "https://journal.ceit-ssc.ir"]
+
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER_1')
+
+# Primary Email Provider
+MAIL_HOST = os.getenv("MAIL_HOST", "smtp.c1.liara.email")
+MAIL_PORT = int(os.getenv("MAIL_PORT", 465))
+MAIL_USER = os.getenv("MAIL_USER")
+MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
+MAIL_FROM_ADDRESS = os.getenv("MAIL_FROM_ADDRESS", "service@ceit-ssc.ir")
+MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME", "CEIT SSC")
+
+# Fallback Gmail Providers
 EMAIL_PROVIDERS = [
     {
         'host': 'smtp.gmail.com',
@@ -185,18 +217,7 @@ SPECTACULAR_SETTINGS = {
         "read": "Read scope",
         "write": "Write scope"
     },
-    'APPEND_COMPONENTS': {
-        'securitySchemes': {
-            'BearerAuth': {
-                'type': 'http',
-                'scheme': 'bearer',
-                'bearerFormat': 'Opaque',
-            }
-        }
-    },
-
     'SECURITY': [
-        {'BearerAuth': []},
         {'oauth2': ['read', 'write']},
     ],
 }
@@ -238,6 +259,8 @@ INSTALLED_APPS = [
     'events',
     'wallet',
     'payment_core',
+    "django_tailwind_cli",
+    'journal',
     'rest_framework',
     'rest_framework.authtoken',
     'django.contrib.sites',
@@ -351,6 +374,6 @@ USE_TZ = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# STATICFILES_DIRS = [
-#     os.path.join(BASE_DIR, "static"),
-# ]
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 20 MB limit for file uploads
+TAILWIND_CLI_SRC_CSS = 'static/journal/css/input.css'
+TAILWIND_CLI_DIST_CSS = 'journal/css/output.css'

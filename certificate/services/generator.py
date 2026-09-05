@@ -6,6 +6,7 @@ import uuid
 from functools import lru_cache
 
 from django.conf import settings
+from django.contrib.staticfiles import finders
 from django.contrib.staticfiles.storage import staticfiles_storage
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -27,8 +28,14 @@ EMBEDDED_STATIC_IMAGES = (
 @lru_cache(maxsize=None)
 def _static_image_data_uri(asset_name):
     content_type = mimetypes.guess_type(asset_name)[0] or 'application/octet-stream'
-    with staticfiles_storage.open(asset_name, 'rb') as asset_file:
-        encoded = base64.b64encode(asset_file.read()).decode('ascii')
+    source_path = finders.find(asset_name)
+    if source_path:
+        with open(source_path, 'rb') as asset_file:
+            asset_bytes = asset_file.read()
+    else:
+        with staticfiles_storage.open(asset_name, 'rb') as asset_file:
+            asset_bytes = asset_file.read()
+    encoded = base64.b64encode(asset_bytes).decode('ascii')
     return f'data:{content_type};base64,{encoded}'
 
 

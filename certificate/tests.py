@@ -49,7 +49,7 @@ class CertificateServicesTest(TestCase):
             start_date=timezone.now() - timedelta(days=10),
             end_date=timezone.now() + timedelta(days=10)
         )
-        
+
         # Ended presentation
         self.past_presentation = Presentation.objects.create(
             event=self.event,
