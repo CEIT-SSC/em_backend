@@ -48,7 +48,7 @@
             {% for category, items in active_call.rules.items %}
                 <div>
                     <h4 class="text-md font-extrabold text-indigo-900 mb-2">{{ category }}</h4>
-                    <ul class="list-disc list-inside space-y-1 text-indigo-800 text-sm font-medium leading-relaxed">
+                    <ul class="list-disc list-inside space-y-1 text-indigo-800 text-sm font-medium leading-relaxed text-justify">
                         {% for item in items %}
                         <li>{{ item }}</li>
                         {% endfor %}
@@ -215,8 +215,41 @@
 
             <div class="col-span-1 md:col-span-2">
                 <label class="block text-sm font-extrabold text-slate-700 mb-2">رشته و مقطع تحصیلی <span class="text-rose-500">*</span></label>
-                <input type="text" name="major" required placeholder="کارشناسی مهندسی کامپیوتر" class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium placeholder:text-slate-400">
-            </div>
+                <input type="text" name="major" list="iran-majors" required placeholder="کارشناسی مهندسی کامپیوتر" class="w-full px-5 py-3.5 rounded-xl border-2 border-slate-100 bg-slate-50 text-slate-900 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium placeholder:text-slate-400">
+                <datalist id="iran-majors">
+                    <option value="کاردانی مهندسی کامپیوتر - نرم‌افزار"></option>
+                    <option value="کاردانی مهندسی کامپیوتر - سخت‌افزار"></option>
+                    <option value="کاردانی فناوری اطلاعات"></option>
+                    <option value="کارشناسی مهندسی کامپیوتر"></option>
+                    <option value="کارشناسی مهندسی کامپیوتر - نرم‌افزار"></option>
+                    <option value="کارشناسی مهندسی کامپیوتر - سخت‌افزار"></option>
+                    <option value="کارشناسی مهندسی فناوری اطلاعات (IT)"></option>
+                    <option value="کارشناسی علوم کامپیوتر"></option>
+                    <option value="کارشناسی مهندسی برق"></option>
+                    <option value="کارشناسی مهندسی پزشکی - بیوالکتریک"></option>
+                    <option value="کارشناسی ریاضیات و کاربردها"></option>
+                    <option value="کارشناسی آمار"></option>
+                    <option value="کارشناسی ارشد مهندسی کامپیوتر - هوش مصنوعی و رباتیک"></option>
+                    <option value="کارشناسی ارشد مهندسی کامپیوتر - نرم‌افزار"></option>
+                    <option value="کارشناسی ارشد مهندسی کامپیوتر - معماری سیستم‌های کامپیوتری"></option>
+                    <option value="کارشناسی ارشد مهندسی کامپیوتر - شبکه‌های کامپیوتری"></option>
+                    <option value="کارشناسی ارشد مهندسی کامپیوتر - رایانش امن (امنیت اطلاعات)"></option>
+                    <option value="کارشناسی ارشد مهندسی کامپیوتر - بیوانفورماتیک"></option>
+                    <option value="کارشناسی ارشد مهندسی کامپیوتر - سیستم‌های چندرسانه‌ای"></option>
+                    <option value="کارشناسی ارشد مهندسی داده (علم داده)"></option>
+                    <option value="کارشناسی ارشد مهندسی فناوری اطلاعات"></option>
+                    <option value="کارشناسی ارشد علوم کامپیوتر"></option>
+                    <option value="کارشناسی ارشد علوم کامپیوتر - سیستم‌های هوشمند"></option>
+                    <option value="کارشناسی ارشد علوم کامپیوتر - محاسبات علمی"></option>
+                    <option value="کارشناسی ارشد ریاضی کاربردی"></option>
+                    <option value="کارشناسی ارشد مهندسی برق - دیجیتال"></option>
+                    <option value="دکتری مهندسی کامپیوتر - هوش مصنوعی"></option>
+                    <option value="دکتری مهندسی کامپیوتر - نرم‌افزار"></option>
+                    <option value="دکتری مهندسی کامپیوتر - سیستم‌های کامپیوتری"></option>
+                    <option value="دکتری مهندسی کامپیوتر - شبکه و امنیت"></option>
+                    <option value="دکتری علوم کامپیوتر"></option>
+                    <option value="دکتری مهندسی فناوری اطلاعات"></option>
+                </datalist></div>
 
             <!-- HTML Editor Section for Abstract -->
             <div class="col-span-1 md:col-span-2 editor-wrapper transition-all">
