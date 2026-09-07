@@ -6,4 +6,5 @@ urlpatterns = [
     path('about/', views.journal_about, name='journal_about'),
     path('submit/<int:call_id>/', views.journal_submit, name='journal_submit'),
     path('release/<int:release_id>/', views.journal_release_detail, name='journal_release_detail'),
+    path('guidelines/', views.journal_guidelines, name='journal_guidelines'),
 ]
