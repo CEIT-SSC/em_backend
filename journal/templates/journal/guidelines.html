@@ -1,0 +1,45 @@
+{% extends 'journal/base.html' %}
+
+{% block title %}راهنمای نشریه | نشریه علمی مهندسی کامپیوتر امیرکبیر{% endblock %}
+
+{% block content %}
+<!-- We use exactly "px-4 py-16" here to match submit.html spacing -->
+<div class="max-w-4xl mx-auto px-4 py-16 w-full flex-grow">
+    
+    <!-- Header Section -->
+    <div class="mb-10 text-center flex flex-col items-center">
+        <span class="inline-flex items-center justify-center px-4 py-1.5 mb-5 rounded-full bg-indigo-50 text-indigo-600 font-bold text-sm border border-indigo-100 shadow-sm">
+            <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            اطلاعات و قوانین
+        </span>
+        <h1 class="text-3xl lg:text-4xl font-black text-slate-900 mb-4">اهداف و راهنمای نشریه</h1>
+        <p class="text-slate-600 font-medium max-w-2xl mx-auto leading-relaxed">
+            آشنایی با قوانین، روند انتشار و اهداف علمی نشریه
+        </p>
+    </div>
+
+    <!-- Guidelines Content (Cards) -->
+    <div class="flex flex-col gap-8 sm:gap-10">
+        {% for section in guidelines %}
+        <div class="bg-white rounded-[2rem] shadow-lg shadow-slate-200/40 border border-slate-100 p-6 sm:p-10 md:p-12 hover:shadow-xl hover:border-indigo-100 transition-all duration-300">
+            <div class="flex items-center mb-6 sm:mb-8 border-b border-slate-100 pb-4 sm:pb-5">
+                <div class="w-1.5 h-6 sm:w-2 sm:h-8 bg-indigo-500 rounded-full ml-3 sm:ml-4"></div>
+                <h2 class="text-xl sm:text-2xl md:text-3xl font-black text-slate-800 leading-snug">
+                    {{ section.title }}
+                </h2>
+            </div>
+            
+            <div class="prose prose-slate max-w-none prose-p:leading-[2.2] prose-p:text-slate-600 prose-p:mb-6 last:prose-p:mb-0 font-medium text-justify text-[14px] sm:text-base">
+                {{ section.content|linebreaks }}
+            </div>
+        </div>
+        {% empty %}
+        <div class="text-center p-12 sm:p-16 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-4">
+            <svg class="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <p class="font-bold text-slate-500 text-base sm:text-lg">محتوایی برای این بخش ثبت نشده است.</p>
+        </div>
+        {% endfor %}
+    </div>
+
+</div>
+{% endblock %}

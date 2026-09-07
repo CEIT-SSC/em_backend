@@ -17,6 +17,14 @@ def journal_home(request):
     }
     return render(request, 'journal/home.html', context)
 
+def journal_guidelines(request):
+    about_config = AboutUsConfig.objects.first()
+    raw_data = about_config.data if about_config and about_config.data else {}
+    
+    guidelines = raw_data.get("guidelines", [])
+    
+    return render(request, 'journal/guidelines.html', {'guidelines': guidelines})
+
 def journal_about(request):
     about_config = AboutUsConfig.objects.first()
     raw_about_data = about_config.data if about_config and about_config.data else {}

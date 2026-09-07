@@ -86,8 +86,10 @@ class Release(models.Model):
 
 
 class AboutUsConfig(models.Model):
-    title = models.CharField(max_length=100, default="About Us Settings")
-    data = models.JSONField(help_text='{"description": "...", "members": [{"name": "Ali", "role": "Editor", "image": ""}]}')
+    title = models.CharField(max_length=100, default="About Us & Guidelines Settings")
+    data = models.JSONField(
+        help_text='JSON format. Example: {"description": "...", "members": [...], "guidelines": [{"title": "...", "content": "..."}]}'
+    )
 
     def __str__(self):
         return self.title

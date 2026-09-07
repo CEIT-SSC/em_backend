@@ -36,6 +36,7 @@
                     <nav class="hidden md:flex items-center gap-8 text-sm font-bold text-slate-600">
                         <a href="{% url 'journal_home' %}#calls" class="hover:text-indigo-600 transition-colors">فراخوان‌ها</a>
                         <a href="{% url 'journal_home' %}#releases" class="hover:text-indigo-600 transition-colors">شماره‌های نشریه</a>
+                        <a href="{% url 'journal_guidelines' %}" class="hover:text-indigo-600 transition-colors">راهنمای نشریه</a>
                         <a href="{% url 'journal_about' %}" class="hover:text-indigo-600 transition-colors">درباره ما</a>
                     </nav>
 
@@ -55,6 +56,7 @@
         <div id="mobile-menu" class="hidden md:hidden absolute top-full left-0 w-full bg-white border-b border-slate-200 shadow-lg py-4 px-6 flex flex-col gap-4 origin-top transition-all">
             <a href="{% url 'journal_home' %}#calls" class="mobile-link text-slate-700 font-bold hover:text-indigo-600 py-2 border-b border-slate-50">فراخوان‌ها</a>
             <a href="{% url 'journal_home' %}#releases" class="mobile-link text-slate-700 font-bold hover:text-indigo-600 py-2 border-b border-slate-50">شماره‌های نشریه</a>
+            <a href="{% url 'journal_guidelines' %}" class="mobile-link text-slate-700 font-bold hover:text-indigo-600 py-2 border-b border-slate-50">راهنمای نشریه</a>
             <a href="{% url 'journal_about' %}" class="mobile-link text-slate-700 font-bold hover:text-indigo-600 py-2">درباره ما</a>
         </div>
     </header>
@@ -85,6 +87,7 @@
                 <a href="{% url 'journal_home' %}" class="hover:text-indigo-600 transition-colors">خانه</a>
                 <a href="{% url 'journal_home' %}#calls" class="hover:text-indigo-600 transition-colors">فراخوان‌ها</a>
                 <a href="{% url 'journal_home' %}#releases" class="hover:text-indigo-600 transition-colors">شماره‌های نشریه</a>
+                <a href="{% url 'journal_guidelines' %}" class="hover:text-indigo-600 transition-colors">راهنمای نشریه</a>
                 <a href="{% url 'journal_about' %}" class="hover:text-indigo-600 transition-colors">درباره ما</a>
             </nav>
 
