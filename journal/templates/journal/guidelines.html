@@ -3,7 +3,31 @@
 {% block title %}راهنمای نشریه | نشریه علمی مهندسی کامپیوتر امیرکبیر{% endblock %}
 
 {% block content %}
-<!-- We use exactly "px-4 py-16" here to match submit.html spacing -->
+<style>
+    .guideline-content ul {
+        list-style-type: disc;
+        list-style-position: inside;
+        padding-inline-start: 1.25rem;
+        margin-bottom: 1.5rem;
+    }
+    .guideline-content ul > li {
+        margin-bottom: 0.75rem;
+    }
+    .guideline-content ul > li::marker {
+        color: #6366f1; /* indigo-500 */
+    }
+    .guideline-content p {
+        margin-bottom: 1.5rem;
+    }
+    .guideline-content p:last-child {
+        margin-bottom: 0;
+    }
+    .guideline-content u {
+        text-underline-offset: 4px;
+        text-decoration-color: #a5b4fc; /* indigo-300 */
+    }
+</style>
+
 <div class="max-w-4xl mx-auto px-4 py-16 w-full flex-grow">
     
     <!-- Header Section -->
@@ -29,8 +53,8 @@
                 </h2>
             </div>
             
-            <div class="prose prose-slate max-w-none prose-p:leading-[2.2] prose-p:text-slate-600 prose-p:mb-6 last:prose-p:mb-0 font-medium text-justify text-[14px] sm:text-base">
-                {{ section.content|linebreaks }}
+            <div class="guideline-content text-slate-700 font-medium text-justify text-[14px] sm:text-base leading-[2.2] [&_strong]:font-black [&_b]:font-black">
+                {{ section.content|safe }}
             </div>
         </div>
         {% empty %}
