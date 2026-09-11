@@ -261,6 +261,7 @@ INSTALLED_APPS = [
     'payment_core',
     "django_tailwind_cli",
     'journal',
+    'file_server',
     'rest_framework',
     'rest_framework.authtoken',
     'django.contrib.sites',
