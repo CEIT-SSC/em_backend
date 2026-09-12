@@ -1,15 +1,17 @@
-import type { ItemDetail, Presentation, SoloCompetition, CompetitionTeamDetail } from '../default';
+import type { Presentation, SoloCompetition, Order } from '../default';
 
 export enum ItemTypeChoiceEnum {
     PRESENTATION = 'presentation',
     SOLO_COMPETITION = 'solo_competition',
     PRODUCT = 'product',
+    PACK = 'pack',
 }
 
 export enum ItemTypeChoiceEnumValues {
     presentation = 'presentation',
     solo_competition = 'solo_competition',
     product = 'product',
+    pack = 'pack',
 }
 
 export enum StatusChoiceEnum {
@@ -57,30 +59,24 @@ export interface CartItem {
     * @maximum 9223372036854775807
     */
     objectId: number;
-    itemDetails?: ItemDetail;
     price?: null;
     /**
     * @format date-time
     */
     addedAt?: string;
     eventId?: null;
-    status?: null;
-    reservedOrderId?: null;
-    reservedOrderItemId?: null;
 }
 
 export interface Cart {
-    /**
-    * @label ID
-    */
-    id?: number;
-    user: number;
     /**
     * @label Applied Discount Code
     */
     appliedDiscountCode?: number | null;
     discountCode?: string | null;
-    items?: null;
+    presentations?: null;
+    soloCompetitions?: null;
+    products?: null;
+    packs?: null;
     subtotalAmount?: null;
     discountAmount?: null;
     totalAmount?: null;
@@ -90,67 +86,18 @@ export interface Cart {
     createdAt?: string;
 }
 
-export interface DiscountCodeTiny {
+export interface OrderCheckoutResult {
+    order?: Order | null;
+    paymentRequired: boolean;
     /**
-    * @maxLength 50
+    * @format url
     */
-    code: string;
-    percentage?: number | null;
-    amount?: number | null;
-    targetType?: null;
-    targetId?: number;
-}
-
-export interface ItemDetail {
-    itemType?: null;
-    presentation?: Presentation;
-    soloCompetition?: SoloCompetition;
-    competitionTeam?: CompetitionTeamDetail;
-}
-
-export interface OrderItem {
+    paymentUrl: string | null;
     /**
-    * @label ID
+    * @format uuid
     */
-    id?: number;
-    itemDetails?: ItemDetail;
-    /**
-    * @label Item Description (at time of order)
-    * @maxLength 255
-    */
-    description: string;
-    /**
-    * @label Price (at time of order)
-    */
-    price: number;
-}
-
-export interface OrderItemWithEvent {
-    /**
-    * @label ID
-    */
-    id?: number;
-    /**
-    * @label Item Description (at time of order)
-    * @maxLength 255
-    */
-    description: string;
-    /**
-    * @label Price (at time of order)
-    */
-    price: number;
-    /**
-    * @label Item Type
-    */
-    contentType?: number | null;
-    /**
-    * @label Item ID
-    * @maximum 9223372036854775807
-    */
-    objectId?: number | null;
-    eventId?: null;
-    itemType?: null;
-    itemTitle?: null;
+    topupId: string | null;
+    walletBalance: number;
 }
 
 export interface OrderList {
@@ -180,7 +127,7 @@ export interface OrderList {
     * @format date-time
     */
     paidAt?: string | null;
-    items?: OrderItemWithEvent[];
+    event?: number | null;
 }
 
 export interface Order {
@@ -194,7 +141,12 @@ export interface Order {
     * @format email
     */
     userEmail?: string | null;
-    items?: OrderItem[];
+    event?: number | null;
+    presentations?: null;
+    soloCompetitions?: null;
+    competitionTeams?: null;
+    products?: null;
+    packs?: null;
     /**
     * @label Subtotal Amount
     */
@@ -227,10 +179,57 @@ export interface Order {
     paidAt?: string | null;
 }
 
-export interface RegisteredThing {
-    itemType: string;
-    status: string | null;
-    role?: string | null;
-    itemDetails?: ItemDetail;
+export interface Pack {
+    /**
+    * @label ID
+    */
+    id?: number;
+    name?: string;
+    description?: string;
+    image?: File | null;
+    event?: number | null;
+    isActive?: boolean;
+    calculatedPrice?: number;
+    realPrice?: number;
+    presentations?: null;
+    soloCompetitions?: null;
+    products?: null;
+    /**
+    * @format date-time
+    */
+    createdAt?: string;
+}
+
+export interface Product {
+    /**
+    * @label ID
+    */
+    id?: number;
+    /**
+    * @maxLength 255
+    */
+    name: string;
+    description: string;
+    price: number;
+    image: File;
+    features?: any | null;
+    isActive?: boolean;
+    /**
+    * @format date-time
+    */
+    createdAt?: string;
+    /**
+    * @maximum 9223372036854775807
+    */
+    capacity?: number | null;
+    event?: number | null;
+}
+
+export interface UserPurchases {
+    presentations?: Presentation[];
+    soloCompetitions?: SoloCompetition[];
+    competitionTeams?: null;
+    products?: Product[];
+    packs?: Pack[];
 }
 

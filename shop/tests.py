@@ -17,7 +17,7 @@ from events.models import (
 )
 
 from .fulfillment import fulfill_order
-from .models import CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Product
+from .models import CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Pack, PackItem, Product
 from wallet.models import WalletEntry, WalletTopUp
 from wallet.services import WalletService
 from wallet.tests.helpers import FakePaymentClient, credit, register_fake_zarinpal
@@ -379,3 +379,113 @@ class ShopBusinessBehaviorTests(APITestCase):
         self.assertTrue(Order.objects.filter(pk=order.pk, status=Order.STATUS_COMPLETED).exists())
         enrollment.refresh_from_db()
         self.assertEqual(enrollment.status, PresentationEnrollment.STATUS_CANCELLED)
+
+    def test_pack_checkout_uses_real_price_and_fulfills_every_component(self):
+        presentation = self._create_presentation(price=Decimal('100'))
+        product = Product.objects.create(
+            name='Pack shirt',
+            description='A shirt sold in a pack',
+            price=Decimal('50'),
+            capacity=10,
+            event=presentation.event,
+        )
+        pack = Pack.objects.create(
+            name='Event starter pack',
+            description='Admission and shirt',
+            real_price=Decimal('120'),
+            event=presentation.event,
+        )
+        PackItem.objects.create(
+            pack=pack,
+            content_type=ContentType.objects.get_for_model(Presentation),
+            object_id=presentation.pk,
+        )
+        PackItem.objects.create(
+            pack=pack,
+            content_type=ContentType.objects.get_for_model(Product),
+            object_id=product.pk,
+        )
+        credit(self.user, '120.00', 'pack-checkout', actor=self.user)
+
+        listing = self.client.get(f'/api/packs/?event={presentation.event_id}')
+        added = self.client.post('/api/cart/items/', {
+            'item_type': 'pack',
+            'item_id': pack.pk,
+        }, format='json')
+        checkout = self.client.post(
+            f'/api/orders/checkout/?event={presentation.event_id}', {}, format='json',
+        )
+
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        self.assertEqual(Decimal(listing.data['results'][0]['calculated_price']), Decimal('150.00'))
+        self.assertEqual(Decimal(listing.data['results'][0]['real_price']), Decimal('120.00'))
+        self.assertEqual(added.status_code, status.HTTP_200_OK)
+        self.assertEqual(checkout.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(checkout.data['order']['total_amount']), Decimal('120.00'))
+
+        order = Order.objects.get(order_id=checkout.data['order']['order_id'])
+        self.assertEqual(order.status, Order.STATUS_COMPLETED)
+        parent = order.items.get(content_type=ContentType.objects.get_for_model(Pack))
+        self.assertEqual(parent.price, Decimal('120.00'))
+        self.assertEqual(parent.pack_components.count(), 2)
+        self.assertFalse(parent.pack_components.exclude(price=Decimal('0')).exists())
+        self.assertTrue(PresentationEnrollment.objects.filter(
+            user=self.user,
+            presentation=presentation,
+            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
+        ).exists())
+
+        duplicate_product = self.client.post('/api/cart/items/', {
+            'item_type': 'product',
+            'item_id': product.pk,
+        }, format='json')
+        duplicate_pack = self.client.post('/api/cart/items/', {
+            'item_type': 'pack',
+            'item_id': pack.pk,
+        }, format='json')
+        self.assertEqual(duplicate_product.status_code, status.HTTP_200_OK)
+        self.assertEqual(duplicate_pack.status_code, status.HTTP_200_OK)
+        self.assertFalse(self.user.cart.items.exists())
+
+    def test_pack_cannot_overlap_an_existing_cart_item(self):
+        product = Product.objects.create(
+            name='Standalone item', description='Also in a pack', price=Decimal('50'),
+        )
+        pack = Pack.objects.create(name='Overlapping pack', real_price=Decimal('40'))
+        PackItem.objects.create(
+            pack=pack,
+            content_type=ContentType.objects.get_for_model(Product),
+            object_id=product.pk,
+        )
+
+        first = self.client.post('/api/cart/items/', {
+            'item_type': 'product', 'item_id': product.pk,
+        }, format='json')
+        overlapping = self.client.post('/api/cart/items/', {
+            'item_type': 'pack', 'item_id': pack.pk,
+        }, format='json')
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(overlapping.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.user.cart.items.count(), 1)
+
+    def test_pack_is_rejected_when_any_component_is_sold_out(self):
+        sold_out_product = Product.objects.create(
+            name='Sold-out pack item',
+            description='No inventory',
+            price=Decimal('50'),
+            capacity=0,
+        )
+        pack = Pack.objects.create(name='Unavailable pack', real_price=Decimal('40'))
+        PackItem.objects.create(
+            pack=pack,
+            content_type=ContentType.objects.get_for_model(Product),
+            object_id=sold_out_product.pk,
+        )
+
+        response = self.client.post('/api/cart/items/', {
+            'item_type': 'pack', 'item_id': pack.pk,
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(self.user.cart.items.exists())

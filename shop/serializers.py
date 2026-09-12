@@ -2,7 +2,8 @@ from rest_framework import serializers
 from django_typomatic import ts_interface
 from events.models import Presentation, SoloCompetition, CompetitionTeam
 from events.serializers import PresentationSerializer, SoloCompetitionSerializer, CompetitionTeamDetailSerializer
-from .models import Cart, CartItem, Order, Product
+from .models import Cart, CartItem, Order, Pack, Product
+from .pricing import get_item_price
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 
 
@@ -11,6 +12,48 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = '__all__'
+
+
+@ts_interface()
+class PackSerializer(serializers.ModelSerializer):
+    calculated_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    presentations = serializers.SerializerMethodField()
+    solo_competitions = serializers.SerializerMethodField()
+    products = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Pack
+        fields = [
+            'id', 'name', 'description', 'image', 'event', 'is_active',
+            'calculated_price', 'real_price', 'presentations',
+            'solo_competitions', 'products', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def _components(self, obj, model):
+        return [
+            item.content_object
+            for item in obj.items.select_related('content_type').all()
+            if isinstance(item.content_object, model)
+        ]
+
+    @extend_schema_field(PresentationSerializer(many=True))
+    def get_presentations(self, obj):
+        return PresentationSerializer(
+            self._components(obj, Presentation), many=True, context=self.context,
+        ).data
+
+    @extend_schema_field(SoloCompetitionSerializer(many=True))
+    def get_solo_competitions(self, obj):
+        return SoloCompetitionSerializer(
+            self._components(obj, SoloCompetition), many=True, context=self.context,
+        ).data
+
+    @extend_schema_field(ProductSerializer(many=True))
+    def get_products(self, obj):
+        return ProductSerializer(
+            self._components(obj, Product), many=True, context=self.context,
+        ).data
 
 
 @ts_interface()
@@ -47,20 +90,7 @@ class CartItemSerializer(serializers.ModelSerializer):
         if not content_object:
             return 0
 
-        if hasattr(content_object, 'is_paid') and not content_object.is_paid:
-            return 0
-        if isinstance(content_object, Presentation) and content_object.price is not None:
-            return content_object.price
-        if isinstance(content_object, SoloCompetition) and content_object.price_per_participant is not None:
-            return content_object.price_per_participant
-        if isinstance(content_object, CompetitionTeam):
-            parent_comp = content_object.group_competition
-            if parent_comp.is_paid and parent_comp.price_per_member is not None:
-                member_count = content_object.memberships.count()
-                return parent_comp.price_per_member * member_count
-        if isinstance(content_object, Product):
-            return content_object.price
-        return 0
+        return get_item_price(content_object)
 
 
 @ts_interface()
@@ -68,6 +98,7 @@ class CartSerializer(serializers.ModelSerializer):
     presentations = serializers.SerializerMethodField()
     solo_competitions = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
+    packs = serializers.SerializerMethodField()
     discount_code = serializers.CharField(
         source='applied_discount_code.code', read_only=True, allow_null=True
     )
@@ -83,6 +114,7 @@ class CartSerializer(serializers.ModelSerializer):
             'presentations',
             'solo_competitions',
             'products',
+            'packs',
             'subtotal_amount',
             'discount_amount',
             'total_amount',
@@ -96,15 +128,22 @@ class CartSerializer(serializers.ModelSerializer):
                 items.append(item.content_object)
         return items
 
+    @extend_schema_field(PresentationSerializer(many=True))
     def get_presentations(self, obj):
         return PresentationSerializer(self._get_items_by_type(obj, Presentation), many=True, context=self.context).data
 
+    @extend_schema_field(SoloCompetitionSerializer(many=True))
     def get_solo_competitions(self, obj):
         return SoloCompetitionSerializer(self._get_items_by_type(obj, SoloCompetition), many=True,
                                          context=self.context).data
 
+    @extend_schema_field(ProductSerializer(many=True))
     def get_products(self, obj):
         return ProductSerializer(self._get_items_by_type(obj, Product), many=True, context=self.context).data
+
+    @extend_schema_field(PackSerializer(many=True))
+    def get_packs(self, obj):
+        return PackSerializer(self._get_items_by_type(obj, Pack), many=True, context=self.context).data
 
     def _filtered_items_qs(self, obj):
         return getattr(obj, "_filtered_items", obj.items.all())
@@ -142,7 +181,7 @@ class CartSerializer(serializers.ModelSerializer):
 
 @ts_interface()
 class AddToCartSerializer(serializers.Serializer):
-    item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'product'])
+    item_type = serializers.ChoiceField(choices=['presentation', 'solo_competition', 'product', 'pack'])
     item_id = serializers.IntegerField()
 
 
@@ -157,6 +196,7 @@ class OrderSerializer(serializers.ModelSerializer):
     solo_competitions = serializers.SerializerMethodField()
     competition_teams = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
+    packs = serializers.SerializerMethodField()
     user_email = serializers.EmailField(source='user.email', read_only=True, allow_null=True)
     discount_code_str = serializers.CharField(source='discount_code_applied.code', read_only=True, allow_null=True)
 
@@ -164,14 +204,14 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             'order_id', 'user', 'user_email', 'event',
-            'presentations', 'solo_competitions', 'competition_teams', 'products',
+            'presentations', 'solo_competitions', 'competition_teams', 'products', 'packs',
             'subtotal_amount', 'discount_code_applied', 'discount_code_str',
             'discount_amount', 'total_amount', 'status',
             'created_at', 'paid_at',
         ]
         read_only_fields = [
             'order_id', 'user', 'user_email',
-            'presentations', 'solo_competitions', 'competition_teams', 'products',
+            'presentations', 'solo_competitions', 'competition_teams', 'products', 'packs',
             'subtotal_amount', 'discount_code_str', 'discount_amount', 'total_amount',
             'created_at', 'paid_at',
         ]
@@ -183,19 +223,27 @@ class OrderSerializer(serializers.ModelSerializer):
                 items.append(item.content_object)
         return items
 
+    @extend_schema_field(PresentationSerializer(many=True))
     def get_presentations(self, obj):
         return PresentationSerializer(self._get_items_by_type(obj, Presentation), many=True, context=self.context).data
 
+    @extend_schema_field(SoloCompetitionSerializer(many=True))
     def get_solo_competitions(self, obj):
         return SoloCompetitionSerializer(self._get_items_by_type(obj, SoloCompetition), many=True,
                                          context=self.context).data
 
+    @extend_schema_field(CompetitionTeamDetailSerializer(many=True))
     def get_competition_teams(self, obj):
         return CompetitionTeamDetailSerializer(self._get_items_by_type(obj, CompetitionTeam), many=True,
                                                context=self.context).data
 
+    @extend_schema_field(ProductSerializer(many=True))
     def get_products(self, obj):
         return ProductSerializer(self._get_items_by_type(obj, Product), many=True, context=self.context).data
+
+    @extend_schema_field(PackSerializer(many=True))
+    def get_packs(self, obj):
+        return PackSerializer(self._get_items_by_type(obj, Pack), many=True, context=self.context).data
 
 
 @ts_interface()
@@ -228,7 +276,9 @@ class UserPurchasesSerializer(serializers.Serializer):
     solo_competitions = SoloCompetitionSerializer(many=True, read_only=True)
     competition_teams = serializers.SerializerMethodField()
     products = ProductSerializer(many=True, read_only=True)
+    packs = PackSerializer(many=True, read_only=True)
 
+    @extend_schema_field(CompetitionTeamDetailSerializer(many=True))
     def get_competition_teams(self, instance):
         teams = instance.get('competition_teams', [])
         return CompetitionTeamDetailSerializer(teams, many=True, context=self.context).data

@@ -23,6 +23,77 @@ class Product(models.Model):
     def __str__(self):
         return self.name
 
+class Pack(models.Model):
+    """A buyable collection of existing shop/event items."""
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    real_price = models.DecimalField(max_digits=10, decimal_places=2)
+    image = models.ImageField(upload_to='packs/', blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    event = models.ForeignKey(
+        'events.Event', on_delete=models.SET_NULL, null=True, blank=True, related_name='packs'
+    )
+
+    @property
+    def calculated_price(self):
+        from .pricing import get_item_price
+
+        if not self.pk:
+            return Decimal('0')
+        return sum(
+            (get_item_price(pack_item.content_object) for pack_item in self.items.all()),
+            Decimal('0'),
+        )
+
+    def clean(self):
+        super().clean()
+        if self.real_price is not None and self.real_price < 0:
+            raise ValidationError("The pack's real price cannot be negative.")
+
+    def __str__(self):
+        return self.name
+
+class PackItem(models.Model):
+    pack = models.ForeignKey(Pack, on_delete=models.CASCADE, related_name='items')
+    limit_to_models = (
+        models.Q(app_label='events', model='presentation')
+        | models.Q(app_label='events', model='solocompetition')
+        | models.Q(app_label='shop', model='product')
+    )
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        limit_choices_to=limit_to_models,
+        verbose_name='Item Type',
+    )
+    object_id = models.PositiveIntegerField(verbose_name='Item ID')
+    content_object = GenericForeignKey('content_type', 'object_id')
+
+    def clean(self):
+        super().clean()
+        item = self.content_object
+        if item is None:
+            raise ValidationError({'object_id': 'The selected item does not exist.'})
+
+        allowed_models = {
+            ('events', 'presentation'),
+            ('events', 'solocompetition'),
+            ('shop', 'product'),
+        }
+        if (self.content_type.app_label, self.content_type.model) not in allowed_models:
+            raise ValidationError({'content_type': 'This type of item cannot be added to a pack.'})
+
+    def __str__(self):
+        return f"{self.pack}: {self.content_object or 'unavailable item'}"
+
+    class Meta:
+        unique_together = ('pack', 'content_type', 'object_id')
+        ordering = ['pk']
+        verbose_name = 'Pack Item'
+        verbose_name_plural = 'Pack Items'
+
 
 class DiscountCode(models.Model):
     code = models.CharField(max_length=50, unique=True)
@@ -46,7 +117,8 @@ class DiscountCode(models.Model):
         limit_choices_to=(
             models.Q(app_label='events', model='presentation') |
             models.Q(app_label='events', model='solocompetition') |
-            models.Q(app_label='shop', model='product')
+            models.Q(app_label='shop', model='product') |
+            models.Q(app_label='shop', model='pack')
         ),
         verbose_name="Discount target type"
     )
@@ -152,34 +224,14 @@ class Cart(models.Model):
 
     def _subtotal_for_items(self, items):
         subtotal = Decimal('0')
-        PresentationModel = apps.get_model('events', 'Presentation')
-        SoloCompetitionModel = apps.get_model('events', 'SoloCompetition')
-        CompetitionTeamModel = apps.get_model('events', 'CompetitionTeam')
-        ProductModel = apps.get_model('shop', 'Product')
+        from .pricing import get_item_price
 
         for ci in items:
             obj = ci.content_object
             if not obj:
                 continue
 
-            if hasattr(obj, 'is_paid') and not obj.is_paid:
-                price = Decimal('0')
-            elif isinstance(obj, PresentationModel) and obj.price is not None:
-                price = obj.price
-            elif isinstance(obj, SoloCompetitionModel) and obj.price_per_participant is not None:
-                price = obj.price_per_participant
-            elif isinstance(obj, CompetitionTeamModel):
-                parent = obj.group_competition
-                member_count = obj.memberships.count()
-                if parent.is_paid and parent.price_per_member is not None:
-                    price = parent.price_per_member * member_count
-
-            elif isinstance(obj, ProductModel):
-                price = obj.price
-            else:
-                price = Decimal('0')
-
-            subtotal += price
+            subtotal += get_item_price(obj)
 
         return subtotal
 
@@ -224,6 +276,7 @@ class CartItem(models.Model):
             models.Q(app_label='events', model='presentation')
             | models.Q(app_label='events', model='solocompetition')
             | models.Q(app_label='shop', model='product')
+            | models.Q(app_label='shop', model='pack')
     )
     content_type = models.ForeignKey(
         ContentType,
@@ -313,6 +366,7 @@ class OrderItem(models.Model):
             | models.Q(app_label='events', model='solocompetition')
             | models.Q(app_label='events', model='competitionteam')
             | models.Q(app_label='shop', model='product')
+            | models.Q(app_label='shop', model='pack')
     )
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True,
                                      limit_choices_to=limit_to_models_for_order, verbose_name="Item Type")
@@ -320,6 +374,14 @@ class OrderItem(models.Model):
     content_object = GenericForeignKey('content_type', 'object_id')
     description = models.CharField(max_length=255, verbose_name="Item Description (at time of order)")
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Price (at time of order)")
+    parent_pack = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='pack_components',
+        verbose_name='Parent pack order item',
+    )
 
     def __str__(self):
         return f"{self.description} for Order {self.order.order_id}"
