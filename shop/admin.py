@@ -3,20 +3,28 @@ from django import forms
 from django.apps import apps
 from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.forms.models import BaseInlineFormSet
 from django.http import HttpResponse
 
-from .models import Cart, CartItem, DiscountCode, Order, OrderItem, PaymentApp, Product
+from .models import Cart, CartItem, DiscountCode, Order, OrderItem, Pack, PackItem, PaymentApp, Product
 
 ITEM_SOURCES = [
     ('Presentation', ('events', 'Presentation'), 'title'),
     ('Solo Competition', ('events', 'SoloCompetition'), 'title'),
     ('Competition Team', ('events', 'CompetitionTeam'), 'name'),
     ('Product', ('shop', 'Product'), 'name'),
+    ('Pack', ('shop', 'Pack'), 'name'),
+]
+
+PACK_ITEM_SOURCES = [
+    ('Presentation', ('events', 'Presentation'), 'title'),
+    ('Solo Competition', ('events', 'SoloCompetition'), 'title'),
+    ('Product', ('shop', 'Product'), 'name'),
 ]
 
 
-def build_generic_item_choices(limit_per_type=500):
+def build_generic_item_choices(limit_per_type=500, sources=None, active_only=False):
     """
     Returns choices like:
       [
@@ -27,10 +35,13 @@ def build_generic_item_choices(limit_per_type=500):
       ]
     """
     choices = [('', '---------')]
-    for type_label, (app_label, model_name), display_field in ITEM_SOURCES:
+    for type_label, (app_label, model_name), display_field in (sources or ITEM_SOURCES):
         Model = apps.get_model(app_label, model_name)
         ct = ContentType.objects.get_for_model(Model)
-        qs = Model.objects.all().order_by('id')[:limit_per_type]
+        qs = Model.objects.all()
+        if active_only and any(field.name == 'is_active' for field in Model._meta.fields):
+            qs = qs.filter(is_active=True)
+        qs = qs.order_by('id')[:limit_per_type]
         for obj in qs:
             display = getattr(obj, display_field, None) or str(obj)
             choices.append((f"{ct.pk}:{obj.pk}", f"[{type_label}] {display}"))
@@ -111,7 +122,7 @@ class DiscountCodeAdmin(admin.ModelAdmin):
         }),
         ('Target (optional)', {
             'fields': ('target_item',),
-            'description': "Pick a specific item (Presentation, Solo Competition, Competition Team, or Product). Leave empty for a global discount."
+            'description': "Pick a specific item (Presentation, Solo Competition, Competition Team, Product, or Pack). Leave empty for a global discount."
         }),
     )
 
@@ -150,6 +161,76 @@ class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
     readonly_fields = ('content_object', 'description', 'price')
+
+
+class PackItemAdminForm(forms.ModelForm):
+    target_item = forms.ChoiceField(required=True, label='Contained item')
+
+    class Meta:
+        model = PackItem
+        exclude = ('content_type', 'object_id')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['target_item'].choices = build_generic_item_choices(
+            sources=PACK_ITEM_SOURCES,
+            active_only=True,
+        )
+        if self.instance and self.instance.pk:
+            initial = f'{self.instance.content_type_id}:{self.instance.object_id}'
+            self.fields['target_item'].initial = initial
+            if initial not in {value for value, _label in self.fields['target_item'].choices}:
+                self.fields['target_item'].choices.append(
+                    (initial, f'[Unavailable] {self.instance.content_object or initial}')
+                )
+
+    def clean_target_item(self):
+        raw = self.cleaned_data['target_item']
+        try:
+            content_type_id, object_id = (int(value) for value in raw.split(':', 1))
+            content_type = ContentType.objects.get_for_id(content_type_id)
+            model = content_type.model_class()
+            item = model.objects.get(pk=object_id)
+        except (TypeError, ValueError, ContentType.DoesNotExist, AttributeError, ObjectDoesNotExist):
+            raise ValidationError('Invalid contained item.')
+
+        if (content_type.app_label, content_type.model) not in {
+            ('events', 'presentation'), ('events', 'solocompetition'), ('shop', 'product'),
+        }:
+            raise ValidationError('This type of item cannot be added to a pack.')
+        self.instance.content_type = content_type
+        self.instance.object_id = object_id
+        return raw
+
+
+class PackItemInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        active_forms = [
+            form for form in self.forms
+            if form.cleaned_data and not form.cleaned_data.get('DELETE')
+        ]
+        if not active_forms:
+            raise ValidationError('A pack must contain at least one item.')
+        selected = [form.cleaned_data.get('target_item') for form in active_forms]
+        if len(selected) != len(set(selected)):
+            raise ValidationError('The same item cannot be included in a pack more than once.')
+
+
+class PackItemInline(admin.TabularInline):
+    model = PackItem
+    form = PackItemAdminForm
+    formset = PackItemInlineFormSet
+    extra = 1
+
+
+@admin.register(Pack)
+class PackAdmin(admin.ModelAdmin):
+    list_display = ('name', 'calculated_price', 'real_price', 'event', 'is_active', 'created_at')
+    list_filter = ('is_active', 'event', 'created_at')
+    search_fields = ('name', 'description')
+    readonly_fields = ('calculated_price', 'created_at')
+    inlines = [PackItemInline]
 
 
 @admin.register(Order)

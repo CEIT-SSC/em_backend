@@ -7,6 +7,7 @@ from .views import (
     OrderCancelView,
     OrderCheckoutView,
     OrderHistoryViewSet,
+    PackListView,
     ProductListView,
     RemoveDiscountView,
     TeamPaymentInitiateView,
@@ -30,6 +31,7 @@ urlpatterns = [
 
     path('purchases/', UserPurchasesView.as_view(), name='user-purchases'),
     path('products/', ProductListView.as_view(), name='product-list'),
+    path('packs/', PackListView.as_view(), name='pack-list'),
 
     path('', include(router.urls)),
 ]

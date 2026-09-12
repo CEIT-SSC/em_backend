@@ -13,11 +13,11 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from drf_spectacular.types import OpenApiTypes
 from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSerializer, \
     get_paginated_response_serializer
-from .models import DiscountCode, Cart, CartItem, Order, OrderItem, Product
+from .models import DiscountCode, Cart, CartItem, Order, OrderItem, Pack, Product
 from .serializers import (
     CartSerializer, AddToCartSerializer, ApplyDiscountSerializer,
     OrderSerializer, OrderCheckoutResultSerializer, OrderListSerializer,
-    UserPurchasesSerializer, CartItemSerializer, ProductSerializer
+    UserPurchasesSerializer, CartItemSerializer, PackSerializer, ProductSerializer
 )
 from .fulfillment import process_successful_order
 from .eligibility import (
@@ -26,6 +26,7 @@ from .eligibility import (
     is_cart_item_active as _is_cart_item_active,
     is_content_available as _is_content_available,
     is_registration_open as _is_registration_open,
+    purchase_item_keys as _purchase_item_keys,
 )
 
 Presentation = apps.get_model('events', 'Presentation')
@@ -58,6 +59,12 @@ def _add_to_cart_and_update_status(user, item_object):
     if CartItem.objects.filter(cart=cart, content_type=content_type, object_id=item_object.pk).exists():
         return False, "Item is already in your cart."
 
+    new_keys = _purchase_item_keys(item_object)
+    for existing in cart.items.select_related('content_type'):
+        existing_object = existing.content_object
+        if existing_object is not None and new_keys & _purchase_item_keys(existing_object):
+            return False, "This item, or an item contained in this pack, is already in your cart."
+
     CartItem.objects.create(cart=cart, content_type=content_type, object_id=item_object.pk)
 
     return True, "Item added to your cart."
@@ -86,7 +93,7 @@ def _find_matching_pending_order(*, user, event, cart_item_prices, subtotal, dis
     for candidate in candidates:
         actual = {
             (item.content_type_id, item.object_id, item.price)
-            for item in candidate.items.all()
+            for item in candidate.items.filter(parent_pack__isnull=True)
         }
         if actual == expected and len(actual) == len(cart_item_prices):
             return candidate
@@ -97,10 +104,11 @@ def _supersede_overlapping_pending_orders(*, user, cart_item_prices):
     """Cancel older payable orders sharing any item with a new cart snapshot."""
     overlap = Q()
     for item, _price in cart_item_prices:
-        overlap |= Q(
-            items__content_type_id=item.content_type_id,
-            items__object_id=item.object_id,
-        )
+        for content_type_id, object_id in _purchase_item_keys(item.content_object):
+            overlap |= Q(
+                items__content_type_id=content_type_id,
+                items__object_id=object_id,
+            )
 
     if not overlap:
         return
@@ -431,7 +439,8 @@ class CartItemView(views.APIView):
         user = request.user
 
         item_model_map = {
-            'presentation': Presentation, 'solo_competition': SoloCompetition, 'product': Product,
+            'presentation': Presentation, 'solo_competition': SoloCompetition,
+            'product': Product, 'pack': Pack,
         }
         item_model = item_model_map.get(item_type_str)
         if not item_model:
@@ -481,7 +490,7 @@ class CartItemView(views.APIView):
                     status_code = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
                     return Response({"message": message}, status=status_code)
 
-            elif isinstance(item_object, Product):
+            elif isinstance(item_object, (Product, Pack)):
                 success, message = _add_to_cart_and_update_status(user, item_object)
                 status_code = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
                 return Response({"message": message}, status=status_code)
@@ -493,7 +502,7 @@ class CartItemView(views.APIView):
         description="Removes an item from the cart by its type and ID, provided as query parameters.",
         parameters=[
             OpenApiParameter(name='item_type', description='Type of the item to remove', required=True, type=str,
-                             enum=['presentation', 'solo_competition', 'product']),
+                             enum=['presentation', 'solo_competition', 'product', 'pack']),
             OpenApiParameter(name='item_id', description='ID of the item to remove', required=True, type=str),
         ],
         responses={
@@ -517,6 +526,7 @@ class CartItemView(views.APIView):
             'presentation': Presentation,
             'solo_competition': SoloCompetition,
             'product': Product,
+            'pack': Pack,
         }
         item_model = item_model_map.get(item_type_str)
         if not item_model:
@@ -664,16 +674,20 @@ class OrderCheckoutView(views.APIView):
             return Response({"error": "Your cart is empty for this event."}, status=status.HTTP_400_BAD_REQUEST)
 
         inactive = []
+        seen_purchase_keys = set()
         for cart_item in cart_item_list:
             item_object = cart_item.content_object
+            item_keys = _purchase_item_keys(item_object) if item_object is not None else set()
             if (
                 not _is_cart_item_active(cart_item)
                 or item_object is None
                 or not _is_registration_open(item_object)
                 or _is_already_owned(request.user, item_object)
                 or not _has_capacity(item_object)
+                or bool(seen_purchase_keys & item_keys)
             ):
                 inactive.append(cart_item.id)
+            seen_purchase_keys.update(item_keys)
         if inactive:
             return Response(
                 {"error": "Some items are no longer available.", "cart_item_ids": inactive},
@@ -735,13 +749,23 @@ class OrderCheckoutView(views.APIView):
                     status=Order.STATUS_PENDING_PAYMENT,
                 )
                 for item, price in cart_item_prices:
-                    OrderItem.objects.create(
+                    order_item = OrderItem.objects.create(
                         order=order,
                         content_type=item.content_type,
                         object_id=item.object_id,
                         description=str(item.content_object),
                         price=price,
                     )
+                    if isinstance(item.content_object, Pack):
+                        for component in item.content_object.items.select_related('content_type'):
+                            OrderItem.objects.create(
+                                order=order,
+                                content_type=component.content_type,
+                                object_id=component.object_id,
+                                description=str(component.content_object),
+                                price=Decimal('0'),
+                                parent_pack=order_item,
+                            )
 
         if total_amount == 0:
             process_successful_order(order)
@@ -853,6 +877,7 @@ class UserPurchasesView(views.APIView):
             'solo_competitions': [],
             'competition_teams': [],
             'products': [],
+            'packs': [],
         }
 
         pres_qs = PresentationEnrollment.objects.filter(user=user,
@@ -903,9 +928,23 @@ class UserPurchasesView(views.APIView):
         else:
             product_orders = product_orders.filter(event_id__isnull=True)
 
-        for order in product_orders:
+        for order in product_orders.distinct():
             for item in order.items.filter(content_type=ContentType.objects.get_for_model(Product)):
                 response_data['products'].append(item.content_object)
+
+        pack_orders = Order.objects.filter(
+            user=user,
+            status=Order.STATUS_COMPLETED,
+            items__content_type=ContentType.objects.get_for_model(Pack),
+        )
+        if event_id:
+            pack_orders = pack_orders.filter(event_id=event_id)
+        else:
+            pack_orders = pack_orders.filter(event_id__isnull=True)
+        for order in pack_orders.distinct():
+            for item in order.items.filter(content_type=ContentType.objects.get_for_model(Pack)):
+                if item.content_object:
+                    response_data['packs'].append(item.content_object)
 
         ser = UserPurchasesSerializer(response_data, context={"request": request})
         return Response(ser.data, status=status.HTTP_200_OK)
@@ -934,6 +973,38 @@ class ProductListView(generics.ListAPIView):
         parameters=[
             OpenApiParameter(name='event', description='Filter products by event ID', required=False, type=int),
         ]
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+@extend_schema(tags=['Shop - Packs'])
+class PackListView(generics.ListAPIView):
+    serializer_class = PackSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        queryset = (
+            Pack.objects.filter(is_active=True)
+            .prefetch_related('items__content_type')
+            .order_by('-created_at')
+        )
+        event_param = self.request.query_params.get('event')
+        if event_param:
+            try:
+                queryset = queryset.filter(event_id=int(event_param))
+            except (TypeError, ValueError):
+                queryset = queryset.none()
+        else:
+            queryset = queryset.filter(event_id__isnull=True)
+        return queryset
+
+    @extend_schema(
+        summary='List all available packs with their regular total and sale price',
+        responses={200: get_paginated_response_serializer(PackSerializer)},
+        parameters=[
+            OpenApiParameter(name='event', description='Filter packs by event ID', required=False, type=int),
+        ],
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)

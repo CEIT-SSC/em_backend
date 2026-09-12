@@ -2,7 +2,7 @@ from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
-from shop.models import Order, OrderItem, Product
+from shop.models import Order, OrderItem, Pack, Product
 
 Presentation = apps.get_model('events', 'Presentation')
 SoloCompetition = apps.get_model('events', 'SoloCompetition')
@@ -16,11 +16,30 @@ class OrderPaymentEligibilityError(Exception):
     pass
 
 
+def pack_components(pack):
+    return [item.content_object for item in pack.items.select_related('content_type').all()]
+
+
+def purchase_item_keys(item_object):
+    """Return the concrete entitlements represented by a cart item."""
+    if isinstance(item_object, Pack):
+        return {
+            (item.content_type_id, item.object_id)
+            for item in item_object.items.all()
+        }
+    content_type = ContentType.objects.get_for_model(item_object)
+    return {(content_type.pk, item_object.pk)}
+
+
 def is_content_available(obj):
     if obj is None:
         return False
     if getattr(obj, 'is_active', True) is False:
         return False
+
+    if isinstance(obj, Pack):
+        components = pack_components(obj)
+        return bool(components) and all(is_content_available(component) for component in components)
 
     event = getattr(obj, 'event', None)
     if event is not None and getattr(event, 'is_active', True) is False:
@@ -45,6 +64,17 @@ def is_cart_item_active(cart_item):
 
 
 def is_already_owned(user, item_object):
+    if isinstance(item_object, Pack):
+        content_type = ContentType.objects.get_for_model(Pack)
+        if OrderItem.objects.filter(
+            content_type=content_type,
+            object_id=item_object.pk,
+            order__user=user,
+            order__status=Order.STATUS_COMPLETED,
+        ).exists():
+            return True
+        return any(is_already_owned(user, component) for component in pack_components(item_object))
+
     user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
 
     if isinstance(item_object, Presentation):
@@ -80,6 +110,19 @@ def is_already_owned(user, item_object):
 
 
 def is_pending(user, item_object):
+    if isinstance(item_object, Pack):
+        content_type = ContentType.objects.get_for_model(Pack)
+        directly_pending = OrderItem.objects.filter(
+            content_type=content_type,
+            object_id=item_object.pk,
+            order__user=user,
+            order__status__in=[
+                Order.STATUS_PENDING_PAYMENT,
+                Order.STATUS_PROCESSING_ENROLLMENT,
+            ],
+        ).exists()
+        return directly_pending or any(is_pending(user, component) for component in pack_components(item_object))
+
     user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
     content_type = ContentType.objects.get_for_model(item_object)
     return OrderItem.objects.filter(
@@ -98,6 +141,10 @@ def is_already_owned_or_pending(user, item_object):
 
 
 def has_capacity(item_object):
+    if isinstance(item_object, Pack):
+        components = pack_components(item_object)
+        return bool(components) and all(has_capacity(component) for component in components)
+
     if isinstance(item_object, Presentation):
         if item_object.capacity is None:
             return True
@@ -135,6 +182,10 @@ def has_capacity(item_object):
 
 
 def is_registration_open(item_object):
+    if isinstance(item_object, Pack):
+        components = pack_components(item_object)
+        return bool(components) and all(is_registration_open(component) for component in components)
+
     start_time = None
     if isinstance(item_object, (Presentation, SoloCompetition)):
         start_time = getattr(item_object, 'start_time', None) or getattr(
