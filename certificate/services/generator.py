@@ -102,7 +102,7 @@ def _generate_certificate_files(
 
     try:
         with transaction.atomic():
-            cert = model.objects.select_for_update().select_related(
+            cert = model.objects.select_for_update(of=('self',)).select_related(
                 *related_fields
             ).get(pk=cert_object.pk)
 

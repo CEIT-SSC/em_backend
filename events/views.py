@@ -282,10 +282,10 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
 
         with transaction.atomic():
             competition = get_object_or_404(
-                GroupCompetition, pk=competition_pk)
+                GroupCompetition.objects.select_for_update(), pk=competition_pk)
 
             if competition.max_teams is not None:
-                active_teams_count = competition.teams.select_for_update().filter(
+                active_teams_count = competition.teams.filter(
                     status__in=[
                         CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
                         CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,

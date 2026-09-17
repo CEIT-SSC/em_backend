@@ -102,6 +102,7 @@ def _find_matching_pending_order(*, user, event, cart_item_prices, subtotal, dis
 
 def _supersede_overlapping_pending_orders(*, user, cart_item_prices):
     """Cancel older payable orders sharing any item with a new cart snapshot."""
+    payable_statuses = [Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED]
     overlap = Q()
     for item, _price in cart_item_prices:
         for content_type_id, object_id in _purchase_item_keys(item.content_object):
@@ -114,7 +115,11 @@ def _supersede_overlapping_pending_orders(*, user, cart_item_prices):
         return
 
     overlapping_order_ids = (
-        Order.objects.filter(overlap)
+        Order.objects.filter(
+            user=user,
+            status__in=payable_statuses,
+        )
+        .filter(overlap)
         .order_by()
         .values('pk')
         .distinct()
@@ -122,7 +127,7 @@ def _supersede_overlapping_pending_orders(*, user, cart_item_prices):
     older_orders = list(
         Order.objects.select_for_update().filter(
             user=user,
-            status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED],
+            status__in=payable_statuses,
             pk__in=Subquery(overlapping_order_ids),
         )
     )
@@ -273,7 +278,7 @@ class TeamPaymentInitiateView(views.APIView):
         free_registration = False
         with transaction.atomic():
             team = (
-                CompetitionTeam.objects.select_for_update()
+                CompetitionTeam.objects.select_for_update(of=('self',))
                 .select_related('leader', 'group_competition__event')
                 .get(pk=team.pk)
             )
@@ -283,8 +288,10 @@ class TeamPaymentInitiateView(views.APIView):
                     {'error': 'This team is not registered in a competition.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            competition = type(competition).objects.select_for_update().select_related('event').get(
-                pk=competition.pk,
+            competition = (
+                type(competition).objects.select_for_update(of=('self',))
+                .select_related('event')
+                .get(pk=competition.pk)
             )
             team.group_competition = competition
             team_content_type = ContentType.objects.get_for_model(CompetitionTeam)

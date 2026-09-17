@@ -258,6 +258,7 @@ def _coordinate_settlement(intent, coordinator):
         intent=intent, defaults={"idempotency_key": key},
     )
     if settlement.status in {PaymentSettlement.STATUS_SUCCEEDED, PaymentSettlement.STATUS_REVERSED}:
+        settlement._processed_now = False
         return settlement
     settlement.status = PaymentSettlement.STATUS_PENDING
     settlement.error_message = ""
@@ -275,6 +276,7 @@ def _coordinate_settlement(intent, coordinator):
         settlement.settled_at = timezone.now()
         settlement.save(update_fields=["status", "settled_at", "updated_at"])
         _log("info", "payment.settlement_succeeded", intent=intent)
+    settlement._processed_now = True
     return settlement
 
 
