@@ -446,7 +446,7 @@ class WalletService:
         with transaction.atomic():
             try:
                 topup = (
-                    WalletTopUp.objects.select_for_update()
+                    WalletTopUp.objects.select_for_update(of=('self',))
                     .select_related('wallet', 'order')
                     .get(public_id=request.reference_id)
                 )
@@ -527,7 +527,7 @@ class WalletService:
     def pay_order(cls, user, order, idempotency_key=None, metadata=None):
         key = idempotency_key or f'purchase:{order.order_id}'
         with transaction.atomic():
-            order = Order.objects.select_for_update().select_related('user').get(pk=order.pk)
+            order = Order.objects.select_for_update().get(pk=order.pk)
             wallet = cls._locked_wallet(user)
 
             if order.user_id != user.id:
@@ -652,12 +652,14 @@ class WalletService:
 
         with transaction.atomic():
             if original_entry is not None:
-                original_entry = WalletEntry.objects.select_for_update().select_related('wallet', 'order').get(
-                    pk=original_entry.pk
+                original_entry = (
+                    WalletEntry.objects.select_for_update(of=('self',))
+                    .select_related('wallet', 'order')
+                    .get(pk=original_entry.pk)
                 )
             elif order is not None:
                 original_entry = (
-                    WalletEntry.objects.select_for_update()
+                    WalletEntry.objects.select_for_update(of=('self',))
                     .select_related('wallet', 'order')
                     .filter(
                         order=order,

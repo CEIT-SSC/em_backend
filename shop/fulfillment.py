@@ -118,7 +118,6 @@ def fulfill_order(order):
     with transaction.atomic():
         order = (
             Order.objects.select_for_update()
-            .select_related('discount_code_applied')
             .get(pk=order.pk)
         )
 
