@@ -24,6 +24,9 @@ RUN pip install --upgrade pip && \
 # Copy project
 COPY . .
 
+RUN python manage.py tailwind build && \
+    rm -rf /app/.django_tailwind_cli
+
 # Entrypoint
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

@@ -14,3 +14,4 @@ htmlcov
 *.log
 *.sqlite3
 node_modules
+.django_tailwind_cli
