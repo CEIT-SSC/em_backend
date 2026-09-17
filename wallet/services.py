@@ -418,7 +418,6 @@ class WalletService:
 
         if topup.payment_attempt_id is None:
             raise TopUpGatewayError("This legacy top-up has no payment-core attempt.")
-        was_credited = topup.status == WalletTopUp.STATUS_CREDITED
         try:
             provider_name = topup.payment_attempt.provider
             attempt, settlement = verify_callback(
@@ -438,7 +437,10 @@ class WalletService:
             return topup, False
         if settlement is None or settlement.status != settlement.STATUS_SUCCEEDED:
             return topup, False
-        return topup, not was_credited and topup.status == WalletTopUp.STATUS_CREDITED
+        return topup, bool(
+            getattr(settlement, '_processed_now', False)
+            and topup.status == WalletTopUp.STATUS_CREDITED
+        )
 
     @classmethod
     def settle_verified_payment_topup(cls, request):
@@ -458,6 +460,11 @@ class WalletService:
                 raise TopUpGatewayError("Wallet top-up is linked to a different payment intent.")
             if _as_rial(topup.amount) != request.amount_rial:
                 raise TopUpGatewayError("Verified payment amount does not match the wallet top-up.")
+
+            # All order-payment paths lock Order before Wallet. Preserve that
+            # order here to prevent callback/payment deadlocks.
+            if topup.order_id:
+                Order.objects.select_for_update().get(pk=topup.order_id)
 
             attempt = (
                 PaymentAttempt.objects.filter(

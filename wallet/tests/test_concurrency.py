@@ -117,6 +117,7 @@ class ConcurrentWalletTests(TransactionTestCase):
         self.assertEqual(WalletService.ledger_sum(wallet), wallet.balance)
 
     def test_same_key_race_across_wallets_rejects_the_loser(self):
+        first = make_user('concurrent-first-unfunded@example.com')
         other = make_user('concurrent-other@example.com')
 
         def adjust(user):
@@ -130,7 +131,7 @@ class ConcurrentWalletTests(TransactionTestCase):
             )
 
         results, errors = self._run_threads([
-            lambda: adjust(self.user),
+            lambda: adjust(first),
             lambda: adjust(other),
         ])
 
@@ -141,7 +142,7 @@ class ConcurrentWalletTests(TransactionTestCase):
             1,
         )
         balances = sorted([
-            WalletService.get_balance(self.user),
+            WalletService.get_balance(first),
             WalletService.get_balance(other),
         ])
         self.assertEqual(balances, [Decimal('0.00'), Decimal('25.00')])
@@ -227,7 +228,7 @@ class ConcurrentWalletTests(TransactionTestCase):
             )
             for name, price in [('Shared race', '40.00'), ('Old race', '10.00'), ('New race', '20.00')]
         ]
-        cart = Cart.objects.create(user=user)
+        cart = Cart.objects.get(user=user)
         content_type = ContentType.objects.get_for_model(Product)
         CartItem.objects.create(cart=cart, content_type=content_type, object_id=products[0].pk)
         old_only = CartItem.objects.create(
