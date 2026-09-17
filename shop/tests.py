@@ -165,6 +165,42 @@ class ShopBusinessBehaviorTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Order.objects.count(), 0)
 
+    def test_checkout_supersedes_an_overlapping_pending_order(self):
+        product = Product.objects.create(
+            name='Checkout replacement',
+            description='Product used to replace a stale order',
+            price=Decimal('100'),
+            capacity=10,
+        )
+        content_type = ContentType.objects.get_for_model(product)
+        CartItem.objects.create(
+            cart=self.user.cart,
+            content_type=content_type,
+            object_id=product.pk,
+        )
+        older_order = Order.objects.create(
+            user=self.user,
+            subtotal_amount=Decimal('90'),
+            discount_amount=Decimal('0'),
+            total_amount=Decimal('90'),
+        )
+        OrderItem.objects.create(
+            order=older_order,
+            content_type=content_type,
+            object_id=product.pk,
+            description=str(product),
+            price=Decimal('90'),
+        )
+        credit(self.user, '100.00', 'overlapping-order-checkout', actor=self.user)
+
+        response = self.client.post('/api/orders/checkout/', {}, format='json')
+
+        older_order.refresh_from_db()
+        replacement_order = Order.objects.exclude(pk=older_order.pk).get()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(older_order.status, Order.STATUS_CANCELLED)
+        self.assertEqual(replacement_order.status, Order.STATUS_COMPLETED)
+
     def test_registering_for_a_free_team_competition_activates_the_team(self):
         competition = self._create_group_competition()
         team = CompetitionTeam.objects.create(name='Free Team', leader=self.user)

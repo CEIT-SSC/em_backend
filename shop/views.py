@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Subquery
 from django.contrib.contenttypes.models import ContentType
 from django.apps import apps
 from django.utils import timezone
@@ -113,14 +113,18 @@ def _supersede_overlapping_pending_orders(*, user, cart_item_prices):
     if not overlap:
         return
 
+    overlapping_order_ids = (
+        Order.objects.filter(overlap)
+        .order_by()
+        .values('pk')
+        .distinct()
+    )
     older_orders = list(
-        Order.objects.select_for_update()
-        .filter(
+        Order.objects.select_for_update().filter(
             user=user,
             status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED],
+            pk__in=Subquery(overlapping_order_ids),
         )
-        .filter(overlap)
-        .distinct()
     )
     if not older_orders:
         return
@@ -200,6 +204,10 @@ class TeamPaymentInitiateView(views.APIView):
 
     @classmethod
     def _find_reusable_order(cls, *, team, price, team_content_type):
+        matching_order_ids = OrderItem.objects.filter(
+            content_type=team_content_type,
+            object_id=team.pk,
+        ).order_by().values('order_id')
         candidates = (
             Order.objects.select_for_update()
             .filter(
@@ -209,11 +217,9 @@ class TeamPaymentInitiateView(views.APIView):
                 subtotal_amount=price,
                 discount_amount=Decimal('0'),
                 total_amount=price,
-                items__content_type=team_content_type,
-                items__object_id=team.pk,
+                pk__in=Subquery(matching_order_ids),
             )
             .prefetch_related('items')
-            .distinct()
             .order_by('-created_at')
         )
         for candidate in candidates:
