@@ -84,7 +84,12 @@ class PresentationEnrollmentAdminTests(TestCase):
 
         self.assertTrue(is_already_owned(self.user, self.presentation))
 
-    def test_admin_disables_hard_delete(self):
+    def test_admin_only_allows_superusers_to_hard_delete(self):
         model_admin = PresentationEnrollmentAdmin(PresentationEnrollment, admin.site)
+        staff_request = RequestFactory().get('/')
+        staff_request.user = Mock(is_superuser=False)
+        superuser_request = RequestFactory().get('/')
+        superuser_request.user = Mock(is_superuser=True)
 
-        self.assertFalse(model_admin.has_delete_permission(RequestFactory().get('/'), self.enrollment))
+        self.assertFalse(model_admin.has_delete_permission(staff_request, self.enrollment))
+        self.assertTrue(model_admin.has_delete_permission(superuser_request, self.enrollment))
