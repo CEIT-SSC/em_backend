@@ -605,9 +605,11 @@ class PresentationEnrollmentAdmin(admin.ModelAdmin):
         )
 
     def has_delete_permission(self, request, obj=None):
-        # Keep paid-order history linked to a durable enrollment record. Admins
-        # should revoke access through the explicit action instead of hard-delete.
-        return False
+        # Regular staff should revoke access through the explicit action so paid
+        # order history remains linked to a durable enrollment record. Superusers
+        # may still explicitly purge test data after reviewing Django's cascade
+        # deletion confirmation page.
+        return request.user.is_superuser
 
 
 @admin.register(SoloCompetitionRegistration)
