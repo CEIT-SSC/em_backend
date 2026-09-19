@@ -31,6 +31,14 @@ class Pack(models.Model):
     real_price = models.DecimalField(max_digits=10, decimal_places=2)
     image = models.ImageField(upload_to='packs/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    bypass_item_time_limits = models.BooleanField(
+        default=False,
+        verbose_name='Bypass contained item time limits',
+        help_text=(
+            'Allow this pack to be purchased after a contained item\'s registration '
+            'time has passed. Availability, capacity, ownership, and overlap checks still apply.'
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     event = models.ForeignKey(
         'events.Event', on_delete=models.SET_NULL, null=True, blank=True, related_name='packs'

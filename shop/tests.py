@@ -525,3 +525,67 @@ class ShopBusinessBehaviorTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(self.user.cart.items.exists())
+
+    def test_pack_can_bypass_contained_item_time_limits(self):
+        presentation = self._create_presentation(
+            start_time=timezone.now() - timedelta(days=2),
+            end_time=timezone.now() - timedelta(days=1),
+        )
+        pack = Pack.objects.create(
+            name='Late-access pack',
+            real_price=Decimal('80'),
+            event=presentation.event,
+        )
+        PackItem.objects.create(
+            pack=pack,
+            content_type=ContentType.objects.get_for_model(Presentation),
+            object_id=presentation.pk,
+        )
+
+        rejected = self.client.post('/api/cart/items/', {
+            'item_type': 'pack', 'item_id': pack.pk,
+        }, format='json')
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(self.user.cart.items.exists())
+
+        pack.bypass_item_time_limits = True
+        pack.save(update_fields=['bypass_item_time_limits'])
+        credit(self.user, '80.00', 'late-access-pack', actor=self.user)
+
+        added = self.client.post('/api/cart/items/', {
+            'item_type': 'pack', 'item_id': pack.pk,
+        }, format='json')
+        checkout = self.client.post(
+            f'/api/orders/checkout/?event={presentation.event_id}', {}, format='json',
+        )
+
+        self.assertEqual(added.status_code, status.HTTP_200_OK)
+        self.assertEqual(checkout.status_code, status.HTTP_201_CREATED)
+        order = Order.objects.get(order_id=checkout.data['order']['order_id'])
+        self.assertEqual(order.status, Order.STATUS_COMPLETED)
+        self.assertTrue(PresentationEnrollment.objects.filter(
+            user=self.user,
+            presentation=presentation,
+            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
+        ).exists())
+
+    def test_pack_time_limit_bypass_does_not_bypass_capacity(self):
+        presentation = self._create_presentation(capacity=0)
+        pack = Pack.objects.create(
+            name='Sold-out bypass pack',
+            real_price=Decimal('80'),
+            event=presentation.event,
+            bypass_item_time_limits=True,
+        )
+        PackItem.objects.create(
+            pack=pack,
+            content_type=ContentType.objects.get_for_model(Presentation),
+            object_id=presentation.pk,
+        )
+
+        response = self.client.post('/api/cart/items/', {
+            'item_type': 'pack', 'item_id': pack.pk,
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(self.user.cart.items.exists())

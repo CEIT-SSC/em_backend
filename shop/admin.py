@@ -226,8 +226,11 @@ class PackItemInline(admin.TabularInline):
 
 @admin.register(Pack)
 class PackAdmin(admin.ModelAdmin):
-    list_display = ('name', 'calculated_price', 'real_price', 'event', 'is_active', 'created_at')
-    list_filter = ('is_active', 'event', 'created_at')
+    list_display = (
+        'name', 'calculated_price', 'real_price', 'event', 'is_active',
+        'bypass_item_time_limits', 'created_at',
+    )
+    list_filter = ('is_active', 'bypass_item_time_limits', 'event', 'created_at')
     search_fields = ('name', 'description')
     readonly_fields = ('calculated_price', 'created_at')
     inlines = [PackItemInline]

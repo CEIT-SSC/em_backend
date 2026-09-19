@@ -184,7 +184,10 @@ def has_capacity(item_object):
 def is_registration_open(item_object):
     if isinstance(item_object, Pack):
         components = pack_components(item_object)
-        return bool(components) and all(is_registration_open(component) for component in components)
+        return bool(components) and (
+            item_object.bypass_item_time_limits
+            or all(is_registration_open(component) for component in components)
+        )
 
     start_time = None
     if isinstance(item_object, (Presentation, SoloCompetition)):
@@ -198,7 +201,10 @@ def is_registration_open(item_object):
 
 def validate_order_items_for_payment(order):
     """Lock and recheck every item immediately before a payment is settled."""
-    for order_item in order.items.select_related('content_type').order_by('pk'):
+    order_items = order.items.select_related(
+        'content_type', 'parent_pack__content_type',
+    ).order_by('pk')
+    for order_item in order_items:
         item_object = order_item.content_object
         if item_object is None:
             raise OrderPaymentEligibilityError(
@@ -214,7 +220,16 @@ def validate_order_items_for_payment(order):
             raise OrderPaymentEligibilityError(
                 f"{order_item.description} is no longer available."
             )
-        if not is_registration_open(item_object):
+        parent_pack = (
+            order_item.parent_pack.content_object
+            if order_item.parent_pack_id
+            else None
+        )
+        bypass_time_limit = (
+            isinstance(parent_pack, Pack)
+            and parent_pack.bypass_item_time_limits
+        )
+        if not bypass_time_limit and not is_registration_open(item_object):
             raise OrderPaymentEligibilityError(
                 f"Registration for {order_item.description} has closed."
             )
