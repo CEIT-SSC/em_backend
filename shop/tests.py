@@ -17,9 +17,12 @@ from events.models import (
     TeamMembership,
 )
 
-from .admin import PackItemAdminForm, PackItemInlineFormSet
+from .admin import DiscountCodeAdminForm, PackItemAdminForm, PackItemInlineFormSet
 from .fulfillment import fulfill_order
-from .models import CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Pack, PackItem, Product
+from .models import (
+    CartItem, DiscountCode, DiscountRedemption, DiscountTarget, Order,
+    OrderItem, Pack, PackItem, Product,
+)
 from wallet.models import WalletEntry, WalletTopUp
 from wallet.services import WalletService
 from wallet.tests.helpers import FakePaymentClient, credit, register_fake_zarinpal
@@ -111,6 +114,82 @@ class ShopBusinessBehaviorTests(APITestCase):
                 status=TeamMembership.STATUS_REJECTED,
             )
         return team
+
+    def test_discount_can_target_multiple_items(self):
+        first_product = Product.objects.create(
+            name='First product',
+            description='First eligible product',
+            price=Decimal('100'),
+        )
+        second_product = Product.objects.create(
+            name='Second product',
+            description='Second eligible product',
+            price=Decimal('200'),
+        )
+        excluded_product = Product.objects.create(
+            name='Excluded product',
+            description='Product outside the discount',
+            price=Decimal('300'),
+        )
+        content_type = ContentType.objects.get_for_model(Product)
+        for product in (first_product, second_product, excluded_product):
+            CartItem.objects.create(
+                cart=self.user.cart,
+                content_type=content_type,
+                object_id=product.pk,
+            )
+
+        discount = DiscountCode.objects.create(code='MULTI', percentage=Decimal('10'))
+        DiscountTarget.objects.bulk_create([
+            DiscountTarget(
+                discount_code=discount,
+                content_type=content_type,
+                object_id=product.pk,
+            )
+            for product in (first_product, second_product)
+        ])
+        self.user.cart.applied_discount_code = discount
+        self.user.cart.save(update_fields=['applied_discount_code'])
+
+        self.assertEqual(self.user.cart.get_discount_amount(), Decimal('30'))
+        self.assertEqual(self.user.cart.get_total(), Decimal('570'))
+
+    def test_discount_admin_saves_multiple_targets(self):
+        workshop = self._create_presentation(title='Django Workshop')
+        product = Product.objects.create(
+            name='Workshop notes',
+            description='Printed notes',
+            price=Decimal('50'),
+        )
+        workshop_type = ContentType.objects.get_for_model(Presentation)
+        product_type = ContentType.objects.get_for_model(Product)
+        form = DiscountCodeAdminForm(data={
+            'code': 'ADMIN-MULTI',
+            'is_active': True,
+            'percentage': '15',
+            'amount': '',
+            'valid_from': '',
+            'valid_to': '',
+            'min_order_amount': '',
+            'max_uses': '',
+            'times_used': '0',
+            'max_uses_per_user': '',
+            'target_items': [
+                f'{workshop_type.pk}:{workshop.pk}',
+                f'{product_type.pk}:{product.pk}',
+            ],
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        discount = form.save()
+        self.assertEqual(
+            set(discount.targets.values_list('content_type_id', 'object_id')),
+            {(workshop_type.pk, workshop.pk), (product_type.pk, product.pk)},
+        )
+        self.assertIn(
+            (f'{workshop_type.pk}:{workshop.pk}', '[Presentation] Django Workshop'),
+            list(form.fields['target_items'].choices),
+        )
 
     def test_fulfillment_is_idempotent_and_clears_only_fulfilled_cart_state(self):
         product = Product.objects.create(

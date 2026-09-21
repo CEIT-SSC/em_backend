@@ -7,7 +7,10 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.forms.models import BaseInlineFormSet
 from django.http import HttpResponse
 
-from .models import Cart, CartItem, DiscountCode, Order, OrderItem, Pack, PackItem, PaymentApp, Product
+from .models import (
+    Cart, CartItem, DiscountCode, DiscountTarget, Order, OrderItem, Pack,
+    PackItem, PaymentApp, Product,
+)
 
 ITEM_SOURCES = [
     ('Presentation', ('events', 'Presentation'), 'title'),
@@ -49,22 +52,28 @@ def build_generic_item_choices(limit_per_type=500, sources=None, active_only=Fal
 
 
 class DiscountCodeAdminForm(forms.ModelForm):
-    target_item = forms.ChoiceField(
+    target_items = forms.MultipleChoiceField(
         required=False,
-        label='Discount target item',
-        help_text="Pick a specific item (optional). Leave empty for a global discount."
+        label='Discount target items',
+        help_text="Pick one or more items (optional). Leave empty for a global discount.",
+        widget=forms.SelectMultiple(attrs={'size': 12}),
     )
 
     class Meta:
         model = DiscountCode
-        exclude = ('content_type', 'object_id',)
+        fields = '__all__'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['target_item'].choices = build_generic_item_choices()
+        self.fields['target_items'].choices = build_generic_item_choices()[1:]
 
-        if self.instance and self.instance.pk and self.instance.content_type_id and self.instance.object_id:
-            self.fields['target_item'].initial = f"{self.instance.content_type_id}:{self.instance.object_id}"
+        if self.instance and self.instance.pk:
+            self.fields['target_items'].initial = [
+                f'{content_type_id}:{object_id}'
+                for content_type_id, object_id in self.instance.targets.values_list(
+                    'content_type_id', 'object_id'
+                )
+            ]
 
     def clean(self):
         cleaned = super().clean()
@@ -73,28 +82,32 @@ class DiscountCodeAdminForm(forms.ModelForm):
         if (pct > 0 and amt > 0) or (pct <= 0 and amt <= 0):
             raise ValidationError("Set exactly one of 'percentage' OR 'amount' and it must be > 0.")
 
-        raw = cleaned.get('target_item')
-        if raw:
+        targets = []
+        for raw in cleaned.get('target_items', []):
             try:
                 ct_id_str, obj_id_str = raw.split(':', 1)
                 ct = ContentType.objects.get_for_id(int(ct_id_str))
                 Model = ct.model_class()
-                if not Model.objects.filter(pk=int(obj_id_str)).exists():
+                if Model is None or not Model.objects.filter(pk=int(obj_id_str)).exists():
                     raise ValidationError("Chosen target item no longer exists.")
-                cleaned['content_type'] = ct
-                cleaned['object_id'] = int(obj_id_str)
-            except Exception:
+                targets.append((ct, int(obj_id_str)))
+            except (TypeError, ValueError, ContentType.DoesNotExist):
                 raise ValidationError("Invalid target item selection.")
-        else:
-            cleaned['content_type'] = None
-            cleaned['object_id'] = None
+        cleaned['targets'] = targets
 
         return cleaned
 
-    def save(self, commit=True):
-        self.instance.content_type = self.cleaned_data.get('content_type')
-        self.instance.object_id = self.cleaned_data.get('object_id')
-        return super().save(commit=commit)
+    def _save_m2m(self):
+        super()._save_m2m()
+        self.instance.targets.all().delete()
+        DiscountTarget.objects.bulk_create([
+            DiscountTarget(
+                discount_code=self.instance,
+                content_type=content_type,
+                object_id=object_id,
+            )
+            for content_type, object_id in self.cleaned_data.get('targets', [])
+        ])
 
 
 @admin.register(DiscountCode)
@@ -121,15 +134,19 @@ class DiscountCodeAdmin(admin.ModelAdmin):
             'fields': ('valid_from', 'valid_to')
         }),
         ('Target (optional)', {
-            'fields': ('target_item',),
-            'description': "Pick a specific item (Presentation, Solo Competition, Competition Team, Product, or Pack). Leave empty for a global discount."
+            'fields': ('target_items',),
+            'description': "Pick one or more items (Presentation, Solo Competition, Competition Team, Product, or Pack). Leave empty for a global discount."
         }),
     )
 
     def target_display(self, obj):
-        if obj.content_type_id and obj.object_id:
-            return f"{obj.content_type.app_label}.{obj.content_type.model} #{obj.object_id}"
-        return "Global"
+        targets = list(obj.targets.select_related('content_type'))
+        if not targets:
+            return 'Global'
+        return ', '.join(
+            f'{target.content_type.app_label}.{target.content_type.model} #{target.object_id}'
+            for target in targets
+        )
     target_display.short_description = "Target"
 
 
