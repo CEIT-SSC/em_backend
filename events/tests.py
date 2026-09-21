@@ -4,6 +4,8 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
 
 from shop.eligibility import is_already_owned
 from shop.models import Order, OrderItem
@@ -93,3 +95,40 @@ class PresentationEnrollmentAdminTests(TestCase):
 
         self.assertFalse(model_admin.has_delete_permission(staff_request, self.enrollment))
         self.assertTrue(model_admin.has_delete_permission(superuser_request, self.enrollment))
+
+
+class PresentationPaginationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        now = timezone.now()
+        self.event = Event.objects.create(
+            id=9201,
+            title='Pagination Test Event',
+            description='Test event',
+            start_date=now,
+            end_date=now,
+            is_active=True,
+            manager='Test Manager',
+        )
+        Presentation.objects.bulk_create([
+            Presentation(
+                event=self.event,
+                title=f'Workshop {index}',
+                description='Test workshop',
+                type=Presentation.WORKSHOP,
+                start_time=now,
+                end_time=now,
+            )
+            for index in range(51)
+        ])
+
+    def test_presentations_and_workshop_filter_use_fifty_item_pages(self):
+        presentations = self.client.get('/api/presentations/')
+        workshops = self.client.get('/api/presentations/', {'type': Presentation.WORKSHOP})
+
+        self.assertEqual(presentations.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(presentations.data['results']), 50)
+        self.assertEqual(presentations.data['count'], 51)
+        self.assertEqual(workshops.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(workshops.data['results']), 50)
+        self.assertEqual(workshops.data['count'], 51)

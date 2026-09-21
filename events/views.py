@@ -1,6 +1,7 @@
 from django.db import transaction, models
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -24,6 +25,10 @@ from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 
 CustomUser = get_user_model()
+
+
+class PresentationPagination(PageNumberPagination):
+    page_size = 50
 
 
 @extend_schema(tags=['Public - Events & Activities'])
@@ -79,6 +84,7 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
 )
 class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PresentationSerializer
+    pagination_class = PresentationPagination
     filterset_fields = ['event', 'type', 'level', 'is_online', 'is_paid']
 
     def get_queryset(self):
