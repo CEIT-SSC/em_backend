@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.forms.models import inlineformset_factory
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
@@ -16,6 +17,7 @@ from events.models import (
     TeamMembership,
 )
 
+from .admin import PackItemAdminForm, PackItemInlineFormSet
 from .fulfillment import fulfill_order
 from .models import CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Pack, PackItem, Product
 from wallet.models import WalletEntry, WalletTopUp
@@ -589,3 +591,70 @@ class ShopBusinessBehaviorTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(self.user.cart.items.exists())
+
+
+class PackItemIntegrityTests(APITestCase):
+    def test_deleting_a_packable_object_removes_its_pack_item(self):
+        product = Product.objects.create(
+            name='Disposable product',
+            description='Will be deleted',
+            price=Decimal('10'),
+        )
+        pack = Pack.objects.create(name='Test pack', real_price=Decimal('10'))
+        pack_item = PackItem.objects.create(
+            pack=pack,
+            content_type=ContentType.objects.get_for_model(Product),
+            object_id=product.pk,
+        )
+
+        product.delete()
+
+        self.assertFalse(PackItem.objects.filter(pk=pack_item.pk).exists())
+
+    def test_editing_a_pack_replaces_a_legacy_orphan_without_error(self):
+        content_type = ContentType.objects.get_for_model(Product)
+        pack = Pack.objects.create(name='Legacy pack', real_price=Decimal('15'))
+        orphan = PackItem.objects.create(
+            pack=pack,
+            content_type=content_type,
+            object_id=999999,
+        )
+        replacement = Product.objects.create(
+            name='Replacement product',
+            description='Valid replacement',
+            price=Decimal('15'),
+        )
+        formset_class = inlineformset_factory(
+            Pack,
+            PackItem,
+            form=PackItemAdminForm,
+            formset=PackItemInlineFormSet,
+            extra=1,
+            can_delete=True,
+        )
+        prefix = 'items'
+        formset = formset_class(
+            data={
+                f'{prefix}-TOTAL_FORMS': '2',
+                f'{prefix}-INITIAL_FORMS': '1',
+                f'{prefix}-MIN_NUM_FORMS': '0',
+                f'{prefix}-MAX_NUM_FORMS': '1000',
+                f'{prefix}-0-id': str(orphan.pk),
+                f'{prefix}-0-pack': str(pack.pk),
+                f'{prefix}-0-target_item': f'{content_type.pk}:{orphan.object_id}',
+                f'{prefix}-1-id': '',
+                f'{prefix}-1-pack': str(pack.pk),
+                f'{prefix}-1-target_item': f'{content_type.pk}:{replacement.pk}',
+            },
+            instance=pack,
+            prefix=prefix,
+        )
+
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        self.assertFalse(PackItem.objects.filter(pk=orphan.pk).exists())
+        self.assertTrue(PackItem.objects.filter(
+            pack=pack,
+            content_type=content_type,
+            object_id=replacement.pk,
+        ).exists())

@@ -83,7 +83,7 @@ class PackItem(models.Model):
         super().clean()
         item = self.content_object
         if item is None:
-            raise ValidationError({'object_id': 'The selected item does not exist.'})
+            raise ValidationError('The selected item does not exist.')
 
         allowed_models = {
             ('events', 'presentation'),

@@ -192,6 +192,12 @@ class PackItemAdminForm(forms.ModelForm):
             model = content_type.model_class()
             item = model.objects.get(pk=object_id)
         except (TypeError, ValueError, ContentType.DoesNotExist, AttributeError, ObjectDoesNotExist):
+            original = None
+            if self.instance and self.instance.pk:
+                original = f'{self.instance.content_type_id}:{self.instance.object_id}'
+            if raw == original and self.instance.content_object is None:
+                self._delete_orphaned_item = True
+                return raw
             raise ValidationError('Invalid contained item.')
 
         if (content_type.app_label, content_type.model) not in {
@@ -201,6 +207,17 @@ class PackItemAdminForm(forms.ModelForm):
         self.instance.content_type = content_type
         self.instance.object_id = object_id
         return raw
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if getattr(self, '_delete_orphaned_item', False):
+            cleaned_data['DELETE'] = True
+        return cleaned_data
+
+    def _post_clean(self):
+        if getattr(self, '_delete_orphaned_item', False) and self.cleaned_data.get('DELETE'):
+            return
+        super()._post_clean()
 
 
 class PackItemInlineFormSet(BaseInlineFormSet):
