@@ -1,6 +1,6 @@
 from decimal import Decimal
 from json import JSONDecodeError
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import requests
 from django.conf import settings
@@ -25,6 +25,21 @@ def get_wallet_callback_url(request):
             raise TopUpGatewayError("Wallet payment callback URL is invalid.")
         return configured
     return request.build_absolute_uri(reverse('wallet:topup-callback'))
+
+
+def get_wallet_payment_url(gateway_url):
+    """Route Zarinpal through a real document on the merchant's registered domain."""
+    start_url = (getattr(settings, 'WALLET_PAYMENT_START_URL', '') or '').strip()
+    if not start_url:
+        return gateway_url
+    start = urlparse(start_url)
+    if (start.scheme != 'https' or not start.netloc or start.username
+            or start.password or start.query or start.fragment):
+        raise TopUpGatewayError('Wallet payment start URL must be an HTTPS URL without query parameters.')
+    gateway = urlparse(gateway_url or '')
+    if gateway.hostname not in {'payment.zarinpal.com', 'sandbox.zarinpal.com'}:
+        return gateway_url
+    return f"{start_url}?{urlencode({'gateway': gateway_url})}"
 
 
 class ZarrinPal:

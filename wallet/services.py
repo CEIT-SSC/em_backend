@@ -29,6 +29,7 @@ from wallet.exceptions import (
 )
 from wallet.models import Wallet, WalletEntry, WalletTopUp
 from wallet.payment_provider import ZarinpalPaymentProvider
+from wallet.payments import get_wallet_payment_url
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +321,8 @@ class WalletService:
         amount = _as_money(amount)
         if not callback_url:
             raise TopUpGatewayError("Wallet payment callback URL is not configured.")
+        # Validate the handoff configuration before creating a payment attempt.
+        get_wallet_payment_url(None)
         if order is not None and order.user_id != user.pk:
             raise OrderNotPayable("This order does not belong to the current user.")
 
@@ -369,7 +372,7 @@ class WalletService:
             topup.payment_intent = attempt.intent
             topup.payment_attempt = attempt
             topup.gateway_authority = attempt.gateway_authority
-            topup.payment_url = attempt.payment_url
+            topup.payment_url = get_wallet_payment_url(attempt.payment_url)
             topup.status = WalletTopUp.STATUS_AWAITING_GATEWAY
             topup.save(update_fields=[
                 'payment_intent', 'payment_attempt', 'gateway_authority', 'payment_url',
