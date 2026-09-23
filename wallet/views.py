@@ -62,7 +62,9 @@ def _error_response(exc):
 
 def _frontend_topup_redirect(params):
     frontend_url = (getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
-    return f"{frontend_url}/wallet/top-up/callback?{urlencode(params)}"
+    return_url = (getattr(settings, 'WALLET_PAYMENT_RETURN_URL', '') or '').strip()
+    return_url = return_url or f"{frontend_url}/wallet/top-up/callback"
+    return f"{return_url}?{urlencode(params)}"
 
 
 @extend_schema(
