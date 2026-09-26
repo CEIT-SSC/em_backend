@@ -118,36 +118,17 @@ class DiscountCode(models.Model):
     times_used = models.PositiveIntegerField(default=0)
     max_uses_per_user = models.PositiveIntegerField(null=True, blank=True)
 
-    content_type = models.ForeignKey(
-        ContentType,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        limit_choices_to=(
-            models.Q(app_label='events', model='presentation') |
-            models.Q(app_label='events', model='solocompetition') |
-            models.Q(app_label='shop', model='product') |
-            models.Q(app_label='shop', model='pack')
-        ),
-        verbose_name="Discount target type"
-    )
-    object_id = models.PositiveIntegerField(null=True, blank=True, verbose_name="Discount target object id")
-    item_object = GenericForeignKey('content_type', 'object_id')
-
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
             models.Index(fields=['code']),
-            models.Index(fields=['content_type', 'object_id']),
         ]
         verbose_name = "Discount Code"
         verbose_name_plural = "Discount Codes"
 
     def __str__(self):
-        target = None
-        if self.content_type_id and self.object_id:
-            target = f"{self.content_type.app_label}.{self.content_type.model}#{self.object_id}"
-        return f"{self.code}{' → ' + target if target else ''}"
+        return self.code
 
     def has_remaining_user_quota(self, user) -> bool:
         per_user_limit = getattr(self, 'max_uses_per_user', None)
@@ -202,6 +183,48 @@ class DiscountCode(models.Model):
         return Decimal('0')
 
 
+class DiscountTarget(models.Model):
+    discount_code = models.ForeignKey(
+        DiscountCode,
+        on_delete=models.CASCADE,
+        related_name='targets',
+    )
+    limit_to_models = (
+        models.Q(app_label='events', model='presentation')
+        | models.Q(app_label='events', model='solocompetition')
+        | models.Q(app_label='events', model='competitionteam')
+        | models.Q(app_label='shop', model='product')
+        | models.Q(app_label='shop', model='pack')
+    )
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        limit_choices_to=limit_to_models,
+        verbose_name='Discount target type',
+    )
+    object_id = models.PositiveIntegerField(verbose_name='Discount target object id')
+    item_object = GenericForeignKey('content_type', 'object_id')
+
+    def __str__(self):
+        return f"{self.discount_code.code}: {self.item_object or 'unavailable item'}"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['discount_code', 'content_type', 'object_id'],
+                name='unique_discount_target',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['content_type', 'object_id'],
+                name='shop_dt_content_object_idx',
+            ),
+        ]
+        verbose_name = 'Discount Target'
+        verbose_name_plural = 'Discount Targets'
+
+
 class Cart(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -223,12 +246,13 @@ class Cart(models.Model):
 
     def _eligible_items_for_code(self, code: 'DiscountCode'):
         items = list(self.items.select_related('content_type'))
-        if code.content_type_id and code.object_id:
-            return [
-                ci for ci in items
-                if ci.content_type_id == code.content_type_id and ci.object_id == code.object_id
-            ]
-        return items
+        target_keys = set(code.targets.values_list('content_type_id', 'object_id'))
+        if not target_keys:
+            return items
+        return [
+            item for item in items
+            if (item.content_type_id, item.object_id) in target_keys
+        ]
 
     def _subtotal_for_items(self, items):
         subtotal = Decimal('0')
