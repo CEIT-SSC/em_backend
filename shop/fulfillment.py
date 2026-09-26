@@ -1,4 +1,6 @@
 import logging
+from dataclasses import dataclass
+from decimal import Decimal
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
@@ -12,7 +14,7 @@ from events.models import (
     SoloCompetitionRegistration,
 )
 
-from .models import Cart, CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Product
+from .models import Cart, CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Pack, Product
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,170 @@ class OrderFulfillmentError(Exception):
 
 class OrderCapacityError(OrderFulfillmentError):
     """Raised when an order item no longer has capacity."""
+
+
+@dataclass
+class PackBackfillResult:
+    purchasers: int = 0
+    granted: int = 0
+    reactivated: int = 0
+    already_owned: int = 0
+    unavailable: int = 0
+
+    def add(self, other):
+        self.purchasers += other.purchasers
+        self.granted += other.granted
+        self.reactivated += other.reactivated
+        self.already_owned += other.already_owned
+        self.unavailable += other.unavailable
+        return self
+
+
+def _get_or_create_pack_component(parent_pack_item, content_type, item_object):
+    order_item, created = OrderItem.objects.get_or_create(
+        order=parent_pack_item.order,
+        content_type=content_type,
+        object_id=item_object.pk,
+        defaults={
+            'description': str(item_object),
+            'price': Decimal('0'),
+            'parent_pack': parent_pack_item,
+        },
+    )
+    return order_item, created
+
+
+def _grant_pack_item(parent_pack_item, pack_item, item_object):
+    user = parent_pack_item.order.user
+
+    if isinstance(item_object, Presentation):
+        enrollment = PresentationEnrollment.objects.select_for_update().filter(
+            user=user,
+            presentation=item_object,
+        ).first()
+        if enrollment and enrollment.status == PresentationEnrollment.STATUS_COMPLETED_OR_FREE:
+            return 'already_owned'
+
+        if enrollment and enrollment.order_item_id:
+            enrollment.status = PresentationEnrollment.STATUS_COMPLETED_OR_FREE
+            enrollment.save(update_fields=['status'])
+            return 'reactivated'
+
+        order_item, _created = _get_or_create_pack_component(
+            parent_pack_item,
+            pack_item.content_type,
+            item_object,
+        )
+        if enrollment:
+            enrollment.status = PresentationEnrollment.STATUS_COMPLETED_OR_FREE
+            enrollment.order_item = order_item
+            enrollment.save(update_fields=['status', 'order_item'])
+            return 'reactivated'
+
+        PresentationEnrollment.objects.create(
+            user=user,
+            presentation=item_object,
+            status=PresentationEnrollment.STATUS_COMPLETED_OR_FREE,
+            order_item=order_item,
+        )
+        return 'granted'
+
+    if isinstance(item_object, SoloCompetition):
+        registration = SoloCompetitionRegistration.objects.select_for_update().filter(
+            user=user,
+            solo_competition=item_object,
+        ).first()
+        if registration and registration.status == SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE:
+            return 'already_owned'
+
+        if registration and registration.order_item_id:
+            registration.status = SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
+            registration.save(update_fields=['status'])
+            return 'reactivated'
+
+        order_item, _created = _get_or_create_pack_component(
+            parent_pack_item,
+            pack_item.content_type,
+            item_object,
+        )
+        if registration:
+            registration.status = SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
+            registration.order_item = order_item
+            registration.save(update_fields=['status', 'order_item'])
+            return 'reactivated'
+
+        SoloCompetitionRegistration.objects.create(
+            user=user,
+            solo_competition=item_object,
+            status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
+            order_item=order_item,
+        )
+        return 'granted'
+
+    if isinstance(item_object, Product):
+        already_owned = OrderItem.objects.filter(
+            order__user=user,
+            order__status=Order.STATUS_COMPLETED,
+            content_type=pack_item.content_type,
+            object_id=item_object.pk,
+        ).exists()
+        if already_owned:
+            return 'already_owned'
+
+        _get_or_create_pack_component(
+            parent_pack_item,
+            pack_item.content_type,
+            item_object,
+        )
+        return 'granted'
+
+    return 'unavailable'
+
+
+def grant_current_pack_items_to_previous_purchasers(pack):
+    """Grant a pack's current contents to users with a completed pack order.
+
+    This deliberately bypasses registration windows and capacity because it is an
+    explicit administrative correction for entitlements that were already sold.
+    It is safe to run repeatedly: completed entitlements are left untouched.
+    """
+
+    result = PackBackfillResult()
+    pack_content_type = ContentType.objects.get_for_model(Pack)
+
+    with transaction.atomic():
+        purchased_pack_items = list(
+            OrderItem.objects.select_for_update()
+            .select_related('order', 'order__user')
+            .filter(
+                content_type=pack_content_type,
+                object_id=pack.pk,
+                parent_pack__isnull=True,
+                order__status=Order.STATUS_COMPLETED,
+                order__user__isnull=False,
+            )
+            .order_by('order__created_at', 'pk')
+        )
+        current_items = list(pack.items.select_related('content_type'))
+        seen_users = set()
+
+        for purchased_pack_item in purchased_pack_items:
+            user_id = purchased_pack_item.order.user_id
+            if user_id in seen_users:
+                continue
+            seen_users.add(user_id)
+            result.purchasers += 1
+
+            for pack_item in current_items:
+                item_object = pack_item.content_object
+                outcome = (
+                    _grant_pack_item(purchased_pack_item, pack_item, item_object)
+                    if item_object is not None
+                    else 'unavailable'
+                )
+                setattr(result, outcome, getattr(result, outcome) + 1)
+
+    return result
 
 
 def has_capacity(item_object):

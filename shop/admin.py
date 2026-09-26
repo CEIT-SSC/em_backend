@@ -1,15 +1,27 @@
 import csv
 from django import forms
 from django.apps import apps
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.forms.models import BaseInlineFormSet
 from django.http import HttpResponse
 
+from .fulfillment import (
+    PackBackfillResult,
+    grant_current_pack_items_to_previous_purchasers,
+)
 from .models import (
-    Cart, CartItem, DiscountCode, DiscountTarget, Order, OrderItem, Pack,
-    PackItem, PaymentApp, Product,
+    Cart,
+    CartItem,
+    DiscountCode,
+    DiscountTarget,
+    Order,
+    OrderItem,
+    Pack,
+    PackItem,
+    PaymentApp,
+    Product,
 )
 
 ITEM_SOURCES = [
@@ -178,6 +190,12 @@ class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
     readonly_fields = ('content_object', 'description', 'price')
+    autocomplete_fields = ('parent_pack',)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'order', 'parent_pack', 'parent_pack__order',
+        )
 
 
 class PackItemAdminForm(forms.ModelForm):
@@ -268,6 +286,24 @@ class PackAdmin(admin.ModelAdmin):
     search_fields = ('name', 'description')
     readonly_fields = ('calculated_price', 'created_at')
     inlines = [PackItemInline]
+    actions = ('grant_current_items_to_previous_purchasers',)
+
+    @admin.action(description='Grant current pack items to previous purchasers')
+    def grant_current_items_to_previous_purchasers(self, request, queryset):
+        result = PackBackfillResult()
+        for pack in queryset:
+            result.add(grant_current_pack_items_to_previous_purchasers(pack))
+
+        self.message_user(
+            request,
+            (
+                f'Processed {result.purchasers} purchaser(s): '
+                f'{result.granted} granted, {result.reactivated} reactivated, '
+                f'{result.already_owned} already owned, '
+                f'{result.unavailable} unavailable item(s).'
+            ),
+            level=messages.SUCCESS,
+        )
 
 
 @admin.register(Order)
@@ -318,6 +354,11 @@ class OrderItemAdmin(admin.ModelAdmin):
     search_fields = ('order__order_id', 'description')
     list_filter = ('order__status',)
     readonly_fields = ('content_object',)
+    autocomplete_fields = ('order', 'parent_pack')
+    list_select_related = ('order',)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('order')
 
     def content_object_display(self, obj):
         return str(obj.content_object) if obj.content_object else "N/A"
