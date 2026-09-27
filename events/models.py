@@ -1,5 +1,11 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta
+
+
+def invitation_expiry():
+    return timezone.now() + timedelta(days=7)
 
 class Presenter(models.Model):
     name = models.CharField(max_length=255, verbose_name="Full Name")
@@ -180,7 +186,9 @@ class CompetitionTeam(models.Model):
         ordering = ['-created_at', 'name']
 
     def is_ready_for_competition(self):
-        return self.memberships.filter(status=TeamMembership.STATUS_PENDING).count() == 0
+        # Pending invitations are not participants; full size validation belongs
+        # to the target competition registration service.
+        return self.memberships.filter(user_id=self.leader_id, status=TeamMembership.STATUS_ACCEPTED).exists()
 
     def needs_admin_approval(self):
         return bool(self.group_competition and self.group_competition.requires_admin_approval)
@@ -189,17 +197,23 @@ class TeamMembership(models.Model):
     STATUS_PENDING = "pending"
     STATUS_ACCEPTED = "accepted"
     STATUS_REJECTED = "rejected"
+    STATUS_EXPIRED = "expired"
 
     MEMBERSHIP_STATUS_CHOICES = [
         (STATUS_PENDING, "Pending"),
         (STATUS_ACCEPTED, "Accepted"),
         (STATUS_REJECTED, "Rejected"),
+        (STATUS_EXPIRED, "Expired"),
     ]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="team_memberships", verbose_name="User")
     team = models.ForeignKey(CompetitionTeam, on_delete=models.CASCADE, related_name="memberships", verbose_name="Team")
     status = models.CharField(max_length=10, choices=MEMBERSHIP_STATUS_CHOICES, default=STATUS_PENDING)
     joined_at = models.DateTimeField(auto_now_add=True)
+    invited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='+')
+    expires_at = models.DateTimeField(default=invitation_expiry, null=True, blank=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.user.email} in {self.team.name} ({self.get_status_display()})"
@@ -209,15 +223,89 @@ class TeamMembership(models.Model):
         verbose_name_plural = "Team Memberships"
         unique_together = ('user', 'team')
         ordering = ['team', 'user__email']
+        indexes = [models.Index(fields=['user', 'status', 'expires_at']),
+                   models.Index(fields=['team', 'status'])]
+
+
+class CompetitionTeamRegistration(models.Model):
+    """One immutable accepted roster and lifecycle per team and competition.
+
+    CompetitionTeam's competition/payment fields are a deprecated compatibility
+    projection. All registration decisions must use this model and services.py.
+    """
+    PENDING_APPROVAL = 'pending_approval'
+    PENDING_PAYMENT = 'pending_payment'
+    ACTIVE = 'active'
+    REJECTED = 'rejected'
+    CANCELLED = 'cancelled'
+    STATUS_CHOICES = [(s, s.replace('_', ' ').title()) for s in
+                      (PENDING_APPROVAL, PENDING_PAYMENT, ACTIVE, REJECTED, CANCELLED)]
+    RESERVED_STATUSES = (PENDING_APPROVAL, PENDING_PAYMENT, ACTIVE)
+
+    team = models.ForeignKey(CompetitionTeam, on_delete=models.PROTECT, related_name='registrations')
+    competition = models.ForeignKey(GroupCompetition, on_delete=models.PROTECT, related_name='registrations')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    order_item = models.OneToOneField('shop.OrderItem', on_delete=models.PROTECT,
+                                     null=True, blank=True, related_name='team_registration')
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, blank=True, related_name='+')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    admin_remarks = models.TextField(blank=True, default='')
+    activated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['team', 'competition'], name='unique_team_competition'),
+            models.CheckConstraint(condition=models.Q(status__in=['pending_approval', 'pending_payment', 'active', 'rejected', 'cancelled']), name='valid_team_registration_status'),
+            models.CheckConstraint(condition=models.Q(price__gte=0), name='nonnegative_team_registration_price'),
+        ]
+        indexes = [models.Index(fields=['competition', 'status'])]
+        ordering = ['created_at', 'pk']
+
+    def __str__(self):
+        return f'{self.team.name} in {self.competition.title}'
+
+    @property
+    def leader(self):
+        return self.team.leader
+
+    @property
+    def leader_id(self):
+        return self.team.leader_id
+
+    @property
+    def group_competition(self):
+        return self.competition
+
+
+class CompetitionRegistrationMember(models.Model):
+    registration = models.ForeignKey(CompetitionTeamRegistration, on_delete=models.CASCADE, related_name='members')
+    competition = models.ForeignKey(GroupCompetition, on_delete=models.PROTECT, related_name='+')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='competition_rosters')
+    # Released only on rejection/cancellation; active and pending rosters conflict.
+    reserved = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['registration', 'user'], name='unique_registration_member'),
+            models.UniqueConstraint(fields=['competition', 'user'], condition=models.Q(reserved=True),
+                                    name='unique_reserved_comp_member'),
+        ]
 
 class TeamContent(models.Model):
-    team = models.OneToOneField(CompetitionTeam, on_delete=models.CASCADE, related_name="content_submission", verbose_name="Team")
+    team = models.ForeignKey(CompetitionTeam, on_delete=models.CASCADE, related_name="content_submissions", verbose_name="Team")
+    registration = models.OneToOneField(CompetitionTeamRegistration, on_delete=models.PROTECT,
+                                       null=True, blank=True, related_name='content_submission')
     description = models.TextField(verbose_name="Content Description")
     file_link = models.URLField(max_length=500, blank=True, null=True, verbose_name="Link to External File/Repository")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Content for Team: {self.team.name} in {self.team.group_competition.title}"
+        competition = self.registration.competition if self.registration_id else self.team.group_competition
+        return f"Content for Team: {self.team.name} in {competition}"
 
     class Meta:
         verbose_name = "Team Content Submission"
@@ -336,6 +424,7 @@ class SoloCompetitionRegistration(models.Model):
 
     class Meta:
         unique_together = ('user', 'solo_competition')
+        indexes = [models.Index(fields=['solo_competition', 'status'])]
         verbose_name = "Solo Competition Registration"
         verbose_name_plural = "Solo Competition Registrations"
 

@@ -7,6 +7,7 @@ from shop.models import Order, OrderItem, Pack, Product
 Presentation = apps.get_model('events', 'Presentation')
 SoloCompetition = apps.get_model('events', 'SoloCompetition')
 CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
+Registration = apps.get_model('events', 'CompetitionTeamRegistration')
 PresentationEnrollment = apps.get_model('events', 'PresentationEnrollment')
 SoloCompetitionRegistration = apps.get_model('events', 'SoloCompetitionRegistration')
 TeamMembership = apps.get_model('events', 'TeamMembership')
@@ -14,6 +15,14 @@ TeamMembership = apps.get_model('events', 'TeamMembership')
 
 class OrderPaymentEligibilityError(Exception):
     pass
+
+
+def capacity_scope_key(item_object):
+    """Use the same lock order across checkout validation and fulfillment."""
+    if isinstance(item_object, (CompetitionTeam, Registration)):
+        competition = item_object.group_competition
+        return ('events.groupcompetition', competition.pk if competition else 0)
+    return (item_object._meta.label_lower, item_object.pk)
 
 
 def pack_components(pack):
@@ -45,7 +54,7 @@ def is_content_available(obj):
     if event is not None and getattr(event, 'is_active', True) is False:
         return False
 
-    if isinstance(obj, CompetitionTeam):
+    if isinstance(obj, (CompetitionTeam, Registration)):
         competition = getattr(obj, 'group_competition', None)
         if competition is not None:
             if getattr(competition, 'is_active', True) is False:
@@ -75,7 +84,7 @@ def is_already_owned(user, item_object):
             return True
         return any(is_already_owned(user, component) for component in pack_components(item_object))
 
-    user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
+    user_to_check = item_object.leader if isinstance(item_object, (CompetitionTeam, Registration)) else user
 
     if isinstance(item_object, Presentation):
         enrollment_status = PresentationEnrollment.objects.filter(
@@ -93,10 +102,13 @@ def is_already_owned(user, item_object):
             status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
         ).exists():
             return True
+    elif isinstance(item_object, Registration):
+        return item_object.status == Registration.ACTIVE and (
+            item_object.leader_id == user.pk or item_object.members.filter(user=user).exists())
     elif isinstance(item_object, CompetitionTeam):
         if item_object.status == CompetitionTeam.STATUS_ACTIVE and (
             item_object.leader_id == user.id
-            or TeamMembership.objects.filter(team=item_object, user=user).exists()
+            or TeamMembership.objects.filter(team=item_object, user=user, status='accepted').exists()
         ):
             return True
 
@@ -123,7 +135,7 @@ def is_pending(user, item_object):
         ).exists()
         return directly_pending or any(is_pending(user, component) for component in pack_components(item_object))
 
-    user_to_check = item_object.leader if isinstance(item_object, CompetitionTeam) else user
+    user_to_check = item_object.leader if isinstance(item_object, (CompetitionTeam, Registration)) else user
     content_type = ContentType.objects.get_for_model(item_object)
     return OrderItem.objects.filter(
         content_type=content_type,
@@ -140,10 +152,10 @@ def is_already_owned_or_pending(user, item_object):
     return is_already_owned(user, item_object) or is_pending(user, item_object)
 
 
-def has_capacity(item_object):
+def has_capacity(item_object, user=None):
     if isinstance(item_object, Pack):
         components = pack_components(item_object)
-        return bool(components) and all(has_capacity(component) for component in components)
+        return bool(components) and all(has_capacity(component, user=user) for component in components)
 
     if isinstance(item_object, Presentation):
         if item_object.capacity is None:
@@ -155,17 +167,19 @@ def has_capacity(item_object):
     if isinstance(item_object, SoloCompetition):
         if item_object.max_participants is None:
             return True
-        return item_object.registrations.filter(
-            status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
-        ).count() < item_object.max_participants
+        reserved = item_object.registrations.filter(
+            status__in=[SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE, SoloCompetitionRegistration.STATUS_PENDING_PAYMENT],
+        )
+        if user is not None:
+            reserved = reserved.exclude(user=user)
+        return reserved.count() < item_object.max_participants
 
+    if isinstance(item_object, Registration):
+        # Registration already holds a seat, including the final available seat.
+        return item_object.status in Registration.RESERVED_STATUSES
     if isinstance(item_object, CompetitionTeam):
-        competition = item_object.group_competition
-        if competition.max_teams is None:
-            return True
-        return competition.teams.filter(
-            status=CompetitionTeam.STATUS_ACTIVE,
-        ).count() < competition.max_teams
+        from events.services import legacy_registration
+        return has_capacity(legacy_registration(item_object))
 
     if isinstance(item_object, Product):
         if item_object.capacity is None:
@@ -194,7 +208,7 @@ def is_registration_open(item_object):
         start_time = getattr(item_object, 'start_time', None) or getattr(
             item_object, 'start_datetime', None,
         )
-    elif isinstance(item_object, CompetitionTeam):
+    elif isinstance(item_object, (CompetitionTeam, Registration)):
         start_time = getattr(item_object.group_competition, 'start_datetime', None)
     return not start_time or timezone.now() <= start_time
 
@@ -204,14 +218,17 @@ def validate_order_items_for_payment(order):
     order_items = order.items.select_related(
         'content_type', 'parent_pack__content_type',
     ).order_by('pk')
+    targets = []
     for order_item in order_items:
         item_object = order_item.content_object
         if item_object is None:
             raise OrderPaymentEligibilityError(
                 f"Order item {order_item.pk} no longer exists."
             )
+        targets.append((order_item, item_object))
 
-        if isinstance(item_object, CompetitionTeam):
+    for order_item, item_object in sorted(targets, key=lambda target: capacity_scope_key(target[1])):
+        if isinstance(item_object, (CompetitionTeam, Registration)):
             competition = item_object.group_competition
             type(competition).objects.select_for_update().get(pk=competition.pk)
 
@@ -237,6 +254,22 @@ def validate_order_items_for_payment(order):
             raise OrderPaymentEligibilityError(
                 f"{order_item.description} is already owned."
             )
+        if isinstance(item_object, Registration):
+            if (item_object.status != Registration.PENDING_PAYMENT or
+                item_object.order_item_id != order_item.pk or item_object.leader_id != order.user_id):
+                raise OrderPaymentEligibilityError('This order does not own an approved team registration.')
+            if item_object.price != order_item.price:
+                raise OrderPaymentEligibilityError('The team registration price has changed.')
+        if isinstance(item_object, SoloCompetition):
+            from events.services import ensure_solo_capacity, CompetitionError
+            registration = item_object.registrations.filter(user=order.user).first()
+            if registration and registration.status == SoloCompetitionRegistration.STATUS_PENDING_PAYMENT and registration.order_item_id != order_item.pk:
+                raise OrderPaymentEligibilityError('Another order holds this solo registration.')
+            try:
+                ensure_solo_capacity(item_object, exclude_user=order.user_id)
+            except CompetitionError as exc:
+                raise OrderPaymentEligibilityError(str(exc)) from exc
+            continue
         if not has_capacity(item_object):
             raise OrderPaymentEligibilityError(
                 f"{order_item.description} is sold out or at capacity."

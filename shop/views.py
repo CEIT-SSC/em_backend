@@ -39,17 +39,10 @@ Event = apps.get_model('events', 'Event')
 
 
 def _release_reservations_for_orders(order_qs_or_list):
-    CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
-
+    from .fulfillment import release_order_reservations
     orders = order_qs_or_list if hasattr(order_qs_or_list, '__iter__') else [order_qs_or_list]
-    with transaction.atomic():
-        for order in orders:
-            for item in order.items.all():
-                obj = item.content_object
-                if isinstance(obj, CompetitionTeam) and \
-                        obj.status == CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION:
-                    obj.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
-                    obj.save(update_fields=["status"])
+    for order in orders:
+        release_order_reservations(order)
 
 
 def _add_to_cart_and_update_status(user, item_object):
@@ -192,239 +185,39 @@ class TeamPaymentInitiateView(views.APIView):
     permission_classes = [IsAuthenticated]
     serializer_class = OrderCheckoutResultSerializer
 
-    payable_team_statuses = {
-        CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-        CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
-        CompetitionTeam.STATUS_PAYMENT_FAILED,
-    }
-
-    @staticmethod
-    def _team_order_items_match(order, team_content_type, team_id):
-        items = list(order.items.all())
-        return (
-            len(items) == 1
-            and items[0].content_type_id == team_content_type.pk
-            and items[0].object_id == team_id
-        )
-
-    @classmethod
-    def _find_reusable_order(cls, *, team, price, team_content_type):
-        matching_order_ids = OrderItem.objects.filter(
-            content_type=team_content_type,
-            object_id=team.pk,
-        ).order_by().values('order_id')
-        candidates = (
-            Order.objects.select_for_update()
-            .filter(
-                user=team.leader,
-                event=team.group_competition.event,
-                status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED],
-                subtotal_amount=price,
-                discount_amount=Decimal('0'),
-                total_amount=price,
-                pk__in=Subquery(matching_order_ids),
-            )
-            .prefetch_related('items')
-            .order_by('-created_at')
-        )
-        for candidate in candidates:
-            if cls._team_order_items_match(candidate, team_content_type, team.pk):
-                return candidate
-        return None
-
-    @staticmethod
-    def _completed_team_order(*, team, team_content_type):
-        return (
-            Order.objects.filter(
-                user=team.leader,
-                status=Order.STATUS_COMPLETED,
-                items__content_type=team_content_type,
-                items__object_id=team.pk,
-            )
-            .prefetch_related('items')
-            .order_by('-created_at')
-            .first()
-        )
-
-    def _result_response(self, request, *, order, payment):
-        return Response({
-            'order': (
-                OrderSerializer(order, context={'request': request}).data
-                if order is not None
-                else None
-            ),
-            'payment_required': payment['payment_required'],
-            'payment_url': payment['payment_url'],
-            'topup_id': payment['topup'].public_id if payment['topup'] else None,
-            'wallet_balance': payment['balance'],
-        }, status=status.HTTP_200_OK)
-
+    @extend_schema(parameters=[OpenApiParameter(name='competition_id', type=int,
+        description='Required when the team has registrations in multiple competitions.')],
+        request=None, responses={200: OrderCheckoutResultSerializer})
     def post(self, request, team_id, *args, **kwargs):
-        team = get_object_or_404(
-            CompetitionTeam.objects.select_related('leader', 'group_competition__event'),
-            pk=team_id,
-        )
-        if team.leader_id != request.user.pk:
-            return Response(
-                {'error': 'Only the team leader can pay for the team.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        from events import services as competition_services
+        from events.models import CompetitionTeamRegistration as Registration
         from wallet.exceptions import WalletError
         from wallet.payments import get_wallet_callback_url
         from wallet.services import WalletService
+        from .team_checkout import prepare_team_order
 
-        completed_order = None
-        free_registration = False
-        with transaction.atomic():
-            team = (
-                CompetitionTeam.objects.select_for_update(of=('self',))
-                .select_related('leader', 'group_competition__event')
-                .get(pk=team.pk)
-            )
-            competition = team.group_competition
-            if competition is None:
-                return Response(
-                    {'error': 'This team is not registered in a competition.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            competition = (
-                type(competition).objects.select_for_update(of=('self',))
-                .select_related('event')
-                .get(pk=competition.pk)
-            )
-            team.group_competition = competition
-            team_content_type = ContentType.objects.get_for_model(CompetitionTeam)
-
-            if team.status == CompetitionTeam.STATUS_ACTIVE:
-                completed_order = self._completed_team_order(
-                    team=team,
-                    team_content_type=team_content_type,
-                )
-                if completed_order is None:
-                    return Response(
-                        {'error': 'This team is already active.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-            elif team.status not in self.payable_team_statuses:
-                return Response(
-                    {'error': 'This team is not approved and awaiting payment.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if completed_order is None:
-                if not competition.is_active or (
-                    competition.event and not competition.event.is_active
-                ):
-                    return Response(
-                        {'error': 'This competition is no longer active.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                if competition.start_datetime and timezone.now() > competition.start_datetime:
-                    return Response(
-                        {'error': 'Registration for this competition has closed.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                accepted_member_count = team.memberships.filter(
-                    status=TeamMembership.STATUS_ACCEPTED,
-                ).count()
-                if not (
-                    competition.min_group_size
-                    <= accepted_member_count
-                    <= competition.max_group_size
-                ):
-                    return Response(
-                        {'error': 'The team size is outside this competition\'s limits.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-                if competition.max_teams is not None:
-                    reserved_team_count = competition.teams.filter(
-                        status__in=[
-                            CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
-                            CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-                            CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
-                            CompetitionTeam.STATUS_ACTIVE,
-                        ],
-                    ).exclude(pk=team.pk).count()
-                    if reserved_team_count >= competition.max_teams:
-                        return Response(
-                            {'error': 'This competition has reached its maximum number of teams.'},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                if not competition.requires_payment():
-                    team.status = CompetitionTeam.STATUS_ACTIVE
-                    team.save(update_fields=['status'])
-                    free_registration = True
-                else:
-                    price = Decimal(competition.price_per_member) * accepted_member_count
-                    order = self._find_reusable_order(
-                        team=team,
-                        price=price,
-                        team_content_type=team_content_type,
-                    )
-
-                    obsolete_orders = Order.objects.select_for_update().filter(
-                        user=team.leader,
-                        status__in=[Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED],
-                        items__content_type=team_content_type,
-                        items__object_id=team.pk,
-                    )
-                    if order is not None:
-                        obsolete_orders = obsolete_orders.exclude(pk=order.pk)
-                    obsolete_orders.update(status=Order.STATUS_CANCELLED)
-
-                    if order is None:
-                        order = Order.objects.create(
-                            user=team.leader,
-                            event=competition.event,
-                            subtotal_amount=price,
-                            discount_amount=Decimal('0'),
-                            total_amount=price,
-                            status=Order.STATUS_PENDING_PAYMENT,
-                        )
-                        OrderItem.objects.create(
-                            order=order,
-                            content_type=team_content_type,
-                            object_id=team.pk,
-                            description=(
-                                f"Team registration for '{team.name}' in "
-                                f"'{competition.title}'"
-                            ),
-                            price=price,
-                        )
-
-                    if team.status != CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION:
-                        team.status = CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION
-                        team.save(update_fields=['status'])
-
-        if completed_order is not None or free_registration:
-            payment = {
-                'payment_required': False,
-                'payment_url': None,
-                'topup': None,
-                'balance': WalletService.get_balance(request.user),
-            }
-            return self._result_response(
-                request,
-                order=completed_order,
-                payment=payment,
-            )
-
-        try:
-            payment = WalletService.pay_or_start_order_payment(
-                request.user,
-                order,
-                callback_url=get_wallet_callback_url(request),
-                metadata={'source': 'team_checkout'},
-            )
-        except WalletError as exc:
-            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-        order.refresh_from_db()
-        return self._result_response(request, order=order, payment=payment)
+        team = get_object_or_404(CompetitionTeam, pk=team_id)
+        competition_services.require_leader(team, request.user)
+        registration = competition_services.resolve_registration(
+            team, request.query_params.get('competition_id', request.data.get('competition_id')))
+        order = prepare_team_order(registration.pk, request.user)
+        if order is None or order.status == Order.STATUS_COMPLETED:
+            payment = {'payment_required': False, 'payment_url': None, 'topup': None,
+                       'balance': WalletService.get_balance(request.user)}
+        else:
+            try:
+                payment = WalletService.pay_or_start_order_payment(
+                    request.user, order, callback_url=get_wallet_callback_url(request),
+                    metadata={'source': 'team_checkout', 'registration_id': registration.pk})
+            except WalletError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            order.refresh_from_db()
+        return Response({
+            'order': OrderSerializer(order, context={'request': request}).data if order else None,
+            'payment_required': payment['payment_required'], 'payment_url': payment['payment_url'],
+            'topup_id': payment['topup'].public_id if payment['topup'] else None,
+            'wallet_balance': payment['balance'],
+        })
 
 
 @extend_schema(tags=['Shop - Cart'])
@@ -465,6 +258,13 @@ class CartItemView(views.APIView):
             return Response({"error": f"{item_type_str.replace('_', ' ').capitalize()} not found."},
                             status=status.HTTP_404_NOT_FOUND)
 
+        if isinstance(item_object, SoloCompetition) and (
+            not item_object.is_paid or (item_object.price_per_participant or 0) <= 0
+        ):
+            from events.services import register_free_solo
+            register_free_solo(item_object.pk, user)
+            return Response({'message': 'Successfully registered.'}, status=status.HTTP_201_CREATED)
+
         if not _is_content_available(item_object):
             return Response({"error": "This item is no longer available."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -476,7 +276,7 @@ class CartItemView(views.APIView):
             return Response({"message": "You already own this item."},
                             status=status.HTTP_200_OK)
 
-        if not _has_capacity(item_object):
+        if not _has_capacity(item_object, user=request.user):
             return Response({"error": "This item is sold out or has reached full capacity."},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -696,7 +496,7 @@ class OrderCheckoutView(views.APIView):
                 or item_object is None
                 or not _is_registration_open(item_object)
                 or _is_already_owned(request.user, item_object)
-                or not _has_capacity(item_object)
+                or not _has_capacity(item_object, user=request.user)
                 or bool(seen_purchase_keys & item_keys)
             ):
                 inactive.append(cart_item.id)
@@ -779,6 +579,9 @@ class OrderCheckoutView(views.APIView):
                                 price=Decimal('0'),
                                 parent_pack=order_item,
                             )
+
+            from events.services import reserve_solo_order_items
+            reserve_solo_order_items(order)
 
         if total_amount == 0:
             process_successful_order(order)
@@ -911,28 +714,15 @@ class UserPurchasesView(views.APIView):
 
         response_data['solo_competitions'] = [reg.solo_competition for reg in solo_qs if reg.solo_competition]
 
-        team_ids = set()
-        lead_qs = CompetitionTeam.objects.filter(leader=user, status=CompetitionTeam.STATUS_ACTIVE).select_related(
-            "group_competition__event", "leader"
-        )
+        from events.models import CompetitionTeamRegistration as Registration
+        from events.queries import teams_for_api
+        active_registrations = Registration.objects.filter(
+            status=Registration.ACTIVE,
+        ).filter(Q(team__leader=user) | Q(members__user=user))
         if event_id:
-            lead_qs = lead_qs.filter(group_competition__event_id=event_id)
-
-        for team in lead_qs:
-            team_ids.add(team.id)
-            response_data['competition_teams'].append(team)
-
-        mem_qs = TeamMembership.objects.filter(user=user).select_related(
-            "team__group_competition__event", "team__leader"
-        )
-        if event_id:
-            mem_qs = mem_qs.filter(team__group_competition__event_id=event_id)
-
-        for m in mem_qs:
-            team = m.team
-            if team and team.id not in team_ids and team.status == CompetitionTeam.STATUS_ACTIVE:
-                team_ids.add(team.id)
-                response_data['competition_teams'].append(team)
+            active_registrations = active_registrations.filter(competition__event_id=event_id)
+        response_data['competition_teams'] = list(teams_for_api().filter(
+            pk__in=active_registrations.values('team_id')))
 
         product_orders = Order.objects.filter(user=user, status=Order.STATUS_COMPLETED,
                                               items__content_type=ContentType.objects.get_for_model(Product))

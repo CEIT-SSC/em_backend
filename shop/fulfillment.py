@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
 
 from events.models import (
-    CompetitionTeam,
+    CompetitionTeam, CompetitionTeamRegistration,
     GroupCompetition,
     Presentation,
     PresentationEnrollment,
@@ -15,6 +15,7 @@ from events.models import (
 )
 
 from .models import Cart, CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Pack, Product
+from .eligibility import capacity_scope_key
 
 logger = logging.getLogger(__name__)
 
@@ -203,14 +204,14 @@ def has_capacity(item_object):
         if item_object.max_participants is None:
             return True
         return item_object.registrations.filter(
-            status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
+            status__in=[SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE, SoloCompetitionRegistration.STATUS_PENDING_PAYMENT],
         ).count() < item_object.max_participants
 
+    if isinstance(item_object, CompetitionTeamRegistration):
+        return item_object.status in CompetitionTeamRegistration.RESERVED_STATUSES
     if isinstance(item_object, CompetitionTeam):
-        competition = item_object.group_competition
-        if competition.max_teams is None:
-            return True
-        return competition.teams.filter(status=CompetitionTeam.STATUS_ACTIVE).count() < competition.max_teams
+        from events.services import legacy_registration
+        return has_capacity(legacy_registration(item_object))
 
     if isinstance(item_object, Product):
         if item_object.capacity is None:
@@ -241,13 +242,16 @@ def _already_fulfilled(order, item_object):
             status=SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
         ).exists()
 
-    if isinstance(item_object, CompetitionTeam):
+    if isinstance(item_object, (CompetitionTeam, CompetitionTeamRegistration)):
         return item_object.status == CompetitionTeam.STATUS_ACTIVE
 
     return False
 
 
 def _lock_capacity_scope(item_object):
+    if isinstance(item_object, CompetitionTeamRegistration):
+        from events.services import lock_registration
+        return lock_registration(item_object.pk)
     if isinstance(item_object, CompetitionTeam) and item_object.group_competition_id:
         GroupCompetition.objects.select_for_update().get(pk=item_object.group_competition_id)
         return CompetitionTeam.objects.select_for_update().get(pk=item_object.pk)
@@ -300,16 +304,28 @@ def fulfill_order(order):
             )
 
         order_items = list(order.items.select_related('content_type'))
-        locked_items = []
+        targets = []
         for order_item in order_items:
             item_object = order_item.content_object
             if item_object is None:
                 raise OrderFulfillmentError(
                     f"Order item {order_item.pk} no longer references an available object."
                 )
+            targets.append((order_item, item_object))
 
+        locked_items = []
+        for order_item, item_object in sorted(targets, key=lambda target: capacity_scope_key(target[1])):
             item_object = _lock_capacity_scope(item_object)
-            if not _already_fulfilled(order, item_object) and not has_capacity(item_object):
+            if isinstance(item_object, SoloCompetition):
+                from events.services import ensure_solo_capacity, CompetitionError
+                registration = item_object.registrations.filter(user=order.user).first()
+                if registration and registration.status == SoloCompetitionRegistration.STATUS_PENDING_PAYMENT and registration.order_item_id != order_item.pk:
+                    raise OrderFulfillmentError('Another order holds this solo registration.')
+                try:
+                    ensure_solo_capacity(item_object, exclude_user=order.user_id)
+                except CompetitionError as exc:
+                    raise OrderCapacityError(str(exc)) from exc
+            elif not _already_fulfilled(order, item_object) and not has_capacity(item_object):
                 raise OrderCapacityError(f"No capacity remains for '{order_item.description}'.")
             locked_items.append((order_item, item_object))
 
@@ -335,9 +351,22 @@ def fulfill_order(order):
                         'order_item': order_item,
                     },
                 )
+            elif isinstance(item_object, CompetitionTeamRegistration):
+                from events.fulfillment import activate_team_registration
+                from events.services import CompetitionError
+                try:
+                    activate_team_registration(item_object.pk, order_item)
+                except CompetitionError as exc:
+                    raise OrderFulfillmentError(str(exc)) from exc
             elif isinstance(item_object, CompetitionTeam):
-                item_object.status = CompetitionTeam.STATUS_ACTIVE
-                item_object.save(update_fields=['status'])
+                # Old order integrations are supported only while unambiguous.
+                from events.services import legacy_registration
+                from events.fulfillment import activate_team_registration
+                registration = legacy_registration(item_object)
+                if registration.order_item_id is None:
+                    registration.order_item = order_item
+                    registration.save(update_fields=['order_item'])
+                activate_team_registration(registration.pk, order_item)
 
         if order.discount_code_applied_id:
             discount = DiscountCode.objects.select_for_update().get(pk=order.discount_code_applied_id)
@@ -366,14 +395,23 @@ def process_successful_order(order):
 def release_order_reservations(order):
     """Release domain reservations held by an order that will not be fulfilled."""
 
+    from events.services import lock_registration, sync_legacy, legacy_registration
     with transaction.atomic():
         for order_item in order.items.select_related('content_type'):
             item_object = order_item.content_object
-            if (
-                isinstance(item_object, CompetitionTeam)
-                and item_object.status == CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION
-            ):
-                team = CompetitionTeam.objects.select_for_update().get(pk=item_object.pk)
-                if team.status == CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION:
-                    team.status = CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
-                    team.save(update_fields=['status'])
+            if isinstance(item_object, CompetitionTeam):
+                item_object = legacy_registration(item_object)
+                if not item_object.order_item_id:
+                    item_object.order_item = order_item
+                    item_object.save(update_fields=['order_item'])
+            if isinstance(item_object, CompetitionTeamRegistration):
+                registration = lock_registration(item_object.pk)
+                if registration.status == CompetitionTeamRegistration.PENDING_PAYMENT and registration.order_item_id == order_item.pk:
+                    registration.order_item = None
+                    registration.save(update_fields=['order_item', 'updated_at'])
+                    sync_legacy(registration)
+            elif isinstance(item_object, SoloCompetition):
+                SoloCompetition.objects.select_for_update().get(pk=item_object.pk)
+                SoloCompetitionRegistration.objects.filter(
+                    order_item=order_item, status=SoloCompetitionRegistration.STATUS_PENDING_PAYMENT,
+                ).update(status=SoloCompetitionRegistration.STATUS_CANCELLED, order_item=None)

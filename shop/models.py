@@ -397,6 +397,7 @@ class OrderItem(models.Model):
             models.Q(app_label='events', model='presentation')
             | models.Q(app_label='events', model='solocompetition')
             | models.Q(app_label='events', model='competitionteam')
+            | models.Q(app_label='events', model='competitionteamregistration')
             | models.Q(app_label='shop', model='product')
             | models.Q(app_label='shop', model='pack')
     )

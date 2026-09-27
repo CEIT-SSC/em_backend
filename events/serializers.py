@@ -6,7 +6,7 @@ from .models import (
     Presenter, Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
     TeamContent, ContentImage, ContentLike, ContentComment,
-    PresentationEnrollment, SoloCompetitionRegistration, Post
+    PresentationEnrollment, SoloCompetitionRegistration, Post, CompetitionTeamRegistration
 )
 
 CustomUser = get_user_model()
@@ -71,12 +71,12 @@ class SoloCompetitionSerializer(serializers.ModelSerializer):
     def get_remaining_capacity(self, obj):
         if obj.max_participants is None:
             return None
-        taken = obj.registrations.filter(
-            status__in=[
+        taken = getattr(obj, 'reserved_count', None)
+        if taken is None:
+            taken = obj.registrations.filter(status__in=[
                 SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE,
                 SoloCompetitionRegistration.STATUS_PENDING_PAYMENT,
-            ]
-        ).count()
+            ]).count()
         return max(obj.max_participants - taken, 0)
 
 
@@ -101,14 +101,9 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
     def get_remaining_capacity(self, obj):
         if obj.max_teams is None:
             return None
-        taken = obj.teams.filter(
-            status__in=[
-                CompetitionTeam.STATUS_ACTIVE,
-                CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-                CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
-                CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
-            ]
-        ).count()
+        taken = getattr(obj, 'reserved_count', None)
+        if taken is None:
+            taken = obj.registrations.filter(status__in=CompetitionTeamRegistration.RESERVED_STATUSES).count()
         return max(obj.max_teams - taken, 0)
 
 
@@ -125,8 +120,8 @@ class TeamMembershipSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeamMembership
-        fields = ['id', 'user_details', 'status', 'joined_at']
-        read_only_fields = ['joined_at']
+        fields = ['id', 'user_details', 'status', 'joined_at', 'invited_by', 'expires_at', 'responded_at']
+        read_only_fields = fields
 
 
 @ts_interface()
@@ -145,6 +140,7 @@ class TeamContentSerializer(serializers.ModelSerializer):
         write_only=True, required=False
     )
     team_name = serializers.CharField(source='team.name', read_only=True)
+    competition_id = serializers.IntegerField(source='registration.competition_id', read_only=True)
     likes_count = serializers.SerializerMethodField()
     comments_count = serializers.SerializerMethodField()
     is_liked_by_requester = serializers.SerializerMethodField()
@@ -152,11 +148,11 @@ class TeamContentSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeamContent
         fields = [
-            'id', 'team', 'team_name', 'description', 'file_link', 'images', 'uploaded_images',
+            'id', 'team', 'team_name', 'registration', 'competition_id', 'description', 'file_link', 'images', 'uploaded_images',
             'likes_count', 'comments_count', 'is_liked_by_requester',
             'created_at',
         ]
-        read_only_fields = ['team', 'team_name', 'created_at', 'likes_count', 'comments_count', 'is_liked_by_requester']
+        read_only_fields = ['team', 'team_name', 'registration', 'competition_id', 'created_at', 'likes_count', 'comments_count', 'is_liked_by_requester']
 
     @extend_schema_field(OpenApiTypes.INT)
     def get_likes_count(self, obj):
@@ -170,6 +166,8 @@ class TeamContentSerializer(serializers.ModelSerializer):
     def get_is_liked_by_requester(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
+            if 'likes' in getattr(obj, '_prefetched_objects_cache', {}):
+                return any(like.user_id == request.user.pk for like in obj.likes.all())
             return ContentLike.objects.filter(team_content=obj, user=request.user).exists()
         return False
 
@@ -195,11 +193,54 @@ class TeamContentSerializer(serializers.ModelSerializer):
 
 
 @ts_interface()
+class CompetitionTeamRegistrationSerializer(serializers.ModelSerializer):
+    competition_details = serializers.SerializerMethodField()
+    member_ids = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CompetitionTeamRegistration
+        fields = ['id', 'competition_details', 'status', 'price', 'member_ids', 'order_item',
+                  'reviewed_by', 'reviewed_at', 'admin_remarks', 'activated_at', 'created_at', 'updated_at']
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
+    def get_member_ids(self, obj):
+        return [member.user_id for member in obj.members.all()]
+
+    @extend_schema_field(GroupCompetitionSerializer)
+    def get_competition_details(self, obj):
+        if hasattr(obj, 'reserved_count'):
+            obj.competition.reserved_count = obj.reserved_count
+        return GroupCompetitionSerializer(obj.competition, context=self.context).data
+
+
+@ts_interface()
 class CompetitionTeamDetailSerializer(serializers.ModelSerializer):
     leader_details = TeamMembershipUserDetailSerializer(source='leader', read_only=True)
-    group_competition_details = GroupCompetitionSerializer(source='group_competition', read_only=True)
+    group_competition_details = serializers.SerializerMethodField()
     memberships = TeamMembershipSerializer(many=True, read_only=True)
-    content_submission = TeamContentSerializer(read_only=True, required=False)
+    registrations = CompetitionTeamRegistrationSerializer(many=True, read_only=True)
+    content_submission = serializers.SerializerMethodField()
+    management_status = serializers.CharField(default='forming', read_only=True)
+    accepted_member_count = serializers.SerializerMethodField()
+
+    @extend_schema_field(GroupCompetitionSerializer)
+    def get_group_competition_details(self, obj):
+        for registration in obj.registrations.all():
+            if registration.competition_id == obj.group_competition_id:
+                return CompetitionTeamRegistrationSerializer(registration, context=self.context).data['competition_details']
+        return GroupCompetitionSerializer(obj.group_competition, context=self.context).data if obj.group_competition_id else None
+
+    @extend_schema_field(TeamContentSerializer)
+    def get_content_submission(self, obj):
+        submissions = list(obj.content_submissions.all())
+        content = next((s for s in submissions if s.registration_id and
+                        s.registration.competition_id == obj.group_competition_id), None)
+        return TeamContentSerializer(content or (submissions[0] if submissions else None), context=self.context).data if submissions else None
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_accepted_member_count(self, obj):
+        return sum(m.status == TeamMembership.STATUS_ACCEPTED for m in obj.memberships.all())
 
     class Meta:
         model = CompetitionTeam
@@ -207,7 +248,7 @@ class CompetitionTeamDetailSerializer(serializers.ModelSerializer):
             'id', 'name', 'leader_details', 'group_competition_details',
             'status', 'is_approved_by_admin', 'admin_remarks',
             'memberships', 'content_submission',
-            'created_at',
+            'created_at', 'registrations', 'management_status', 'accepted_member_count',
         ]
         read_only_fields = fields
 
@@ -218,7 +259,8 @@ class TeamCreateSerializer(serializers.Serializer):
     member_emails = serializers.ListField(
         child=serializers.EmailField(),
         required=False,
-        allow_empty=True
+        allow_empty=True,
+        default=list,
     )
 
     def validate_team_name(self, value):
@@ -247,6 +289,15 @@ class TeamCreateSerializer(serializers.Serializer):
 @ts_interface()
 class InviteActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=['accept', 'reject'])
+
+
+class InviteMemberSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class RegistrationReviewSerializer(serializers.Serializer):
+    approve = serializers.BooleanField()
+    remarks = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 @ts_interface()

@@ -11,6 +11,7 @@ def get_item_price(item_object):
     Presentation = apps.get_model('events', 'Presentation')
     SoloCompetition = apps.get_model('events', 'SoloCompetition')
     CompetitionTeam = apps.get_model('events', 'CompetitionTeam')
+    Registration = apps.get_model('events', 'CompetitionTeamRegistration')
     Product = apps.get_model('shop', 'Product')
     Pack = apps.get_model('shop', 'Pack')
 
@@ -22,9 +23,11 @@ def get_item_price(item_object):
         return item_object.price_per_participant or Decimal('0')
     if isinstance(item_object, CompetitionTeam):
         competition = item_object.group_competition
-        if competition.is_paid and competition.price_per_member is not None:
-            return competition.price_per_member * item_object.memberships.count()
+        if competition and competition.requires_payment():
+            return competition.price_per_member * item_object.memberships.filter(status='accepted').count()
         return Decimal('0')
+    if isinstance(item_object, Registration):
+        return item_object.price
     if isinstance(item_object, Product):
         return item_object.price
     if isinstance(item_object, Pack):
