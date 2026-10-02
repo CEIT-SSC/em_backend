@@ -122,7 +122,9 @@ behavior these operations depend on. See the [Django row-lock documentation](htt
 Existing team URLs are retained. Team responses include `management_status:
 "forming"`, `accepted_member_count`, and `registrations[]`. Every registration has
 its own `competition_details`, canonical `status`, frozen `price`, `member_ids`,
-`order_item`, review audit fields and activation time.
+`content_submission` (an object or `null`), `order_item`, review audit fields and
+activation time. The submission belongs to that registration and is displayed
+with its competition in team details.
 
 | Endpoint | Request |
 | --- | --- |

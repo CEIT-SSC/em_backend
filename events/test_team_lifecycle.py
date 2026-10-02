@@ -324,9 +324,24 @@ class TeamLifecycleTests(LifecycleFixtures, TestCase):
             self.assertEqual(response.status_code, 201)
             self.assertEqual(response.data['registration'], registration.pk)
         self.assertEqual(TeamContent.objects.count(), 2)
+        details = self.client.get(f'/api/my-teams/{self.team_record.pk}/')
+        self.assertEqual(details.status_code, 200)
+        submissions = {entry['competition_details']['id']: entry['content_submission']
+                       for entry in details.data['registrations']}
+        self.assertEqual({competition_id: content['description'] for competition_id, content in submissions.items()},
+                         {registration.competition_id: f'Content {registration.pk}' for registration in registrations})
+        self.assertTrue(all(content['registration'] in [registration.pk for registration in registrations]
+                            for content in submissions.values()))
         response = self.client.get(f'/api/group-competitions/{registrations[0].competition_id}/list-content/')
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['registration'], registrations[0].pk)
+
+    def test_registration_without_content_exposes_null_submission(self):
+        registration = self.register(self.competition(allow_content_submission=True))
+        details = self.client.get(f'/api/my-teams/{self.team_record.pk}/')
+        self.assertEqual(details.status_code, 200)
+        self.assertEqual(details.data['registrations'][0]['id'], registration.pk)
+        self.assertIsNone(details.data['registrations'][0]['content_submission'])
 
     def test_purchases_include_an_active_registration_when_another_is_unpaid(self):
         active = self.register(self.competition())
@@ -337,17 +352,21 @@ class TeamLifecycleTests(LifecycleFixtures, TestCase):
         self.assertIn(active.pk, [r['id'] for r in response.data['competition_teams'][0]['registrations']])
 
     def test_team_query_count_does_not_grow_with_registration_count(self):
+        from .models import TeamContent
         from .queries import teams_for_api
         from .serializers import CompetitionTeamDetailSerializer
-        self.register(self.competition())
+        registration = self.register(self.competition())
+        TeamContent.objects.create(team=self.team_record, registration=registration, description='First')
         with CaptureQueriesContext(connection) as first:
             CompetitionTeamDetailSerializer(teams_for_api(), many=True).data
         for _ in range(4):
-            self.register(self.competition())
+            registration = self.register(self.competition())
+            TeamContent.objects.create(team=self.team_record, registration=registration,
+                                       description=f'Submission {registration.pk}')
         with CaptureQueriesContext(connection) as several:
             CompetitionTeamDetailSerializer(teams_for_api(), many=True).data
         self.assertEqual(len(first), len(several))
-        self.assertLessEqual(len(several), 8)
+        self.assertLessEqual(len(several), 9)
 
 
 class SoloLifecycleTests(LifecycleFixtures, TestCase):

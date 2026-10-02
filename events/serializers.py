@@ -196,10 +196,11 @@ class TeamContentSerializer(serializers.ModelSerializer):
 class CompetitionTeamRegistrationSerializer(serializers.ModelSerializer):
     competition_details = serializers.SerializerMethodField()
     member_ids = serializers.SerializerMethodField()
+    content_submission = TeamContentSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = CompetitionTeamRegistration
-        fields = ['id', 'competition_details', 'status', 'price', 'member_ids', 'order_item',
+        fields = ['id', 'competition_details', 'status', 'price', 'member_ids', 'content_submission', 'order_item',
                   'reviewed_by', 'reviewed_at', 'admin_remarks', 'activated_at', 'created_at', 'updated_at']
         read_only_fields = fields
 
@@ -233,10 +234,13 @@ class CompetitionTeamDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(TeamContentSerializer)
     def get_content_submission(self, obj):
-        submissions = list(obj.content_submissions.all())
-        content = next((s for s in submissions if s.registration_id and
-                        s.registration.competition_id == obj.group_competition_id), None)
-        return TeamContentSerializer(content or (submissions[0] if submissions else None), context=self.context).data if submissions else None
+        registrations = list(obj.registrations.all())
+        registration = next((r for r in registrations if r.competition_id == obj.group_competition_id), None)
+        if registration and hasattr(registration, 'content_submission'):
+            return TeamContentSerializer(registration.content_submission, context=self.context).data
+        # Historical content without a registration retains its legacy projection.
+        content = next(iter(obj.content_submissions.all()), None)
+        return TeamContentSerializer(content, context=self.context).data if content else None
 
     @extend_schema_field(OpenApiTypes.INT)
     def get_accepted_member_count(self, obj):
