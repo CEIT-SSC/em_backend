@@ -8,7 +8,7 @@ from .models import (
     Presenter, Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
     TeamContent, ContentImage, ContentLike, ContentComment,
-    PresentationEnrollment, SoloCompetitionRegistration, Post
+    PresentationEnrollment, SoloCompetitionRegistration, Post, CompetitionTeamRegistration
 )
 import re
 import datetime
@@ -298,12 +298,13 @@ def export_solo_competition_registrations(modeladmin, request, queryset):
 def send_group_competition_reminder(modeladmin, request, queryset):
     total = 0
     for comp in queryset:
-        teams = comp.teams.filter(status=CompetitionTeam.STATUS_ACTIVE)
+        registrations = comp.registrations.filter(status=CompetitionTeamRegistration.ACTIVE).select_related('team__leader').prefetch_related('members__user')
         emails_set = set()
-        for team in teams:
+        for registration in registrations:
+            team = registration.team
             if team.leader and team.leader.email:
                 emails_set.add(team.leader.email)
-            member_emails = team.memberships.values_list('user__email', flat=True)
+            member_emails = [member.user.email for member in registration.members.all()]
             emails_set.update(member_emails)
         if not emails_set:
             continue
@@ -319,27 +320,21 @@ def send_group_competition_reminder(modeladmin, request, queryset):
 
 @admin.action(description='Export group competition teams and members to Excel (.xlsx)')
 def export_group_competition_teams(modeladmin, request, queryset):
-    teams = CompetitionTeam.objects.filter(
-        group_competition__in=queryset,
-        status=CompetitionTeam.STATUS_ACTIVE
-    ).select_related('group_competition').prefetch_related('memberships__user')
-
+    registrations = CompetitionTeamRegistration.objects.filter(
+        competition__in=queryset, status=CompetitionTeamRegistration.ACTIVE,
+    ).select_related('team', 'competition').prefetch_related('members__user')
     users_map = {}
-    for team in teams:
-        for membership in team.memberships.filter(status=TeamMembership.STATUS_ACCEPTED):
+    for registration in registrations:
+        for membership in registration.members.all():
             user = membership.user
-            if not user:
-                continue
-
             user_info = users_map.setdefault(user.id, {
                 'full_name': user.get_full_name() or user.email,
                 'email': user.email,
                 'phone_number': getattr(user, 'phone_number', ''),
-                'teams': set(),
-                'competitions': set()
+                'teams': set(), 'competitions': set(),
             })
-            user_info['teams'].add(team.name)
-            user_info['competitions'].add(team.group_competition.title)
+            user_info['teams'].add(registration.team.name)
+            user_info['competitions'].add(registration.competition.title)
 
     if not users_map:
         modeladmin.message_user(request, "No active team members found for the selected competitions.", level=messages.WARNING)
@@ -509,9 +504,14 @@ class GroupCompetitionAdmin(admin.ModelAdmin):
 
 class TeamMembershipInline(admin.TabularInline):
     model = TeamMembership
-    extra = 1
-    autocomplete_fields = ['user']
-    readonly_fields = ('joined_at',)
+    extra = 0
+    readonly_fields = ('user', 'status', 'joined_at')
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
     ordering = ('-joined_at',)
     fields = ('user', 'status', 'joined_at')
 
@@ -534,34 +534,78 @@ class CompetitionTeamAdmin(admin.ModelAdmin):
     list_filter = ('status', 'is_approved_by_admin', 'group_competition__event')
     autocomplete_fields = ['leader', 'group_competition']
     inlines = [TeamMembershipInline, TeamContentInline]
-    readonly_fields = ('created_at',)
+    readonly_fields = ('created_at', 'leader', 'group_competition', 'status', 'is_approved_by_admin', 'admin_remarks')
     list_select_related = ('leader', 'group_competition')
 
-    @admin.action(description="Approve selected teams")
-    def approve_teams(self, request, queryset):
-        updated = 0
-        for team in queryset:
-            if team.needs_admin_approval() and team.status == CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION:
-                team.is_approved_by_admin = True
-                team.status = (CompetitionTeam.STATUS_ACTIVE
-                               if not team.group_competition.requires_payment()
-                               else CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT)
-                team.save()
-                updated += 1
-        self.message_user(request, f"{updated} team(s) approved.")
+    def has_add_permission(self, request):
+        return False
 
-    @admin.action(description="Reject selected teams")
-    def reject_teams(self, request, queryset):
+    def has_delete_permission(self, request, obj=None):
+        return bool(obj and not obj.registrations.exists() and not obj.group_competition_id) and super().has_delete_permission(request, obj)
+
+    def _review(self, request, queryset, approve):
+        from .services import CompetitionError, legacy_registration, review_registration
         updated = 0
         for team in queryset:
-            if team.needs_admin_approval() and team.status == CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION:
-                team.is_approved_by_admin = False
-                team.status = CompetitionTeam.STATUS_REJECTED_BY_ADMIN
-                team.save()
+            try:
+                registration = legacy_registration(team)
+                review_registration(registration.pk, request.user, approve=approve, remarks=team.admin_remarks or '')
                 updated += 1
-        self.message_user(request, f"{updated} team(s) rejected.")
+            except CompetitionError as exc:
+                self.message_user(request, str(exc), level=messages.ERROR)
+        self.message_user(request, f'{updated} registration(s) reviewed.')
+
+    @admin.action(description='Approve selected teams (single registration only)')
+    def approve_teams(self, request, queryset):
+        self._review(request, queryset, True)
+
+    @admin.action(description='Reject selected teams (single registration only)')
+    def reject_teams(self, request, queryset):
+        self._review(request, queryset, False)
 
     actions = ['approve_teams', 'reject_teams']
+
+
+@admin.register(CompetitionTeamRegistration)
+class CompetitionTeamRegistrationAdmin(admin.ModelAdmin):
+    list_display = ('team', 'competition', 'status', 'price', 'reviewed_by', 'reviewed_at', 'activated_at')
+    list_filter = ('status', 'competition__event')
+    search_fields = ('team__name', 'team__leader__email', 'competition__title')
+    list_select_related = ('team', 'competition', 'reviewed_by')
+    readonly_fields = ('team', 'competition', 'status', 'price', 'order_item', 'reviewed_by',
+                       'reviewed_at', 'activated_at', 'created_at', 'updated_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.status != CompetitionTeamRegistration.PENDING_APPROVAL:
+            return (*self.readonly_fields, 'admin_remarks')
+        return self.readonly_fields
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def _review(self, request, queryset, approve):
+        from .services import CompetitionError, review_registration
+        updated = 0
+        for registration in queryset:
+            try:
+                review_registration(registration.pk, request.user, approve=approve, remarks=registration.admin_remarks)
+                updated += 1
+            except CompetitionError as exc:
+                self.message_user(request, str(exc), level=messages.ERROR)
+        self.message_user(request, f'{updated} registration(s) reviewed.')
+
+    @admin.action(description='Approve selected registrations')
+    def approve(self, request, queryset):
+        self._review(request, queryset, True)
+
+    @admin.action(description='Reject selected registrations')
+    def reject(self, request, queryset):
+        self._review(request, queryset, False)
+
+    actions = ['approve', 'reject']
 
 
 @admin.register(TeamMembership)
@@ -570,7 +614,13 @@ class TeamMembershipAdmin(admin.ModelAdmin):
     search_fields = ('user__email', 'team__name')
     list_filter = ('team__group_competition',)
     autocomplete_fields = ['user', 'team']
-    readonly_fields = ('joined_at',)
+    readonly_fields = ('user', 'team', 'status', 'joined_at', 'invited_by', 'expires_at', 'responded_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PresentationEnrollment)
@@ -628,6 +678,10 @@ class TeamContentAdmin(admin.ModelAdmin):
     search_fields = ('team__name',)
     autocomplete_fields = ['team']
     inlines = [ContentImageInline]
+    readonly_fields = ('created_at', 'team', 'registration')
+
+    def has_add_permission(self, request):
+        return False
 
 @admin.register(ContentLike)
 class ContentLikeAdmin(admin.ModelAdmin):

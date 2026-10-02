@@ -1,4 +1,4 @@
-from django.db import transaction, models
+from django.db import transaction, IntegrityError, models
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -10,19 +10,22 @@ from em_backend.schemas import get_api_response_serializer, ApiErrorResponseSeri
     get_paginated_response_serializer
 from .models import (
     Event, Presentation,
-    SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
+    SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership, CompetitionTeamRegistration,
     TeamContent, ContentLike, ContentComment, Post
 )
 from .serializers import (
     EventListSerializer, EventDetailSerializer, PresentationSerializer,
     SoloCompetitionSerializer, GroupCompetitionSerializer,
-    TeamCreateSerializer, CompetitionTeamDetailSerializer, InviteActionSerializer,
+    TeamCreateSerializer, CompetitionTeamDetailSerializer, InviteActionSerializer, InviteMemberSerializer,
+    CompetitionTeamRegistrationSerializer, RegistrationReviewSerializer,
     TeamContentSerializer, ContentCommentSerializer, LikeStatusSerializer,
     CommentListSerializer, CommentCreateSerializer, CommentUpdateSerializer, PostListSerializer, PostDetailSerializer,
     TeamMembershipSerializer
 )
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
+from . import services
+from .queries import teams_for_api
 
 CustomUser = get_user_model()
 
@@ -118,7 +121,9 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         event_id = self.request.query_params.get('event')
-        queryset = SoloCompetition.objects.select_related('event')
+        queryset = SoloCompetition.objects.select_related('event').annotate(
+            reserved_count=models.Count('registrations', filter=models.Q(
+                registrations__status__in=['pending_payment', 'completed_or_free'])))
 
         if event_id:
             return queryset.filter(event_id=event_id).order_by('start_datetime')
@@ -144,8 +149,9 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = GroupCompetitionSerializer
     filterset_fields = ['event', 'is_paid']
-    queryset = GroupCompetition.objects.select_related(
-        'event').order_by('start_datetime')
+    queryset = GroupCompetition.objects.select_related('event').annotate(
+        reserved_count=models.Count('registrations', filter=models.Q(
+            registrations__status__in=CompetitionTeamRegistration.RESERVED_STATUSES))).order_by('start_datetime')
 
     @extend_schema(
         summary="List all content submissions for a group competition",
@@ -162,10 +168,10 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({"error": "Content submission is not allowed for this competition."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        active_teams = CompetitionTeam.objects.filter(group_competition=group_competition,
-                                                      status=CompetitionTeam.STATUS_ACTIVE)
-        content_submissions = TeamContent.objects.filter(team__in=active_teams).select_related(
-            'team__leader').prefetch_related('images', 'likes', 'comments')
+        content_submissions = TeamContent.objects.filter(
+            registration__competition=group_competition,
+            registration__status=CompetitionTeamRegistration.ACTIVE,
+        ).select_related('team__leader', 'registration__competition').prefetch_related('images', 'likes', 'comments')
 
         serializer = TeamContentSerializer(
             content_submissions, many=True, context={'request': request})
@@ -204,7 +210,6 @@ class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
     destroy=extend_schema(
         summary="Delete a team (leader only, if 'forming')",
         responses={
-            204: get_api_response_serializer(None),
             400: ApiErrorResponseSerializer,
             403: ApiErrorResponseSerializer,
         },
@@ -221,11 +226,10 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
 
     def get_queryset(self):
         user_teams_ids = TeamMembership.objects.filter(
-            user=self.request.user).values_list('team_id', flat=True)
-        return CompetitionTeam.objects.filter(
-            models.Q(id__in=user_teams_ids)
-        ).distinct().select_related('group_competition', 'leader').prefetch_related('memberships__user').order_by(
-            '-created_at')
+            user=self.request.user, status=TeamMembership.STATUS_ACCEPTED).values_list('team_id', flat=True)
+        return teams_for_api().filter(
+            models.Q(id__in=user_teams_ids) | models.Q(leader=self.request.user)
+        ).order_by('-created_at')
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -234,39 +238,66 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
 
     def perform_create(self, serializer):
         team_name = serializer.validated_data['team_name']
-        member_emails = serializer.validated_data['member_emails']
+        member_emails = serializer.validated_data.get('member_emails', [])
         leader = self.request.user
 
         with transaction.atomic():
             team = CompetitionTeam.objects.create(
                 name=team_name, leader=leader)
             TeamMembership.objects.create(
-                user=leader, team=team, status=TeamMembership.STATUS_ACCEPTED)
+                user=leader, team=team, status=TeamMembership.STATUS_ACCEPTED, expires_at=None, responded_at=timezone.now())
 
             for email in member_emails:
                 member_user = CustomUser.objects.get(email__iexact=email)
                 TeamMembership.objects.create(
-                    user=member_user, team=team, status=TeamMembership.STATUS_PENDING)
+                    user=member_user, team=team, status=TeamMembership.STATUS_PENDING, invited_by=leader)
         return team
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        team = self.perform_create(serializer)
+        try:
+            team = self.perform_create(serializer)
+        except IntegrityError:
+            raise services.CompetitionError('A team with this name already exists.', 'duplicate_team')
         headers = self.get_success_headers(serializer.data)
         return Response(CompetitionTeamDetailSerializer(team, context={'request': request}).data,
                         status=status.HTTP_201_CREATED, headers=headers)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        if instance.leader != request.user:
-            return Response({"error": "Only the team leader can delete the team."}, status=status.HTTP_403_FORBIDDEN)
-        # if instance.status == CompetitionTeam.STATUS_ACTIVE:
-        #     return Response({"error": "Teams is already active."},
-        #                     status=status.HTTP_400_BAD_REQUEST)
-
-        self.perform_destroy(instance)
+        services.delete_team(instance.pk, request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=InviteMemberSerializer, responses={201: TeamMembershipSerializer})
+    @action(detail=True, methods=['post'], url_path='add-member')
+    def add_member(self, request, pk=None):
+        team = self.get_object()
+        serializer = InviteMemberSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        membership = services.invite_member(team.pk, request.user, serializer.validated_data['email'])
+        return Response(TeamMembershipSerializer(membership).data, status=201)
+
+    @extend_schema(request=None, responses={200: CompetitionTeamRegistrationSerializer})
+    @action(detail=True, methods=['post'], url_path='cancel-registration/(?P<competition_pk>[0-9]+)')
+    def cancel_registration(self, request, pk=None, competition_pk=None):
+        registration = services.resolve_registration(self.get_object(), competition_pk)
+        registration = services.cancel_registration(registration.pk, request.user)
+        return Response(CompetitionTeamRegistrationSerializer(registration).data)
+
+    @extend_schema(request=RegistrationReviewSerializer, responses={200: CompetitionTeamRegistrationSerializer})
+    @action(detail=True, methods=['post'], url_path='review-registration/(?P<competition_pk>[0-9]+)')
+    def review_registration(self, request, pk=None, competition_pk=None):
+        # Staff review is also available through the registration admin.
+        if not request.user.is_staff:
+            raise services.CompetitionError('Administrative review requires staff access.', 'staff_required', 403)
+        team = get_object_or_404(CompetitionTeam, pk=pk)
+        registration = services.resolve_registration(team, competition_pk)
+        serializer = RegistrationReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        registration = services.review_registration(registration.pk, request.user,
+            approve=serializer.validated_data['approve'], remarks=serializer.validated_data['remarks'])
+        return Response(CompetitionTeamRegistrationSerializer(registration).data)
 
     @extend_schema(
         summary="Register team for a competition (leader only)",
@@ -277,97 +308,13 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
     @action(detail=True, methods=['post'], url_path='register-competition/(?P<competition_pk>[^/.]+)')
     def register_for_competition(self, request, pk=None, competition_pk=None):
         team = self.get_object()
-        if team.leader != request.user:
-            return Response({"error": "Only the team leader can register the team."}, status=status.HTTP_403_FORBIDDEN)
-        if team.status != CompetitionTeam.STATUS_FORMING:
-            return Response({"error": "Team must be in 'forming' state to register."},
-                            status=status.HTTP_400_BAD_REQUEST)
-        if not team.is_ready_for_competition():
-            return Response({"error": "Not all members have accepted their invitations."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        with transaction.atomic():
-            competition = get_object_or_404(
-                GroupCompetition.objects.select_for_update(), pk=competition_pk)
-
-            if competition.max_teams is not None:
-                active_teams_count = competition.teams.filter(
-                    status__in=[
-                        CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
-                        CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-                        CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
-                        CompetitionTeam.STATUS_ACTIVE
-                    ]
-                ).count()
-                if active_teams_count >= competition.max_teams:
-                    return Response(
-                        {"error": "This competition has reached its maximum number of teams."},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-            current_team_member_ids = list(team.memberships.filter(
-                status=TeamMembership.STATUS_ACCEPTED
-            ).values_list('user_id', flat=True))
-
-            registered_statuses = [
-                CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION,
-                CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT,
-                CompetitionTeam.STATUS_AWAITING_PAYMENT_CONFIRMATION,
-                CompetitionTeam.STATUS_ACTIVE,
-            ]
-
-            other_teams_in_comp = CompetitionTeam.objects.filter(
-                group_competition=competition,
-                status__in=registered_statuses
-            ).exclude(pk=team.id)
-
-            conflicting_leader_team = other_teams_in_comp.filter(
-                leader_id__in=current_team_member_ids).first()
-            if conflicting_leader_team:
-                conflicting_user = CustomUser.objects.get(
-                    pk=conflicting_leader_team.leader_id)
-                return Response({
-                    "error": f"A member of your team ({conflicting_user.get_full_name() or conflicting_user.email}) is already the leader of another team ('{conflicting_leader_team.name}') in this competition."
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            conflicting_membership = TeamMembership.objects.filter(
-                team__in=other_teams_in_comp,
-                user_id__in=current_team_member_ids,
-                status=TeamMembership.STATUS_ACCEPTED
-            ).select_related('user', 'team').first()
-
-            if conflicting_membership:
-                return Response({
-                    "error": f"A member of your team ({conflicting_membership.user.get_full_name() or conflicting_membership.user.email}) is already a member of another team ('{conflicting_membership.team.name}') in this competition."
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if not competition.is_active or (competition.event and not competition.event.is_active):
-                return Response({"error": "This competition is not active or available for registration."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-            if competition.start_datetime and timezone.now() > competition.start_datetime:
-                return Response({"error": "The registration deadline for this competition has passed."},
-                                status=status.HTTP_400_BAD_REQUEST)
-
-            team_size = len(current_team_member_ids)
-            if not (competition.min_group_size <= team_size <= competition.max_group_size):
-                return Response({
-                    "error": f"Team size ({team_size}) is not within the competition's limits ({competition.min_group_size}-{competition.max_group_size})."},
-                    status=status.HTTP_400_BAD_REQUEST)
-
-            team.group_competition = competition
-            if competition.requires_admin_approval:
-                team.status = CompetitionTeam.STATUS_PENDING_ADMIN_VERIFICATION
-            else:
-                team.status = (
-                    CompetitionTeam.STATUS_APPROVED_AWAITING_PAYMENT
-                    if competition.requires_payment()
-                    else CompetitionTeam.STATUS_ACTIVE
-                )
-            team.save()
-
-            return Response(CompetitionTeamDetailSerializer(team, context={'request': request}).data,
-                            status=status.HTTP_200_OK)
+        try:
+            competition_id = int(competition_pk)
+        except (ValueError, TypeError):
+            raise services.CompetitionError('Invalid competition ID.', 'invalid_competition')
+        services.register_team(team.pk, competition_id, request.user)
+        team.refresh_from_db()
+        return Response(CompetitionTeamDetailSerializer(team, context={'request': request}).data)
 
     @extend_schema(
         summary="Submit/Update Team Content",
@@ -388,8 +335,9 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
             return Response({"error": "Only the team leader can submit/update content."},
                             status=status.HTTP_403_FORBIDDEN)
 
-        competition = team.group_competition
-        if not competition or not competition.allow_content_submission:
+        registration = services.resolve_registration(team, request.query_params.get('competition_id'))
+        competition = registration.competition
+        if not competition.allow_content_submission:
             return Response({"error": "Content submission is not allowed for this competition."},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -398,11 +346,11 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
             return Response({"error": "Content can only be submitted within the competition's time frame."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        if team.status != CompetitionTeam.STATUS_ACTIVE:
+        if registration.status != CompetitionTeamRegistration.ACTIVE:
             return Response({"error": "Team must be active to submit content."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            content_instance = TeamContent.objects.get(team=team)
+            content_instance = TeamContent.objects.get(registration=registration)
             serializer = TeamContentSerializer(content_instance, data=request.data, partial=(request.method == 'PUT'),
                                                context={'request': request})
         except TeamContent.DoesNotExist:
@@ -410,7 +358,7 @@ class MyTeamsViewSet(mixins.CreateModelMixin,
                 data=request.data, context={'request': request})
 
         if serializer.is_valid():
-            instance = serializer.save(team=team) if not getattr(
+            instance = serializer.save(team=team, registration=registration) if not getattr(
                 serializer, 'instance', None) else serializer.save()
             status_code = status.HTTP_201_CREATED if request.method == 'POST' else status.HTTP_200_OK
             return Response(TeamContentSerializer(instance, context={'request': request}).data, status=status_code)
@@ -432,9 +380,11 @@ class MyInvitationsViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return CompetitionTeam.objects.filter(
+        return teams_for_api().filter(
+            models.Q(memberships__expires_at__gt=timezone.now()) |
+            models.Q(memberships__expires_at__isnull=True),
             memberships__user=self.request.user,
-            memberships__status=TeamMembership.STATUS_PENDING
+            memberships__status=TeamMembership.STATUS_PENDING,
         ).distinct()
 
     @extend_schema(
@@ -442,31 +392,14 @@ class MyInvitationsViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         request=InviteActionSerializer,
         responses={
             200: get_api_response_serializer(TeamMembershipSerializer),
-            204: get_api_response_serializer(None),
         }
     )
     @action(detail=True, methods=['post'], url_path='respond')
     def respond_to_invitation(self, request, pk=None):
-        team = self.get_object()
-        membership = get_object_or_404(
-            TeamMembership, team=team, user=request.user)
-
-        if membership.status != TeamMembership.STATUS_PENDING:
-            return Response({"error": "This invitation has already been responded to."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
         serializer = InviteActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        action = serializer.validated_data['action']
-
-        if action == 'accept':
-            membership.status = TeamMembership.STATUS_ACCEPTED
-            membership.save()
-        elif action == 'reject':
-            membership.delete()
-            return Response({"message": "Invitation rejected."}, status=status.HTTP_204_NO_CONTENT)
-
-        return Response(TeamMembershipSerializer(membership).data, status=status.HTTP_200_OK)
+        membership = services.respond_to_invitation(pk, request.user, serializer.validated_data['action'])
+        return Response(TeamMembershipSerializer(membership).data)
 
 
 @extend_schema(tags=['Events - Content Interactions'])
@@ -477,7 +410,7 @@ class MyInvitationsViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         responses={200: get_api_response_serializer(TeamContentSerializer), 404: ApiErrorResponseSerializer})
 )
 class TeamContentViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = TeamContent.objects.filter(team__status=CompetitionTeam.STATUS_ACTIVE).select_related('team__leader',
+    queryset = TeamContent.objects.filter(registration__status=CompetitionTeamRegistration.ACTIVE).select_related('team__leader',
                                                                                                      'team__group_competition').prefetch_related(
         'images', 'likes', 'comments')
     serializer_class = TeamContentSerializer

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django_typomatic import ts_interface
-from events.models import Presentation, SoloCompetition, CompetitionTeam
-from events.serializers import PresentationSerializer, SoloCompetitionSerializer, CompetitionTeamDetailSerializer
+from events.models import Presentation, SoloCompetition, CompetitionTeam, CompetitionTeamRegistration
+from events.serializers import PresentationSerializer, SoloCompetitionSerializer, CompetitionTeamDetailSerializer, CompetitionTeamRegistrationSerializer
 from .models import Cart, CartItem, Order, Pack, Product
 from .pricing import get_item_price
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
@@ -195,6 +195,7 @@ class OrderSerializer(serializers.ModelSerializer):
     presentations = serializers.SerializerMethodField()
     solo_competitions = serializers.SerializerMethodField()
     competition_teams = serializers.SerializerMethodField()
+    team_registrations = serializers.SerializerMethodField()
     products = serializers.SerializerMethodField()
     packs = serializers.SerializerMethodField()
     user_email = serializers.EmailField(source='user.email', read_only=True, allow_null=True)
@@ -204,14 +205,14 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             'order_id', 'user', 'user_email', 'event',
-            'presentations', 'solo_competitions', 'competition_teams', 'products', 'packs',
+            'presentations', 'solo_competitions', 'competition_teams', 'team_registrations', 'products', 'packs',
             'subtotal_amount', 'discount_code_applied', 'discount_code_str',
             'discount_amount', 'total_amount', 'status',
             'created_at', 'paid_at',
         ]
         read_only_fields = [
             'order_id', 'user', 'user_email',
-            'presentations', 'solo_competitions', 'competition_teams', 'products', 'packs',
+            'presentations', 'solo_competitions', 'competition_teams', 'team_registrations', 'products', 'packs',
             'subtotal_amount', 'discount_code_str', 'discount_amount', 'total_amount',
             'created_at', 'paid_at',
         ]
@@ -234,7 +235,13 @@ class OrderSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(CompetitionTeamDetailSerializer(many=True))
     def get_competition_teams(self, obj):
-        return CompetitionTeamDetailSerializer(self._get_items_by_type(obj, CompetitionTeam), many=True,
+        teams = self._get_items_by_type(obj, CompetitionTeam)
+        teams.extend(registration.team for registration in self._get_items_by_type(obj, CompetitionTeamRegistration))
+        return CompetitionTeamDetailSerializer(teams, many=True, context=self.context).data
+
+    @extend_schema_field(CompetitionTeamRegistrationSerializer(many=True))
+    def get_team_registrations(self, obj):
+        return CompetitionTeamRegistrationSerializer(self._get_items_by_type(obj, CompetitionTeamRegistration), many=True,
                                                context=self.context).data
 
     @extend_schema_field(ProductSerializer(many=True))
@@ -278,7 +285,7 @@ class UserPurchasesSerializer(serializers.Serializer):
     products = ProductSerializer(many=True, read_only=True)
     packs = PackSerializer(many=True, read_only=True)
 
-    @extend_schema_field(CompetitionTeamDetailSerializer(many=True))
+    @extend_schema_field(CompetitionTeamRegistrationSerializer(many=True))
     def get_competition_teams(self, instance):
         teams = instance.get('competition_teams', [])
         return CompetitionTeamDetailSerializer(teams, many=True, context=self.context).data
