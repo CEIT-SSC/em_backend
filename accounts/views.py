@@ -661,7 +661,10 @@ class SimpleForgotPasswordView(views.APIView):
         try:
             user = CustomUser.objects.get(email=email)
         except CustomUser.DoesNotExist:
-            return Response(tmp_message, status=status.HTTP_200_OK)
+            try:
+                user = CustomUser.objects.get(email__iexact=email)
+            except (CustomUser.DoesNotExist, CustomUser.MultipleObjectsReturned):
+                return Response(tmp_message, status=status.HTTP_200_OK)
 
         new_password = generate_numeric_code(length=8)
 
