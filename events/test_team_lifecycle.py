@@ -366,7 +366,7 @@ class TeamLifecycleTests(LifecycleFixtures, TestCase):
         with CaptureQueriesContext(connection) as several:
             CompetitionTeamDetailSerializer(teams_for_api(), many=True).data
         self.assertEqual(len(first), len(several))
-        self.assertLessEqual(len(several), 9)
+        self.assertLessEqual(len(several), 10)
 
 
 class SoloLifecycleTests(LifecycleFixtures, TestCase):

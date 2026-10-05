@@ -8,7 +8,8 @@ from .models import (
     Presenter, Event, Presentation,
     SoloCompetition, GroupCompetition, CompetitionTeam, TeamMembership,
     TeamContent, ContentImage, ContentLike, ContentComment,
-    PresentationEnrollment, SoloCompetitionRegistration, Post, CompetitionTeamRegistration
+    PresentationEnrollment, SoloCompetitionRegistration, Post, CompetitionTeamRegistration,
+    RegistrationPrerequisite,
 )
 import re
 import datetime
@@ -379,8 +380,76 @@ class SMSForm(forms.Form):
     message = forms.CharField(widget=forms.Textarea(attrs={"rows": 4, "cols": 50}), label="SMS Message")
 
 
+class RegistrationPrerequisiteAdminForm(forms.ModelForm):
+    required_item = forms.ChoiceField(
+        label='Required prior registration',
+        help_text='Choose one presentation, workshop, solo competition, or group competition.',
+    )
+
+    item_models = (
+        ('presentation', Presentation, 'Presentations and workshops'),
+        ('solo_competition', SoloCompetition, 'Solo competitions'),
+        ('group_competition', GroupCompetition, 'Group competitions'),
+    )
+
+    class Meta:
+        model = RegistrationPrerequisite
+        fields = ()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        choices = [('', '---------')]
+        for kind, model, label in self.item_models:
+            choices.append((label, [
+                (f'{kind}:{pk}', title)
+                for pk, title in model.objects.order_by('title', 'pk').values_list('pk', 'title')
+            ]))
+            selected_id = getattr(self.instance, f'required_{kind}_id')
+            if selected_id is not None:
+                self.initial['required_item'] = f'{kind}:{selected_id}'
+        self.fields['required_item'].choices = choices
+
+    def clean(self):
+        cleaned = super().clean()
+        selection = cleaned.get('required_item')
+        if selection:
+            kind, object_id = selection.split(':', 1)
+            model = next(model for candidate, model, _label in self.item_models if candidate == kind)
+            try:
+                item = model.objects.get(pk=object_id)
+            except model.DoesNotExist:
+                self.add_error('required_item', 'The selected item no longer exists.')
+                return cleaned
+            for candidate, _model, _label in self.item_models:
+                setattr(self.instance, f'required_{candidate}', None)
+            setattr(self.instance, f'required_{kind}', item)
+        return cleaned
+
+
+class RegistrationPrerequisiteInline(admin.TabularInline):
+    model = RegistrationPrerequisite
+    form = RegistrationPrerequisiteAdminForm
+    extra = 0
+    fields = ('required_item',)
+    verbose_name = 'Required prior registration'
+    verbose_name_plural = 'Required prior registrations (all must be completed)'
+
+
+class PresentationPrerequisiteInline(RegistrationPrerequisiteInline):
+    fk_name = 'presentation'
+
+
+class SoloCompetitionPrerequisiteInline(RegistrationPrerequisiteInline):
+    fk_name = 'solo_competition'
+
+
+class GroupCompetitionPrerequisiteInline(RegistrationPrerequisiteInline):
+    fk_name = 'group_competition'
+
+
 @admin.register(Presentation)
 class PresentationAdmin(admin.ModelAdmin):
+    inlines = [PresentationPrerequisiteInline]
     list_display = ("title", "event", "type", "level", "start_time", "is_active", "is_paid")
     list_filter = ("is_active", "is_paid", "event", "type", "level")
     search_fields = ("title", "description", "event__title", "presenters__name")
@@ -484,6 +553,7 @@ class EventAdmin(admin.ModelAdmin):
 
 @admin.register(SoloCompetition)
 class SoloCompetitionAdmin(admin.ModelAdmin):
+    inlines = [SoloCompetitionPrerequisiteInline]
     list_display = ('title', 'event', 'start_datetime', 'is_active', 'is_paid')
     search_fields = ('title', 'description', 'event__title')
     list_filter = ('is_paid', 'is_active', 'event')
@@ -494,6 +564,7 @@ class SoloCompetitionAdmin(admin.ModelAdmin):
 
 @admin.register(GroupCompetition)
 class GroupCompetitionAdmin(admin.ModelAdmin):
+    inlines = [GroupCompetitionPrerequisiteInline]
     list_display = ('title', 'event', 'start_datetime', 'is_active', 'requires_admin_approval')
     search_fields = ('title', 'description', 'event__title')
     list_filter = ('is_paid', 'is_active', 'requires_admin_approval', 'event')

@@ -1,4 +1,5 @@
 from django.db import transaction, IntegrityError, models
+from django.db.models import Prefetch
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -25,7 +26,7 @@ from .serializers import (
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from . import services
-from .queries import teams_for_api
+from .queries import teams_for_api, prerequisite_queryset
 
 CustomUser = get_user_model()
 
@@ -92,7 +93,8 @@ class PresentationViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = Presentation.objects.select_related(
-            'event').prefetch_related('presenters')
+            'event').prefetch_related('presenters', Prefetch(
+                'registration_prerequisites', queryset=prerequisite_queryset()))
         event_id = self.request.query_params.get('event')
         if event_id:
             return queryset.filter(event_id=event_id).order_by('start_time')
@@ -121,7 +123,8 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         event_id = self.request.query_params.get('event')
-        queryset = SoloCompetition.objects.select_related('event').annotate(
+        queryset = SoloCompetition.objects.select_related('event').prefetch_related(Prefetch(
+            'registration_prerequisites', queryset=prerequisite_queryset())).annotate(
             reserved_count=models.Count('registrations', filter=models.Q(
                 registrations__status__in=['pending_payment', 'completed_or_free'])))
 
@@ -149,7 +152,8 @@ class SoloCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
 class GroupCompetitionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = GroupCompetitionSerializer
     filterset_fields = ['event', 'is_paid']
-    queryset = GroupCompetition.objects.select_related('event').annotate(
+    queryset = GroupCompetition.objects.select_related('event').prefetch_related(Prefetch(
+        'registration_prerequisites', queryset=prerequisite_queryset())).annotate(
         reserved_count=models.Count('registrations', filter=models.Q(
             registrations__status__in=CompetitionTeamRegistration.RESERVED_STATUSES))).order_by('start_datetime')
 

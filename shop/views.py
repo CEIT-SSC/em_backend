@@ -27,6 +27,7 @@ from .eligibility import (
     is_content_available as _is_content_available,
     is_registration_open as _is_registration_open,
     purchase_item_keys as _purchase_item_keys,
+    prerequisite_error_for_item as _prerequisite_error_for_item,
 )
 
 Presentation = apps.get_model('events', 'Presentation')
@@ -257,6 +258,11 @@ class CartItemView(views.APIView):
         except item_model.DoesNotExist:
             return Response({"error": f"{item_type_str.replace('_', ' ').capitalize()} not found."},
                             status=status.HTTP_404_NOT_FOUND)
+
+        prerequisite_error = _prerequisite_error_for_item(user, item_object)
+        if prerequisite_error:
+            return Response({'error': prerequisite_error, 'code': 'prerequisite_required'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         if isinstance(item_object, SoloCompetition) and (
             not item_object.is_paid or (item_object.price_per_participant or 0) <= 0
@@ -490,6 +496,11 @@ class OrderCheckoutView(views.APIView):
         seen_purchase_keys = set()
         for cart_item in cart_item_list:
             item_object = cart_item.content_object
+            if item_object is not None:
+                prerequisite_error = _prerequisite_error_for_item(request.user, item_object)
+                if prerequisite_error:
+                    return Response({'error': prerequisite_error, 'code': 'prerequisite_required'},
+                                    status=status.HTTP_400_BAD_REQUEST)
             item_keys = _purchase_item_keys(item_object) if item_object is not None else set()
             if (
                 not _is_cart_item_active(cart_item)

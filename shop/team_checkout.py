@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from events.models import CompetitionTeamRegistration as Registration
 from events.services import CompetitionError, lock_registration, require_leader, sync_legacy, validate_open
+from events.prerequisites import prerequisite_error
 from .models import Order, OrderItem
 
 
@@ -15,6 +16,9 @@ def prepare_team_order(registration_id, actor):
         return registration.order_item.order if registration.order_item_id else None
     if registration.status != Registration.PENDING_PAYMENT:
         raise CompetitionError('This registration is not approved and awaiting payment.')
+    error = prerequisite_error(registration.competition, registration.members.values_list('user_id', flat=True))
+    if error:
+        raise CompetitionError(error, 'prerequisite_required')
     validate_open(registration.competition)
     if registration.price == 0:
         registration.status = Registration.ACTIVE
