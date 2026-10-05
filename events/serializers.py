@@ -12,6 +12,27 @@ from .models import (
 CustomUser = get_user_model()
 
 
+def registration_prerequisites_for(item):
+    if 'registration_prerequisites' in getattr(item, '_prefetched_objects_cache', {}):
+        prerequisites = item.registration_prerequisites.all()
+    else:
+        prerequisites = item.registration_prerequisites.select_related(
+            'required_presentation', 'required_solo_competition', 'required_group_competition'
+        )
+    return [
+        {
+            'item_type': (
+                'presentation' if requirement.required_presentation_id else
+                'solo_competition' if requirement.required_solo_competition_id else 'group_competition'
+            ),
+            'item_id': requirement.required_presentation_id or requirement.required_solo_competition_id
+            or requirement.required_group_competition_id,
+            'title': requirement.required_item.title,
+        }
+        for requirement in prerequisites
+    ]
+
+
 @ts_interface()
 class PresenterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -28,6 +49,7 @@ class PresentationSerializer(serializers.ModelSerializer):
     )
     event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
     remaining_capacity = serializers.SerializerMethodField(read_only=True)
+    registration_prerequisites = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Presentation
@@ -36,7 +58,8 @@ class PresentationSerializer(serializers.ModelSerializer):
             'presenters_details', 'presenter_ids',
             'type', 'level', 'is_online', 'location', 'online_link',
             'start_time', 'end_time', 'is_paid', 'price', 'capacity',
-            'is_active', 'poster', 'remaining_capacity', "requirements", "contents", "timing"
+            'is_active', 'poster', 'remaining_capacity', 'registration_prerequisites',
+            "requirements", "contents", "timing"
         ]
         read_only_fields = ['event_title', ]
 
@@ -52,18 +75,22 @@ class PresentationSerializer(serializers.ModelSerializer):
         ).count()
         return max(obj.capacity - taken, 0)
 
+    def get_registration_prerequisites(self, obj):
+        return registration_prerequisites_for(obj)
+
 
 @ts_interface()
 class SoloCompetitionSerializer(serializers.ModelSerializer):
     event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
     remaining_capacity = serializers.SerializerMethodField(read_only=True)
+    registration_prerequisites = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = SoloCompetition
         fields = [
             'id', 'event', 'event_title', 'title', 'description', 'start_datetime', 'end_datetime', 'poster',
             'rules', 'is_paid', 'price_per_participant', 'prize_details', 'is_active',
-            'max_participants', 'created_at', 'remaining_capacity',
+            'max_participants', 'created_at', 'remaining_capacity', 'registration_prerequisites',
         ]
         read_only_fields = ['event_title', 'created_at', ]
 
@@ -79,11 +106,15 @@ class SoloCompetitionSerializer(serializers.ModelSerializer):
             ]).count()
         return max(obj.max_participants - taken, 0)
 
+    def get_registration_prerequisites(self, obj):
+        return registration_prerequisites_for(obj)
+
 
 @ts_interface()
 class GroupCompetitionSerializer(serializers.ModelSerializer):
     event_title = serializers.CharField(source='event.title', read_only=True, allow_null=True)
     remaining_capacity = serializers.SerializerMethodField(read_only=True)
+    registration_prerequisites = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = GroupCompetition
@@ -93,7 +124,7 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
             'min_group_size', 'max_group_size', 'max_teams',
             'requires_admin_approval', 'member_verification_instructions',
             'allow_content_submission',
-            'created_at', 'remaining_capacity',
+            'created_at', 'remaining_capacity', 'registration_prerequisites',
         ]
         read_only_fields = ['event_title', 'created_at', ]
 
@@ -105,6 +136,9 @@ class GroupCompetitionSerializer(serializers.ModelSerializer):
         if taken is None:
             taken = obj.registrations.filter(status__in=CompetitionTeamRegistration.RESERVED_STATUSES).count()
         return max(obj.max_teams - taken, 0)
+
+    def get_registration_prerequisites(self, obj):
+        return registration_prerequisites_for(obj)
 
 
 @ts_interface()

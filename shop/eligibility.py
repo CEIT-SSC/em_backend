@@ -152,6 +152,27 @@ def is_already_owned_or_pending(user, item_object):
     return is_already_owned(user, item_object) or is_pending(user, item_object)
 
 
+def prerequisite_error_for_item(user, item_object):
+    from events.prerequisites import prerequisite_error
+
+    if isinstance(item_object, Pack):
+        for component in pack_components(item_object):
+            if component is None:
+                continue
+            error = prerequisite_error_for_item(user, component)
+            if error:
+                return error
+        return None
+    if isinstance(item_object, Registration):
+        return prerequisite_error(
+            item_object.competition, item_object.members.values_list('user_id', flat=True)
+        )
+    if isinstance(item_object, CompetitionTeam):
+        from events.services import legacy_registration
+        return prerequisite_error_for_item(user, legacy_registration(item_object))
+    return prerequisite_error(item_object, [user.pk])
+
+
 def has_capacity(item_object, user=None):
     if isinstance(item_object, Pack):
         components = pack_components(item_object)
@@ -254,6 +275,9 @@ def validate_order_items_for_payment(order):
             raise OrderPaymentEligibilityError(
                 f"{order_item.description} is already owned."
             )
+        prerequisite_error_message = prerequisite_error_for_item(order.user, item_object)
+        if prerequisite_error_message:
+            raise OrderPaymentEligibilityError(prerequisite_error_message)
         if isinstance(item_object, Registration):
             if (item_object.status != Registration.PENDING_PAYMENT or
                 item_object.order_item_id != order_item.pk or item_object.leader_id != order.user_id):

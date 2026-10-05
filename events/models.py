@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 from datetime import timedelta
 
 
@@ -145,6 +146,66 @@ class GroupCompetition(BaseCompetition):
 
     def requires_payment(self):
         return bool(self.is_paid and self.price_per_member and self.price_per_member > 0)
+
+
+class RegistrationPrerequisite(models.Model):
+    """A confirmed registration required before registering for another item."""
+
+    presentation = models.ForeignKey(Presentation, on_delete=models.CASCADE, null=True, blank=True,
+                                     related_name='registration_prerequisites')
+    solo_competition = models.ForeignKey(SoloCompetition, on_delete=models.CASCADE, null=True, blank=True,
+                                         related_name='registration_prerequisites')
+    group_competition = models.ForeignKey(GroupCompetition, on_delete=models.CASCADE, null=True, blank=True,
+                                          related_name='registration_prerequisites')
+    required_presentation = models.ForeignKey(Presentation, on_delete=models.CASCADE, null=True, blank=True,
+                                              related_name='required_by_registrations')
+    required_solo_competition = models.ForeignKey(SoloCompetition, on_delete=models.CASCADE, null=True, blank=True,
+                                                  related_name='required_by_registrations')
+    required_group_competition = models.ForeignKey(GroupCompetition, on_delete=models.CASCADE, null=True, blank=True,
+                                                   related_name='required_by_registrations')
+
+    class Meta:
+        verbose_name = 'Registration prerequisite'
+        verbose_name_plural = 'Registration prerequisites'
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(presentation__isnull=False, solo_competition__isnull=True, group_competition__isnull=True)
+                    | models.Q(presentation__isnull=True, solo_competition__isnull=False, group_competition__isnull=True)
+                    | models.Q(presentation__isnull=True, solo_competition__isnull=True, group_competition__isnull=False)
+                ), name='one_prerequisite_target'),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(required_presentation__isnull=False, required_solo_competition__isnull=True, required_group_competition__isnull=True)
+                    | models.Q(required_presentation__isnull=True, required_solo_competition__isnull=False, required_group_competition__isnull=True)
+                    | models.Q(required_presentation__isnull=True, required_solo_competition__isnull=True, required_group_competition__isnull=False)
+                ), name='one_prerequisite_requirement'),
+        ]
+
+    def clean(self):
+        super().clean()
+        targets = [self.presentation_id, self.solo_competition_id, self.group_competition_id]
+        required = [self.required_presentation_id, self.required_solo_competition_id,
+                    self.required_group_competition_id]
+        target_fields = ('presentation', 'solo_competition', 'group_competition')
+        target_count = sum(
+            value is not None or self._state.fields_cache.get(field) is not None
+            for field, value in zip(target_fields, targets)
+        )
+        if target_count != 1:
+            raise ValidationError('Select exactly one item that requires registration.')
+        if sum(value is not None for value in required) != 1:
+            raise ValidationError('Select exactly one required item.')
+        if any(target is not None and target == prerequisite for target, prerequisite in zip(targets, required)):
+            raise ValidationError('An item cannot require its own registration.')
+
+    @property
+    def required_item(self):
+        return self.required_presentation or self.required_solo_competition or self.required_group_competition
+
+    def __str__(self):
+        target = self.presentation or self.solo_competition or self.group_competition
+        return f'{target} requires {self.required_item}'
 
 class CompetitionTeam(models.Model):
     STATUS_FORMING = "forming"

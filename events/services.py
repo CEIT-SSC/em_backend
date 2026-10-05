@@ -12,6 +12,7 @@ from .models import (
     CompetitionRegistrationMember, GroupCompetition, SoloCompetition,
     SoloCompetitionRegistration, TeamMembership, invitation_expiry,
 )
+from .prerequisites import prerequisite_error
 
 
 class CompetitionError(APIException):
@@ -121,6 +122,9 @@ def register_team(team_id, competition_id, actor):
     member_ids = list(team.memberships.filter(status=TeamMembership.STATUS_ACCEPTED).values_list('user_id', flat=True))
     if team.leader_id not in member_ids:
         raise CompetitionError('The leader must have an accepted membership.', 'invalid_roster')
+    error = prerequisite_error(competition, member_ids)
+    if error:
+        raise CompetitionError(error, 'prerequisite_required')
     if not competition.min_group_size <= len(member_ids) <= competition.max_group_size:
         raise CompetitionError('Accepted team size is outside the competition limits.', 'invalid_team_size')
     if competition.max_teams is not None and competition.registrations.filter(
@@ -161,6 +165,9 @@ def review_registration(registration_id, actor, *, approve, remarks=''):
     registration.reviewed_at = timezone.now()
     registration.admin_remarks = remarks.strip()
     if approve:
+        error = prerequisite_error(registration.competition, registration.members.values_list('user_id', flat=True))
+        if error:
+            raise CompetitionError(error, 'prerequisite_required')
         registration.status = Registration.PENDING_PAYMENT if registration.price > 0 else Registration.ACTIVE
         if registration.status == Registration.ACTIVE:
             registration.activated_at = timezone.now()
@@ -250,6 +257,9 @@ def register_free_solo(competition_id, actor):
     validate_open(competition)
     if competition.is_paid and (competition.price_per_participant or 0) > 0:
         raise CompetitionError('This competition requires checkout.', 'payment_required')
+    error = prerequisite_error(competition, [actor.pk])
+    if error:
+        raise CompetitionError(error, 'prerequisite_required')
     existing = competition.registrations.filter(user=actor).first()
     if existing and existing.status in (SoloCompetitionRegistration.STATUS_PENDING_PAYMENT,
                                         SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE):
@@ -280,6 +290,9 @@ def reserve_solo_order_items(order):
         ((item, obj) for item, obj in items if isinstance(obj, SoloCompetition)), key=lambda pair: pair[1].pk,
     ):
         competition = SoloCompetition.objects.select_for_update().get(pk=competition.pk)
+        error = prerequisite_error(competition, [order.user_id])
+        if error:
+            raise CompetitionError(error, 'prerequisite_required')
         registration = competition.registrations.filter(user=order.user).first()
         if registration and registration.status == SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE:
             raise CompetitionError('Already registered for this solo competition.', 'already_registered')

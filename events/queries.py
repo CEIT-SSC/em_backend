@@ -1,7 +1,13 @@
 """Shared eager-loading for private team and invitation responses."""
 from django.db.models import Count, Prefetch, Q
 
-from .models import CompetitionTeam, CompetitionTeamRegistration as Registration
+from .models import CompetitionTeam, CompetitionTeamRegistration as Registration, RegistrationPrerequisite
+
+
+def prerequisite_queryset():
+    return RegistrationPrerequisite.objects.select_related(
+        'required_presentation', 'required_solo_competition', 'required_group_competition',
+    )
 
 
 def registrations_for_api():
@@ -11,7 +17,8 @@ def registrations_for_api():
         reserved_count=Count('competition__registrations', filter=Q(
             competition__registrations__status__in=Registration.RESERVED_STATUSES)),
     ).prefetch_related('members', 'content_submission__images',
-                       'content_submission__likes', 'content_submission__comments')
+                       'content_submission__likes', 'content_submission__comments',
+                       Prefetch('competition__registration_prerequisites', queryset=prerequisite_queryset()))
 
 
 def teams_for_api():

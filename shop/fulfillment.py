@@ -15,7 +15,7 @@ from events.models import (
 )
 
 from .models import Cart, CartItem, DiscountCode, DiscountRedemption, Order, OrderItem, Pack, Product
-from .eligibility import capacity_scope_key
+from .eligibility import capacity_scope_key, prerequisite_error_for_item
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,8 @@ def _grant_pack_item(parent_pack_item, pack_item, item_object):
         ).first()
         if enrollment and enrollment.status == PresentationEnrollment.STATUS_COMPLETED_OR_FREE:
             return 'already_owned'
+        if prerequisite_error_for_item(user, item_object):
+            return 'unavailable'
 
         if enrollment and enrollment.order_item_id:
             enrollment.status = PresentationEnrollment.STATUS_COMPLETED_OR_FREE
@@ -101,6 +103,8 @@ def _grant_pack_item(parent_pack_item, pack_item, item_object):
         ).first()
         if registration and registration.status == SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE:
             return 'already_owned'
+        if prerequisite_error_for_item(user, item_object):
+            return 'unavailable'
 
         if registration and registration.order_item_id:
             registration.status = SoloCompetitionRegistration.STATUS_COMPLETED_OR_FREE
@@ -316,6 +320,9 @@ def fulfill_order(order):
         locked_items = []
         for order_item, item_object in sorted(targets, key=lambda target: capacity_scope_key(target[1])):
             item_object = _lock_capacity_scope(item_object)
+            error = prerequisite_error_for_item(order.user, item_object)
+            if error:
+                raise OrderFulfillmentError(error)
             if isinstance(item_object, SoloCompetition):
                 from events.services import ensure_solo_capacity, CompetitionError
                 registration = item_object.registrations.filter(user=order.user).first()

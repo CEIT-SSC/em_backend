@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from .models import CompetitionTeamRegistration as Registration
 from .services import CompetitionError, lock_registration, sync_legacy
+from .prerequisites import prerequisite_error
 
 
 @transaction.atomic
@@ -21,6 +22,9 @@ def activate_team_registration(registration_id, order_item):
         raise CompetitionError('The settled order price does not match the registration.', 'price_mismatch')
     if order_item.order.total_amount > 0 and order_item.order.paid_at is None:
         raise CompetitionError('The order has not been settled.', 'payment_not_settled')
+    error = prerequisite_error(registration.competition, registration.members.values_list('user_id', flat=True))
+    if error:
+        raise CompetitionError(error, 'prerequisite_required')
     registration.status = Registration.ACTIVE
     registration.activated_at = timezone.now()
     registration.save(update_fields=['status', 'activated_at', 'updated_at'])
