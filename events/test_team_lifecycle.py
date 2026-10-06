@@ -153,6 +153,45 @@ class TeamLifecycleTests(LifecycleFixtures, TestCase):
             self.register(competition)
         self.assertEqual(competition.registrations.count(), 1)
 
+    def test_cancelled_team_can_register_again_with_fresh_roster_and_order(self):
+        competition = self.competition(is_paid=True, price_per_member=100, max_teams=1)
+        first = self.register(competition)
+        first_order = prepare_team_order(first.pk, self.leader)
+        cancel_registration(first.pk, self.leader)
+        TeamMembership.objects.create(team=self.team_record, user=self.member, status='accepted')
+
+        response = self.client.post(
+            f'/api/my-teams/{self.team_record.pk}/register-competition/{competition.pk}/')
+        self.assertEqual(response.status_code, 200)
+        second = Registration.objects.get(team=self.team_record, competition=competition,
+                                          status=Registration.PENDING_PAYMENT)
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(second.price, Decimal('200'))
+        self.assertEqual(set(second.members.values_list('user_id', flat=True)),
+                         {self.leader.pk, self.member.pk})
+        self.assertEqual(list(first.members.values_list('user_id', flat=True)), [self.leader.pk])
+        self.assertEqual(response.data['registrations'][0]['id'], second.pk)
+        self.assertEqual(response.data['registrations'][1]['status'], Registration.CANCELLED)
+        second_order = prepare_team_order(second.pk, self.leader)
+        self.assertNotEqual(first_order.pk, second_order.pk)
+        first_order.refresh_from_db()
+        self.assertEqual(first_order.status, Order.STATUS_CANCELLED)
+
+        cancelled = self.client.post(
+            f'/api/my-teams/{self.team_record.pk}/cancel-registration/{competition.pk}/')
+        self.assertEqual(cancelled.status_code, 200)
+        self.assertEqual(cancelled.data['id'], second.pk)
+        third = self.register(competition)
+        self.assertNotIn(third.pk, (first.pk, second.pk))
+        self.assertEqual(competition.registrations.count(), 3)
+
+    def test_rejected_team_cannot_bypass_admin_review_by_registering_again(self):
+        competition = self.competition(requires_admin_approval=True)
+        registration = self.register(competition)
+        review_registration(registration.pk, self.staff, approve=False)
+        with self.assertRaises(CompetitionError):
+            self.register(competition)
+
     def test_conflicts_apply_to_accepted_roster_in_same_competition_only(self):
         competition = self.competition()
         TeamMembership.objects.create(team=self.team_record, user=self.member, status='accepted')

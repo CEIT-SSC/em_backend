@@ -289,7 +289,7 @@ class TeamMembership(models.Model):
 
 
 class CompetitionTeamRegistration(models.Model):
-    """One immutable accepted roster and lifecycle per team and competition.
+    """One immutable accepted roster and lifecycle per registration attempt.
 
     CompetitionTeam's competition/payment fields are a deprecated compatibility
     projection. All registration decisions must use this model and services.py.
@@ -319,12 +319,14 @@ class CompetitionTeamRegistration(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=['team', 'competition'], name='unique_team_competition'),
+            models.UniqueConstraint(fields=['team', 'competition'],
+                                    condition=models.Q(status__in=['pending_approval', 'pending_payment', 'active', 'rejected']),
+                                    name='unique_non_cancelled_team_competition'),
             models.CheckConstraint(condition=models.Q(status__in=['pending_approval', 'pending_payment', 'active', 'rejected', 'cancelled']), name='valid_team_registration_status'),
             models.CheckConstraint(condition=models.Q(price__gte=0), name='nonnegative_team_registration_price'),
         ]
         indexes = [models.Index(fields=['competition', 'status'])]
-        ordering = ['created_at', 'pk']
+        ordering = ['-created_at', '-pk']
 
     def __str__(self):
         return f'{self.team.name} in {self.competition.title}'
