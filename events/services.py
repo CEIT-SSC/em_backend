@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.exceptions import APIException
@@ -69,7 +70,7 @@ def sync_legacy(registration, *, payment_started=False):
 def legacy_registration(team):
     """Resolve legacy order references; never silently choose among competitions."""
     registrations = list(team.registrations.all())
-    if len(registrations) == 1:
+    if registrations and len({registration.competition_id for registration in registrations}) == 1:
         return registrations[0]
     if len(registrations) > 1:
         raise CompetitionError('Specify competition_id for this team.', 'competition_required')
@@ -106,7 +107,10 @@ def resolve_registration(team, competition_id=None):
         competition_id = int(competition_id)
     except (ValueError, TypeError):
         raise CompetitionError('competition_id must be an integer.', 'invalid_competition')
-    return get_object_or_404(Registration, team=team, competition_id=competition_id)
+    registration = Registration.objects.filter(team=team, competition_id=competition_id).first()
+    if registration is None:
+        raise Http404('Registration not found.')
+    return registration
 
 
 @transaction.atomic
@@ -116,7 +120,8 @@ def register_team(team_id, competition_id, actor):
     require_leader(team, actor)
     # Authorize before checking availability or returning registration details.
     validate_open(competition)
-    existing = Registration.objects.filter(team=team, competition=competition).first()
+    existing = Registration.objects.filter(team=team, competition=competition).exclude(
+        status=Registration.CANCELLED).first()
     if existing:
         raise CompetitionError('This team already has a registration for this competition.', 'already_registered')
     member_ids = list(team.memberships.filter(status=TeamMembership.STATUS_ACCEPTED).values_list('user_id', flat=True))

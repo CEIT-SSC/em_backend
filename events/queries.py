@@ -18,7 +18,8 @@ def registrations_for_api():
             competition__registrations__status__in=Registration.RESERVED_STATUSES)),
     ).prefetch_related('members', 'content_submission__images',
                        'content_submission__likes', 'content_submission__comments',
-                       Prefetch('competition__registration_prerequisites', queryset=prerequisite_queryset()))
+                       Prefetch('competition__registration_prerequisites', queryset=prerequisite_queryset())
+                       ).order_by('-created_at', '-pk')
 
 
 def teams_for_api():
