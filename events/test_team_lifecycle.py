@@ -262,18 +262,62 @@ class TeamLifecycleTests(LifecycleFixtures, TestCase):
         registration.refresh_from_db()
         self.assertEqual(registration.status, Registration.PENDING_PAYMENT)
 
-    def test_cancellation_requires_order_release_and_late_settlement_is_rejected(self):
+    def test_cancellation_releases_order_and_late_settlement_is_rejected(self):
         registration = self.register(self.competition(is_paid=True, price_per_member=100))
         order = prepare_team_order(registration.pk, self.leader)
-        with self.assertRaises(CompetitionError):
-            cancel_registration(registration.pk, self.leader)
         item = order.items.get()
-        order.status = Order.STATUS_CANCELLED
-        order.save(update_fields=['status'])
-        release_order_reservations(order)
         cancel_registration(registration.pk, self.leader)
+        order.refresh_from_db()
+        registration.refresh_from_db()
+        self.assertEqual(order.status, Order.STATUS_CANCELLED)
+        self.assertIsNone(registration.order_item_id)
+        self.assertFalse(registration.members.filter(reserved=True).exists())
         with self.assertRaises(CompetitionError):
             activate_team_registration(registration.pk, item)
+
+    def test_paid_order_cannot_be_cancelled_or_rejected(self):
+        registration = self.register(self.competition(is_paid=True, price_per_member=100))
+        order = prepare_team_order(registration.pk, self.leader)
+        order.status = Order.STATUS_COMPLETED
+        order.paid_at = timezone.now()
+        order.save(update_fields=['status', 'paid_at'])
+        with self.assertRaises(CompetitionError):
+            cancel_registration(registration.pk, self.leader)
+        with self.assertRaises(CompetitionError):
+            review_registration(registration.pk, self.staff, approve=False)
+        registration.refresh_from_db()
+        self.assertEqual(registration.status, Registration.PENDING_PAYMENT)
+        self.assertEqual(registration.order_item.order.status, Order.STATUS_COMPLETED)
+
+    def test_leader_can_cancel_unpaid_checkout_through_api(self):
+        competition = self.competition(is_paid=True, price_per_member=100, max_teams=1)
+        registration = self.register(competition)
+        order = prepare_team_order(registration.pk, self.leader)
+        response = self.client.post(
+            f'/api/my-teams/{self.team_record.pk}/cancel-registration/{competition.pk}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], Registration.CANCELLED)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.STATUS_CANCELLED)
+        self.assertEqual(self.client.get(f'/api/group-competitions/{competition.pk}/').data['remaining_capacity'], 1)
+
+    def test_staff_can_reject_approved_unpaid_registration_through_api(self):
+        competition = self.competition(is_paid=True, price_per_member=100, max_teams=1)
+        registration = self.register(competition)
+        order = prepare_team_order(registration.pk, self.leader)
+        self.client.force_authenticate(self.staff)
+        response = self.client.post(
+            f'/api/my-teams/{self.team_record.pk}/review-registration/{competition.pk}/',
+            {'approve': False, 'remarks': 'Withdrawn by admin'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], Registration.REJECTED)
+        registration.refresh_from_db()
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.STATUS_CANCELLED)
+        self.assertIsNone(registration.order_item_id)
+        self.assertEqual(registration.reviewed_by, self.staff)
+        self.assertEqual(registration.admin_remarks, 'Withdrawn by admin')
+        self.assertFalse(registration.members.filter(reserved=True).exists())
 
     def test_delete_forming_team_only_and_preserve_history(self):
         with self.assertRaises(CompetitionError):

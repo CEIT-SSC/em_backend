@@ -650,7 +650,8 @@ class CompetitionTeamRegistrationAdmin(admin.ModelAdmin):
         return False
 
     def get_readonly_fields(self, request, obj=None):
-        if obj and obj.status != CompetitionTeamRegistration.PENDING_APPROVAL:
+        if obj and obj.status not in (CompetitionTeamRegistration.PENDING_APPROVAL,
+                                      CompetitionTeamRegistration.PENDING_PAYMENT):
             return (*self.readonly_fields, 'admin_remarks')
         return self.readonly_fields
 

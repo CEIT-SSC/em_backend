@@ -154,13 +154,47 @@ def lock_registration(registration_id):
     return Registration.objects.select_for_update().get(pk=registration_id)
 
 
+def lock_unpaid_registration(registration_id):
+    """Lock a linked order before the registration, as wallet settlement does."""
+    from shop.models import Order
+
+    order_id = Registration.objects.filter(pk=registration_id).values_list(
+        'order_item__order_id', flat=True).first()
+    order = Order.objects.select_for_update().get(pk=order_id) if order_id else None
+    registration = lock_registration(registration_id)
+    current_order_id = (registration.order_item.order_id
+                        if registration.order_item_id else None)
+    if current_order_id != order_id:
+        raise CompetitionError('The registration order changed. Please retry.', 'concurrent_change')
+    return registration, order
+
+
+def release_unpaid_order(registration, order):
+    """Cancel a standalone unpaid checkout and detach its order item."""
+    if order is None:
+        return
+    from shop.models import Order
+
+    if order.status not in (Order.STATUS_PENDING_PAYMENT, Order.STATUS_PAYMENT_FAILED,
+                            Order.STATUS_CANCELLED) or order.paid_at is not None:
+        raise CompetitionError('A paid or processing order cannot be cancelled.', 'order_not_cancellable')
+    if order.status != Order.STATUS_CANCELLED:
+        if order.items.count() != 1:
+            raise CompetitionError('Cancel the pending order before changing this registration.', 'order_pending')
+        order.status = Order.STATUS_CANCELLED
+        order.save(update_fields=['status'])
+    registration.order_item = None
+
+
 @transaction.atomic
 def review_registration(registration_id, actor, *, approve, remarks=''):
     if not actor.is_staff:
         raise CompetitionError('Administrative review requires staff access.', 'staff_required', 403)
-    registration = lock_registration(registration_id)
-    if registration.status != Registration.PENDING_APPROVAL:
-        raise CompetitionError('Only pending approval registrations can be reviewed.')
+    registration, order = lock_unpaid_registration(registration_id)
+    if registration.status != Registration.PENDING_APPROVAL and not (
+        not approve and registration.status == Registration.PENDING_PAYMENT
+    ):
+        raise CompetitionError('Only pending approval registrations or unpaid registrations can be reviewed.')
     registration.reviewed_by = actor
     registration.reviewed_at = timezone.now()
     registration.admin_remarks = remarks.strip()
@@ -172,6 +206,7 @@ def review_registration(registration_id, actor, *, approve, remarks=''):
         if registration.status == Registration.ACTIVE:
             registration.activated_at = timezone.now()
     else:
+        release_unpaid_order(registration, order)
         registration.status = Registration.REJECTED
         registration.members.update(reserved=False)
     registration.save()
@@ -181,12 +216,11 @@ def review_registration(registration_id, actor, *, approve, remarks=''):
 
 @transaction.atomic
 def cancel_registration(registration_id, actor):
-    registration = lock_registration(registration_id)
+    registration, order = lock_unpaid_registration(registration_id)
     require_leader(registration.team, actor)
     if registration.status not in (Registration.PENDING_APPROVAL, Registration.PENDING_PAYMENT):
         raise CompetitionError('Only unpaid pending registrations can be cancelled.')
-    if registration.order_item_id:
-        raise CompetitionError('Cancel the pending order before cancelling this registration.', 'order_pending')
+    release_unpaid_order(registration, order)
     registration.status = Registration.CANCELLED
     registration.members.update(reserved=False)
     registration.save()
