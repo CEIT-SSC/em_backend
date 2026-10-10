@@ -19,6 +19,9 @@ from django.http import HttpResponse
 from django.db import transaction
 from django.shortcuts import render
 from django import forms
+from .admin_forms import (
+    CompetitionTeamAdminForm, TeamMembershipAdminForm, TeamMembershipInlineFormSet,
+)
 from django.conf import settings
 import http.client
 import json
@@ -575,16 +578,16 @@ class GroupCompetitionAdmin(admin.ModelAdmin):
 
 class TeamMembershipInline(admin.TabularInline):
     model = TeamMembership
+    form = TeamMembershipAdminForm
+    formset = TeamMembershipInlineFormSet
     extra = 0
-    readonly_fields = ('user', 'status', 'joined_at')
-
-    def has_add_permission(self, request, obj=None):
-        return False
+    autocomplete_fields = ('user',)
+    readonly_fields = ('joined_at', 'invited_by', 'responded_at')
 
     def has_delete_permission(self, request, obj=None):
         return False
     ordering = ('-joined_at',)
-    fields = ('user', 'status', 'joined_at')
+    fields = ('user', 'status', 'joined_at', 'invited_by', 'responded_at')
 
 
 class ContentImageInline(admin.TabularInline):
@@ -600,16 +603,27 @@ class TeamContentInline(admin.StackedInline):
 
 @admin.register(CompetitionTeam)
 class CompetitionTeamAdmin(admin.ModelAdmin):
+    form = CompetitionTeamAdminForm
     list_display = ('name', 'leader', 'group_competition', 'status', 'is_approved_by_admin')
     search_fields = ('name', 'leader__email', 'group_competition__title')
     list_filter = ('status', 'is_approved_by_admin', 'group_competition__event')
-    autocomplete_fields = ['leader', 'group_competition']
+    autocomplete_fields = ['group_competition']
     inlines = [TeamMembershipInline, TeamContentInline]
-    readonly_fields = ('created_at', 'leader', 'group_competition', 'status', 'is_approved_by_admin', 'admin_remarks')
+    readonly_fields = ('created_at', 'group_competition', 'status', 'is_approved_by_admin', 'admin_remarks')
     list_select_related = ('leader', 'group_competition')
 
     def has_add_permission(self, request):
         return False
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model is not TeamMembership:
+            return super().save_formset(request, form, formset, change)
+        memberships = formset.save(commit=False)
+        for membership in memberships:
+            if membership.pk is None:
+                membership.invited_by = request.user
+            membership.save()
+        formset.save_m2m()
 
     def has_delete_permission(self, request, obj=None):
         return bool(obj and not obj.registrations.exists() and not obj.group_competition_id) and super().has_delete_permission(request, obj)
@@ -682,14 +696,18 @@ class CompetitionTeamRegistrationAdmin(admin.ModelAdmin):
 
 @admin.register(TeamMembership)
 class TeamMembershipAdmin(admin.ModelAdmin):
-    list_display = ('user', 'team', 'joined_at')
+    form = TeamMembershipAdminForm
+    list_display = ('user', 'team', 'status', 'joined_at')
     search_fields = ('user__email', 'team__name')
-    list_filter = ('team__group_competition',)
+    list_filter = ('status', 'team__group_competition')
     autocomplete_fields = ['user', 'team']
-    readonly_fields = ('user', 'team', 'status', 'joined_at', 'invited_by', 'expires_at', 'responded_at')
+    readonly_fields = ('joined_at', 'invited_by', 'expires_at', 'responded_at')
+    list_select_related = ('user', 'team')
 
-    def has_add_permission(self, request):
-        return False
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.invited_by = request.user
+        super().save_model(request, obj, form, change)
 
     def has_delete_permission(self, request, obj=None):
         return False
