@@ -20,6 +20,7 @@ class CompetitionTeamAdminForm(forms.ModelForm):
             )
         self.fields['leader'].help_text = (
             'Choose an accepted member. Save newly added members before changing the leader. '
+            'Transfer leadership before deleting the current leader from the team. '
             'Existing competition rosters and prices remain unchanged.'
         )
 
@@ -36,7 +37,7 @@ class TeamMembershipAdminForm(forms.ModelForm):
         fields = ('user', 'team', 'status')
         help_texts = {
             'status': 'Accepted members belong to the team immediately. '
-                      'Use Rejected to remove a member from the current roster. '
+                      'Use Rejected to retain membership history, or delete the membership to remove it completely. '
                       'Existing competition rosters and prices remain unchanged.',
         }
 
@@ -74,6 +75,8 @@ class TeamMembershipInlineFormSet(BaseInlineFormSet):
             return
         accepted_ids = set()
         for form in self.forms:
+            if self.can_delete and self._should_delete_form(form):
+                continue
             user = form.cleaned_data.get('user') or (
                 form.instance.user if form.instance.pk else None
             )

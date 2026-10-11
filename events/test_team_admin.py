@@ -205,6 +205,121 @@ class TeamAdminTests(TestCase):
         self.team.refresh_from_db()
         self.assertEqual(self.team.name, 'Edited by staff')
 
+    def test_admin_deletes_member_inline_without_deleting_user(self):
+        membership = TeamMembership.objects.create(team=self.team, user=self.member, status='accepted')
+        response = self.client.get(self.team_url)
+        self.assertTrue(response.context['inline_admin_formsets'][0].formset.can_delete)
+        response = self.client.post(self.team_url, self.team_data(**{'memberships-0-DELETE': 'on'}))
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(TeamMembership.objects.filter(pk=membership.pk).exists())
+        self.assertTrue(get_user_model().objects.filter(pk=self.member.pk).exists())
+        self.assertTrue(TeamMembership.objects.filter(pk=self.leader_membership.pk).exists())
+
+    def test_inline_deletion_cannot_remove_the_current_leader(self):
+        response = self.client.post(self.team_url, self.team_data(**{'memberships-0-DELETE': 'on'}))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'The team leader must remain an accepted member.')
+        self.assertTrue(TeamMembership.objects.filter(pk=self.leader_membership.pk).exists())
+
+    def test_admin_can_transfer_leadership_and_delete_old_leader_together(self):
+        TeamMembership.objects.create(team=self.team, user=self.member, status='accepted')
+        response = self.client.post(self.team_url, self.team_data(**{
+            'leader': self.member.pk,
+            'memberships-1-DELETE': 'on',
+        }))
+        self.assertEqual(response.status_code, 302)
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.leader, self.member)
+        self.assertFalse(TeamMembership.objects.filter(pk=self.leader_membership.pk).exists())
+
+    def test_deleting_the_new_leader_rejects_the_entire_team_edit(self):
+        membership = TeamMembership.objects.create(team=self.team, user=self.member, status='accepted')
+        response = self.client.post(self.team_url, self.team_data(**{
+            'leader': self.member.pk,
+            'name': 'Invalid rename',
+            'memberships-0-DELETE': 'on',
+        }))
+        self.assertEqual(response.status_code, 200)
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.leader, self.leader)
+        self.assertEqual(self.team.name, 'Original team')
+        self.assertTrue(TeamMembership.objects.filter(pk=membership.pk).exists())
+
+    def test_membership_page_supports_confirmed_deletion(self):
+        membership = TeamMembership.objects.create(team=self.team, user=self.member, status='accepted')
+        delete_url = reverse('admin:events_teammembership_delete', args=[membership.pk])
+        response = self.client.get(delete_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(TeamMembership.objects.filter(pk=membership.pk).exists())
+        response = self.client.post(delete_url, {'post': 'yes'})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(TeamMembership.objects.filter(pk=membership.pk).exists())
+
+    def test_leader_membership_cannot_be_deleted_directly(self):
+        delete_url = reverse('admin:events_teammembership_delete', args=[self.leader_membership.pk])
+        self.assertEqual(self.client.get(delete_url).status_code, 403)
+        self.assertEqual(self.client.post(delete_url, {'post': 'yes'}).status_code, 403)
+        self.assertTrue(TeamMembership.objects.filter(pk=self.leader_membership.pk).exists())
+
+    def test_bulk_member_deletion_requires_confirmation(self):
+        membership = TeamMembership.objects.create(team=self.team, user=self.member, status='accepted')
+        url = reverse('admin:events_teammembership_changelist')
+        data = {'action': 'delete_selected', '_selected_action': [membership.pk]}
+        response = self.client.post(url, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(TeamMembership.objects.filter(pk=membership.pk).exists())
+        response = self.client.post(url, {**data, 'post': 'yes'})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(TeamMembership.objects.filter(pk=membership.pk).exists())
+
+    def test_bulk_deletion_cannot_bypass_leader_protection(self):
+        membership = TeamMembership.objects.create(team=self.team, user=self.member, status='accepted')
+        response = self.client.post(reverse('admin:events_teammembership_changelist'), {
+            'action': 'delete_selected',
+            '_selected_action': [self.leader_membership.pk, membership.pk],
+            'post': 'yes',
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.team.memberships.count(), 2)
+
+    def test_member_deletion_preserves_competition_roster_and_price(self):
+        membership = TeamMembership.objects.create(team=self.team, user=self.member, status='accepted')
+        competition = GroupCompetition.objects.create(
+            title='Paid competition', description='Test', is_paid=True,
+            price_per_member=100, max_group_size=5,
+            start_datetime=timezone.now() + timedelta(days=1),
+            end_datetime=timezone.now() + timedelta(days=2),
+        )
+        registration = register_team(self.team.pk, competition.pk, self.leader)
+        response = self.client.post(
+            reverse('admin:events_teammembership_delete', args=[membership.pk]), {'post': 'yes'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(TeamMembership.objects.filter(pk=membership.pk).exists())
+        registration.refresh_from_db()
+        self.assertEqual(set(registration.members.values_list('user_id', flat=True)),
+                         {self.leader.pk, self.member.pk})
+        self.assertEqual(registration.price, Decimal('200'))
+
+    def test_deleting_members_requires_delete_permission_on_both_admin_pages(self):
+        membership = TeamMembership.objects.create(team=self.team, user=self.member, status='accepted')
+        staff = get_user_model().objects.create_user(
+            email='membership-editor@example.com', is_staff=True, is_active=True,
+        )
+        staff.user_permissions.add(*Permission.objects.filter(
+            codename__in=['change_competitionteam', 'change_teammembership'],
+        ))
+        self.client.force_login(staff)
+        response = self.client.get(self.team_url)
+        self.assertFalse(response.context['inline_admin_formsets'][0].formset.can_delete)
+        response = self.client.post(self.team_url, self.team_data(**{'memberships-0-DELETE': 'on'}))
+        self.assertEqual(response.status_code, 302)
+        response = self.client.post(
+            reverse('admin:events_teammembership_delete', args=[membership.pk]), {'post': 'yes'},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(TeamMembership.objects.filter(pk=membership.pk).exists())
+
     def test_admin_permissions_are_required(self):
         for user in (self.leader, get_user_model().objects.create_user(
             email='staff-no-permissions@example.com', is_staff=True, is_active=True,
