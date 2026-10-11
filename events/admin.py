@@ -584,8 +584,6 @@ class TeamMembershipInline(admin.TabularInline):
     autocomplete_fields = ('user',)
     readonly_fields = ('joined_at', 'invited_by', 'responded_at')
 
-    def has_delete_permission(self, request, obj=None):
-        return False
     ordering = ('-joined_at',)
     fields = ('user', 'status', 'joined_at', 'invited_by', 'responded_at')
 
@@ -619,6 +617,8 @@ class CompetitionTeamAdmin(admin.ModelAdmin):
         if formset.model is not TeamMembership:
             return super().save_formset(request, form, formset, change)
         memberships = formset.save(commit=False)
+        for membership in formset.deleted_objects:
+            membership.delete()
         for membership in memberships:
             if membership.pk is None:
                 membership.invited_by = request.user
@@ -710,7 +710,9 @@ class TeamMembershipAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
     def has_delete_permission(self, request, obj=None):
-        return False
+        return super().has_delete_permission(request, obj) and (
+            obj is None or obj.user_id != obj.team.leader_id
+        )
 
 
 @admin.register(PresentationEnrollment)
